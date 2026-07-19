@@ -3,11 +3,11 @@
   "compilerOptions": {
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "types": ["vitest/globals"],
+    "types": ["vitest/globals", "node"],
     "noEmit": true,
     "declaration": false,
     "declarationMap": false,
     "sourceMap": false
   },
-  "include": ["packages/**/*.test.ts"]
+  "include": ["apps/**/*.test.ts", "packages/**/*.test.ts"]
 }
