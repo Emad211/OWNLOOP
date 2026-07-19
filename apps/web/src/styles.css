@@ -1,0 +1,36 @@
+:root {
+  color: #17221b;
+  background: #f4f7f2;
+  font-family: system-ui, sans-serif;
+  font-synthesis: none;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+#root {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+}
+
+main {
+  padding: 2rem;
+  text-align: center;
+}
+
+h1 {
+  margin: 0.25rem 0;
+  font-size: clamp(2.5rem, 8vw, 5rem);
+}
+
+.label {
+  margin: 0;
+  color: #486453;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}

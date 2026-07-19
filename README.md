@@ -8,12 +8,53 @@ The project observes a coding-agent Task Run, captures verifiable changes and ev
 
 ## Current status
 
-- Stage: architecture and technical planning
+- Stage: v0.1 repository bootstrap
 - Product scope: proposed v0.1
 - First coding-agent adapter: Claude Code
 - First project languages: JavaScript and TypeScript
 - Runtime model: local single-user prototype
-- Repository state: implementation has not started
+- Repository state: minimal TypeScript workspace; no product behavior
+
+## Local setup
+
+Prerequisites:
+
+- Node.js `24.18.0` (also pinned in `.nvmrc` and `package.json#engines`)
+- pnpm `11.4.0` (also pinned in `package.json#packageManager`)
+
+Install the exact package-manager version and dependencies:
+
+```bash
+corepack enable
+corepack prepare pnpm@11.4.0 --activate
+pnpm install --frozen-lockfile
+```
+
+Start the local daemon bootstrap and React development page together:
+
+```bash
+pnpm dev
+```
+
+The daemon prints a stable startup message. The web application prints its local URL and renders
+only the OwnLoop v0.1 bootstrap state.
+
+## Verification
+
+Run the same quality gates used by continuous integration:
+
+```bash
+pnpm format:check
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
+Use `pnpm format` to apply formatting.
+
+The `contracts`, `event-model`, and `test-fixtures` packages contain only neutral bootstrap exports.
+The hook-adapter command is a non-functional placeholder and does not read or process hooks.
 
 ## Design principles
 
