@@ -1,0 +1,26 @@
+{
+  "name": "ownloop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.4.0",
+  "engines": {
+    "node": "24.18.0",
+    "pnpm": "11.4.0"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @ownloop/daemon --filter @ownloop/web dev",
+    "format": "biome format --write biome.json package.json tsconfig.base.json tsconfig.test.json apps packages tools",
+    "format:check": "biome format biome.json package.json tsconfig.base.json tsconfig.test.json apps packages tools",
+    "lint": "biome lint apps packages tools",
+    "typecheck": "pnpm --recursive --if-present run typecheck && tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "build": "pnpm --recursive --if-present run build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.4",
+    "@types/node": "24.13.3",
+    "typescript": "6.0.3",
+    "vitest": "4.1.10"
+  }
+}
