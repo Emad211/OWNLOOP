@@ -1,0 +1,14 @@
+{
+  "name": "@ownloop/daemon",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @ownloop/contracts build && pnpm build && node --watch dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ownloop/contracts": "workspace:*"
+  }
+}
