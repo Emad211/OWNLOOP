@@ -16,5 +16,12 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ownloop/event-model": "workspace:*",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@ownloop/test-fixtures": "workspace:*"
   }
 }
