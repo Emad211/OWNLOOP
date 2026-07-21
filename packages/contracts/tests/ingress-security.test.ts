@@ -186,6 +186,12 @@ describe("ingress-security contracts", () => {
     expect(
       PreparedIngressReceiptV1Schema.safeParse({
         ...validReceipt,
+        sourceSessionId: "file:///private/session",
+      }).success,
+    ).toBe(false);
+    expect(
+      PreparedIngressReceiptV1Schema.safeParse({
+        ...validReceipt,
         canonicalWorkspacePath: "/workspace/fixture\nprivate",
       }).success,
     ).toBe(false);

@@ -36,14 +36,16 @@ const SECRET_FIELD_NAMES = new Set([
   "credentials",
 ]);
 
-const AUTHORIZATION_PATTERN = /\b(Bearer|Basic)[ \t]+[A-Za-z0-9._~+/=-]{4,4096}/gi;
-const PRIVATE_KEY_BEGIN_PATTERN = /-----BEGIN ((?:RSA |EC |OPENSSH )?PRIVATE KEY)-----/g;
+const AUTHORIZATION_PATTERN = /\b(Bearer|Basic)[ \t]+[A-Za-z0-9._~+/=-]{4,1048576}/gi;
+const PRIVATE_KEY_BEGIN_PATTERN =
+  /-----BEGIN ((?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED) )?PRIVATE KEY)-----/g;
 const MAX_PRIVATE_KEY_BLOCK_CHARACTERS = 131_072;
 const ASSIGNMENT_PATTERN =
-  /\b(password|passwd|token|api[_-]?key|client[_-]?secret)([ \t]*[:=][ \t]*)([^\s;&,]{1,4096})/gi;
-const URI_PASSWORD_PATTERN = /([A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s/:@]{1,512}:)([^\s/@]{1,4096})(@)/g;
+  /\b(password|passwd|token|api[_-]?key|client[_-]?secret)([ \t]*[:=][ \t]*)([^\s;&,]{1,1048576})/gi;
+const URI_PASSWORD_PATTERN =
+  /([A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s/:@]{1,512}:)([^\s/@]{1,1048576})(@)/g;
 const PROVIDER_TOKEN_PATTERN =
-  /(^|[^A-Za-z0-9_])((?:sk|ghp|github_pat|xox[baprs]|fixture-provider-token)[-_][A-Za-z0-9_-]{12,4096})(?=$|[^A-Za-z0-9_])/gi;
+  /(^|[^A-Za-z0-9_])((?:sk|ghp|github_pat|xox[baprs]|fixture-provider-token)[-_][A-Za-z0-9_-]{12,1048576})(?=$|[^A-Za-z0-9_])/gi;
 
 export function normalizeSecretFieldName(name: string): string {
   return name.toLowerCase().replace(/[_.\-\s]/g, "");

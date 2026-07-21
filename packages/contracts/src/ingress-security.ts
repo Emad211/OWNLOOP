@@ -173,6 +173,7 @@ const embeddedAbsolutePathPattern = /(?:^|[\s"'([{=,:;])(?:\/(?!\/)|[A-Za-z]:[\\
 const strongIdentifierSecretPattern =
   /(?:^|[^A-Za-z0-9_])(?:sk|ghp|github_pat|xox[baprs])[-_][A-Za-z0-9_-]{12,}/i;
 const identifierUriCredentialPattern = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/:@]+:[^/@]+@/;
+const identifierFileUriPattern = /file:\/\//i;
 const IDENTIFIER_SECRET_ASSIGNMENT_NAMES = new Set([
   "authorization",
   "proxyauthorization",
@@ -234,6 +235,7 @@ const identifierSchema = z
     (value) => !identifierUriCredentialPattern.test(value),
     "Identifiers cannot contain URI credentials.",
   )
+  .refine((value) => !identifierFileUriPattern.test(value), "Identifiers cannot contain file URIs.")
   .refine(
     (value) => !embeddedAbsolutePathPattern.test(value),
     "Identifiers cannot contain absolute paths.",

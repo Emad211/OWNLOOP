@@ -186,7 +186,12 @@ export function reduceStructuredPath(
   context: PathReductionContext,
   state: RedactionState,
 ): string {
+  const isFileUri = /^file:\/\//i.test(value);
   const filePath = fileUriToAbsolutePath(value);
+  if (isFileUri && filePath === null) {
+    markPathReplacement(state, "absolutePath");
+    return "$ABSOLUTE/invalid";
+  }
   const absoluteValue = filePath ?? value;
   const flavor = detectFlavor(absoluteValue);
   if (flavor === null) {

@@ -216,6 +216,56 @@ describe("prepareIngressReceipt", () => {
     expect(prepared.redactionSummary.rulesApplied).toContain("string.private-key");
   });
 
+  it.each(["DSA PRIVATE KEY", "ENCRYPTED PRIVATE KEY"])(
+    "redacts a terminated %s block",
+    (label) => {
+      const privateBody = `fixture-${label.replaceAll(" ", "-")}-body-123456`;
+      const prepared = prepare(
+        ingressFixture("PreToolUse", {
+          tool_input: {
+            value: `before -----BEGIN ${label}-----\n${privateBody}\n-----END ${label}----- after`,
+          },
+        }),
+      );
+      const serialized = JSON.stringify(prepared);
+
+      expect(serialized).not.toContain(privateBody);
+      expect(serialized).toContain(REDACTION_MARKER);
+      expect(prepared.redactionSummary.rulesApplied).toContain("string.private-key");
+    },
+  );
+
+  it("redacts strong secrets longer than the former 4096-character boundary", () => {
+    const bearer = "A".repeat(5_000);
+    const assignment = "b".repeat(5_000);
+    const uriPassword = "c".repeat(5_000);
+    const provider = `ghp_${"d".repeat(5_000)}`;
+    const prepared = prepare(
+      ingressFixture("PreToolUse", {
+        tool_input: {
+          authorization_line: `Bearer ${bearer}`,
+          assignment: `token=${assignment}`,
+          uri: `https://fixture-user:${uriPassword}@example.invalid/path`,
+          provider,
+        },
+      }),
+    );
+    const serialized = JSON.stringify(prepared);
+
+    expect(serialized).not.toContain(bearer.slice(-256));
+    expect(serialized).not.toContain(assignment.slice(-256));
+    expect(serialized).not.toContain(uriPassword.slice(-256));
+    expect(serialized).not.toContain(provider.slice(-256));
+    expect(prepared.redactionSummary.rulesApplied).toEqual(
+      expect.arrayContaining([
+        "string.authorization",
+        "string.assignment",
+        "string.uri-password",
+        "string.provider-token",
+      ]),
+    );
+  });
+
   it("redacts each explicitly supported provider-token prefix", () => {
     const values = [
       `sk-proj-${"a".repeat(24)}`,
@@ -285,6 +335,25 @@ describe("prepareIngressReceipt", () => {
     expect(serialized).not.toContain("file:///home/fixture");
     expect(serialized).not.toContain("file:///C:/Users/Fixture");
     expect(serialized).not.toContain("file://FixtureServer");
+  });
+
+  it("fails closed for malformed or credential-bearing file URIs", () => {
+    const ingress = ingressFixture("PreToolUse", {
+      tool_input: {
+        credential_uri:
+          "file://fixture-user:fixture-password@FixtureServer/PrivateShare/secret.txt",
+        malformed_uri: "file:///home/fixture/%ZZ/private.txt",
+      },
+    });
+    const prepared = prepare(ingress);
+    const payload = JSON.parse(prepared.redactedPayloadJson) as Record<string, unknown>;
+    const serialized = JSON.stringify(payload);
+
+    expect(payload).toHaveProperty("tool_input.credential_uri", "$ABSOLUTE/invalid");
+    expect(payload).toHaveProperty("tool_input.malformed_uri", "$ABSOLUTE/invalid");
+    expect(serialized).not.toContain("fixture-password");
+    expect(serialized).not.toContain("PrivateShare");
+    expect(serialized).not.toContain("/home/fixture");
   });
 
   it("reduces unrelated absolute paths embedded in text and object keys", () => {
