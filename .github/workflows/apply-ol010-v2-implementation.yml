@@ -19,7 +19,9 @@ jobs:
 
       - { name: Verify part-00, run: 'test "$(git hash-object .github/ol010-v2-parts/part-00)" = faedb1f8fb925a12d0723a3a5469ff20b6a1a2a2' }
       - { name: Verify part-01, run: 'test "$(git hash-object .github/ol010-v2-parts/part-01)" = 65554a6097e6a8c9ea92e2d2931f1c7553c8e979' }
-      - { name: Verify part-02, run: 'test "$(git hash-object .github/ol010-v2-parts/part-02)" = 770cb836d84b1daf34c60de65ff8d85acd9b2b16' }
+      - { name: Verify part-020, run: 'test "$(git hash-object .github/ol010-v2-parts/part-020)" = d21cff13b0f469752c1d37bea1f9fc0775a55b78' }
+      - { name: Verify part-021, run: 'test "$(git hash-object .github/ol010-v2-parts/part-021)" = a6a124931414b84a2e023ceb6ce33b82311243db' }
+      - { name: Verify part-022, run: 'test "$(git hash-object .github/ol010-v2-parts/part-022)" = 5ba059d1513ef98cda16d2d70982235735c740fc' }
       - { name: Verify part-03, run: 'test "$(git hash-object .github/ol010-v2-parts/part-03)" = 4aa697dead7662b23d428941b7039764c17f2b0f' }
       - { name: Verify part-04, run: 'test "$(git hash-object .github/ol010-v2-parts/part-04)" = a2fbd6239e659f9c23b61a7e761e092678b2c999' }
       - { name: Verify part-05, run: 'test "$(git hash-object .github/ol010-v2-parts/part-05)" = f631044a4485d4bb288f0e754633c3fffbdf0d54' }
@@ -34,6 +36,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test "$(find .github/ol010-v2-parts -maxdepth 1 -type f | wc -l)" -eq 14
           cat .github/ol010-v2-parts/part-* > /tmp/ol010-v2.diff.gz.b64
           test "$(wc -c < /tmp/ol010-v2.diff.gz.b64)" -eq 28836
           echo "24811832d659eab6852d02c6392356723fea58004bf811c37297f94be1308066  /tmp/ol010-v2.diff.gz.b64" | sha256sum --check
