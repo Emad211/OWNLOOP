@@ -1,0 +1,44 @@
+name: Apply rebased OL-010 implementation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Assemble and verify payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find .github/ol010-v2-parts -maxdepth 1 -type f | wc -l)" -eq 12
+          cat .github/ol010-v2-parts/part-* > /tmp/ol010-v2.diff.gz.b64
+          test "$(wc -c < /tmp/ol010-v2.diff.gz.b64)" -eq 28836
+          echo "24811832d659eab6852d02c6392356723fea58004bf811c37297f94be1308066  /tmp/ol010-v2.diff.gz.b64" | sha256sum --check
+          base64 --decode /tmp/ol010-v2.diff.gz.b64 > /tmp/ol010-v2.diff.gz
+          gzip --test /tmp/ol010-v2.diff.gz
+          gzip --decompress --stdout /tmp/ol010-v2.diff.gz > /tmp/ol010-v2.diff
+          echo "3c76e18abb5b576f05cf75f58498764b94bf86a8ae781f269d54bc1cb991244c  /tmp/ol010-v2.diff" | sha256sum --check
+          git apply --check --verbose /tmp/ol010-v2.diff
+
+      - name: Apply and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --index /tmp/ol010-v2.diff
+          git rm -r .github/ol010-v2-parts
+          git rm .github/workflows/apply-ol010-v2-implementation.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Implement OL-010 content-addressed artifact store"
+          git push origin "HEAD:${{ github.head_ref }}"
