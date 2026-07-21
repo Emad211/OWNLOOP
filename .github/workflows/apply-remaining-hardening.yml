@@ -1,0 +1,35 @@
+name: Apply Remaining OL-005A Hardening
+
+on:
+  pull_request:
+    branches:
+      - agent/ol-005a-ingress-security-plan
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Verify and apply patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          patch_file=.github/remaining-hardening.patch
+          test -s "$patch_file"
+          echo "91ed7493c4bac1846ed3e4da7cb2250cc7af68550b1ba2d0b6293e30c1f1d1d1  $patch_file" | sha256sum --check
+          git apply --check --verbose "$patch_file"
+          git apply --index "$patch_file"
+          git rm "$patch_file"
+          git rm .github/workflows/apply-remaining-hardening.yml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Complete OL-005A hardening"
+          git push origin "HEAD:${{ github.head_ref }}"
