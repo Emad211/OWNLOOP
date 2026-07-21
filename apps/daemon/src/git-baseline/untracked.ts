@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, open, readlink } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { lstat, open, readlink, realpath } from "node:fs/promises";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { TextDecoder } from "node:util";
 
 import type {
@@ -56,7 +56,10 @@ function normalizeGitRelativePath(value: string): string | null {
   return segments.join("/");
 }
 
-function safeAbsolutePath(root: string, normalizedRelativePath: string): string | null {
+async function safeAbsolutePath(
+  root: string,
+  normalizedRelativePath: string,
+): Promise<string | null> {
   const candidate = resolve(root, ...normalizedRelativePath.split("/"));
   const rel = relative(root, candidate);
   if (rel === "" || rel === ".") {
@@ -65,6 +68,21 @@ function safeAbsolutePath(root: string, normalizedRelativePath: string): string 
   if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
     return null;
   }
+
+  try {
+    const canonicalParent = await realpath(dirname(candidate));
+    const parentRelative = relative(root, canonicalParent);
+    if (
+      parentRelative === ".." ||
+      parentRelative.startsWith(`..${sep}`) ||
+      isAbsolute(parentRelative)
+    ) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+
   return candidate;
 }
 
@@ -160,7 +178,7 @@ async function scanOne(
     };
   }
 
-  const absolutePath = safeAbsolutePath(root, relativePath);
+  const absolutePath = await safeAbsolutePath(root, relativePath);
   if (absolutePath === null) {
     return {
       entry: {

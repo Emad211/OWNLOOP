@@ -22,6 +22,7 @@ import {
   type GitBaselineCaptureDependencies,
 } from "./processor.js";
 import { GitCommandError, runGitCommand, type GitCommandRunner } from "./git-runner.js";
+import { scanUntrackedEntries } from "./untracked.js";
 
 const execFileAsync = promisify(execFile);
 const FIXTURE_START = "2026-07-21T15:00:00.000Z";
@@ -490,6 +491,27 @@ describe("Git baseline capture", () => {
       untrackedOmittedCount: 1,
     });
     expect(store.gitBaselines.getByRun(seeded.runId)?.entries).toHaveLength(1);
+  });
+
+  it("rejects a nested path whose parent symlink escapes the repository root", async () => {
+    const root = await temporaryDirectory();
+    const outside = await temporaryDirectory("ownloop-parent-symlink-outside-");
+    await writeFile(join(outside, "public.txt"), "outside-secret-content");
+    await symlink(outside, join(root, "escape"));
+
+    const result = await scanUntrackedEntries(root, Buffer.from("escape/public.txt\0", "utf8"), {
+      maximumEntries: 10,
+      maximumHashBytes: 1024,
+    });
+
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0]).toMatchObject({
+      relativePath: "escape/public.txt",
+      contentSha256: null,
+      hashStatus: "unreadable",
+    });
+    expect(result.diagnostics).toContain("untracked_entry_unreadable");
+    expect(JSON.stringify(result)).not.toContain("outside-secret-content");
   });
 
   it("hashes only a symlink target string and never follows an outside target", async () => {
