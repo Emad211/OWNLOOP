@@ -1,4 +1,4 @@
-name: Add OL-009 New Files
+name: Finalize OL-009 Implementation
 
 on:
   pull_request:
@@ -6,10 +6,10 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  export:
+  finalize:
     runs-on: ubuntu-latest
     steps:
       - name: Check out pull request branch
@@ -17,37 +17,95 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
+      - name: Assemble and verify implementation archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          for index in 00 01 02 03; do
+            test -s ".github/ol009-final/part-${index}"
+          done
+          cat .github/ol009-final/part-* > /tmp/ol009-final.tar.gz.b64
+          test "$(wc -c < /tmp/ol009-final.tar.gz.b64)" -eq 30728
+          echo "fd7c6ddb3ea13479651529d0211f5303e315abc1298ebd8b858d28bb3e2de1e8  /tmp/ol009-final.tar.gz.b64" | sha256sum --check
+          base64 --decode /tmp/ol009-final.tar.gz.b64 > /tmp/ol009-final.tar.gz
+          gzip --test /tmp/ol009-final.tar.gz
+          echo "fd0fefb0a684b27fcd473fedcd229ddc2c98fb10306178087e3a332c97517663  /tmp/ol009-final.tar.gz" | sha256sum --check
+
+      - name: Verify archive allowlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/expected-files <<'FILES'
+          apps/daemon/src/index.ts
+          apps/daemon/src/git-reconciliation/README.md
+          apps/daemon/src/git-reconciliation/constants.ts
+          apps/daemon/src/git-reconciliation/index.ts
+          apps/daemon/src/git-reconciliation/observation.ts
+          apps/daemon/src/git-reconciliation/processor.test.ts
+          apps/daemon/src/git-reconciliation/processor.ts
+          apps/daemon/src/git-reconciliation/status-parser.test.ts
+          apps/daemon/src/git-reconciliation/status-parser.ts
+          apps/daemon/src/persistence/migration-definitions.ts
+          apps/daemon/src/persistence/repositories/git-reconciliations.ts
+          FILES
+          tar -tzf /tmp/ol009-final.tar.gz > /tmp/archive-files
+          diff -u /tmp/expected-files /tmp/archive-files
+
+      - name: Extract implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -xzf /tmp/ol009-final.tar.gz
+          git diff --check
+
       - name: Set up exact Node.js
         uses: actions/setup-node@v6
         with:
           node-version: 24.18.0
 
-      - name: Enable Corepack and install dependencies
+      - name: Enable Corepack and install frozen dependencies
         shell: bash
         run: |
           set -euo pipefail
           corepack enable
           pnpm install --frozen-lockfile
 
-      - name: Build portable toolchain archive
+      - name: Validate implementation
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/ownloop-toolchain
-          mkdir -p /tmp/ownloop-toolchain/repo /tmp/ownloop-toolchain/node
-          rsync -a --exclude='.git' ./ /tmp/ownloop-toolchain/repo/
-          node_root="$(dirname "$(dirname "$(readlink -f "$(command -v node)")")")"
-          cp -a "$node_root"/. /tmp/ownloop-toolchain/node/
-          tar -czf /tmp/ownloop-ol009-toolchain.tar.gz -C /tmp/ownloop-toolchain repo node
-          sha256sum /tmp/ownloop-ol009-toolchain.tar.gz > /tmp/ownloop-ol009-toolchain.sha256
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm build
 
-      - name: Upload toolchain
-        uses: actions/upload-artifact@v6
-        with:
-          name: ownloop-ol009-toolchain
-          path: |
-            /tmp/ownloop-ol009-toolchain.tar.gz
-            /tmp/ownloop-ol009-toolchain.sha256
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
+      - name: Publish clean implementation tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add \
+            apps/daemon/src/index.ts \
+            apps/daemon/src/git-reconciliation/README.md \
+            apps/daemon/src/git-reconciliation/constants.ts \
+            apps/daemon/src/git-reconciliation/index.ts \
+            apps/daemon/src/git-reconciliation/observation.ts \
+            apps/daemon/src/git-reconciliation/processor.test.ts \
+            apps/daemon/src/git-reconciliation/processor.ts \
+            apps/daemon/src/git-reconciliation/status-parser.test.ts \
+            apps/daemon/src/git-reconciliation/status-parser.ts \
+            apps/daemon/src/persistence/migration-definitions.ts \
+            apps/daemon/src/persistence/repositories/git-reconciliations.ts
+          git rm -r .github/ol009-final
+          if test -d .github/ol009-new; then
+            git rm -r .github/ol009-new
+          fi
+          if test -e .github/workflows/export-ol009-toolchain.yml; then
+            git rm .github/workflows/export-ol009-toolchain.yml
+          fi
+          git rm .github/workflows/apply-ol009-new-files.yml
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Implement OL-009 evidence-bounded Git reconciliation"
+          git push origin "HEAD:${{ github.head_ref }}"
