@@ -17,28 +17,48 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Decode implementation patch
+      - name: Verify staged patch chunks
         shell: bash
         run: |
           set -euo pipefail
-          patch_file=.github/ol005a-code.patch.gz.b64
-          test -s "$patch_file"
-          base64 --decode "$patch_file" > /tmp/ol005a-code.patch.gz
+          cat > /tmp/expected-chunks <<'HASHES'
+          fef72dd9c7dcc14cc51d83344a2a7f09c9cc1c6d .github/ol005a-parts/part-00
+          719e28dcb03c5b1194c2151858056bf80810cbd1 .github/ol005a-parts/part-01
+          7a4c5bdae32baee010049e968df07cc32b4765e6 .github/ol005a-parts/part-02
+          3efab1a19f563530737a8f1e3090ec7ada2c4d83 .github/ol005a-parts/part-03
+          78b19314ed3d6755124796c8c5fc89c0a9a13d89 .github/ol005a-parts/part-04
+          50df461114b3d36ce79c06153c9fb337fd7fe9eb .github/ol005a-parts/part-05
+          4c16f42a1338ca26a39f314dc5a094bbede4e561 .github/ol005a-parts/part-06
+          8fef76942be9644eb5d45f2eafbd0b1b2110ffe1 .github/ol005a-parts/part-07
+          e600f436e515bc94b76c36feefd7b929135a0baa .github/ol005a-parts/part-08
+          e2775268e7fe0b1c219decab1a753352f8bbca6b .github/ol005a-parts/part-09
+          HASHES
+
+          while read -r expected file; do
+            test -s "$file"
+            actual=$(git hash-object "$file")
+            test "$actual" = "$expected"
+          done < /tmp/expected-chunks
+
+      - name: Assemble and verify implementation patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/ol005a-parts/part-* > /tmp/ol005a-code.patch.gz.b64
+          test "$(wc -c < /tmp/ol005a-code.patch.gz.b64)" -eq 40908
+          base64 --decode /tmp/ol005a-code.patch.gz.b64 > /tmp/ol005a-code.patch.gz
           gzip --test /tmp/ol005a-code.patch.gz
           gzip --decompress --stdout /tmp/ol005a-code.patch.gz > /tmp/ol005a-code.patch
-          test -s /tmp/ol005a-code.patch
-          sha256sum /tmp/ol005a-code.patch
-
-      - name: Verify implementation patch
-        shell: bash
-        run: git apply --check --verbose /tmp/ol005a-code.patch
+          echo "cd91a0a3d8d04077a2ba2ab19c3e8f3a4d9a32a82a4d1bb245ba4889377918b8  /tmp/ol005a-code.patch" | sha256sum --check
+          git apply --check --verbose --exclude=.github/workflows/source-snapshot.yml /tmp/ol005a-code.patch
 
       - name: Apply and publish implementation
         shell: bash
         run: |
           set -euo pipefail
-          git apply --index /tmp/ol005a-code.patch
+          git apply --index --exclude=.github/workflows/source-snapshot.yml /tmp/ol005a-code.patch
           git rm .github/ol005a-code.patch.gz.b64
+          git rm -r .github/ol005a-parts
           git rm .github/workflows/source-snapshot.yml
 
           git config user.name "github-actions[bot]"
