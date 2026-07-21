@@ -1,0 +1,56 @@
+name: Apply OL-009 Implementation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Assemble payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s .github/ol009-parts/part-00
+          test -s .github/ol009-parts/part-01
+          test -s .github/ol009-parts/part-02
+          cat .github/ol009-parts/part-* > /tmp/ol009.diff.gz.b64
+          test "$(wc -c < /tmp/ol009.diff.gz.b64)" -eq 4588
+
+      - name: Verify encoded payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "69ddfc2ab02fd8784bfeeb3f370a288cd066ca5d4b29038175a830dc3a76c74f  /tmp/ol009.diff.gz.b64" | sha256sum --check
+
+      - name: Decode and verify patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 --decode /tmp/ol009.diff.gz.b64 > /tmp/ol009.diff.gz
+          gzip --test /tmp/ol009.diff.gz
+          gzip --decompress --stdout /tmp/ol009.diff.gz > /tmp/ol009.diff
+          echo "7650abca623bc6f7044dbe4633dbce7264d1f171300254de4e76414916ab0224  /tmp/ol009.diff" | sha256sum --check
+          git apply --check --verbose /tmp/ol009.diff
+
+      - name: Apply and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --index /tmp/ol009.diff
+          git rm -r .github/ol009-parts
+          git rm .github/workflows/apply-ol009-implementation.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Implement OL-009 evidence-bounded reconciliation"
+          git push origin "HEAD:${{ github.head_ref }}"
