@@ -640,16 +640,19 @@ END;
 `;
 
 const GIT_RECONCILIATION_SQL = `
+CREATE UNIQUE INDEX events_identity_aggregate_idx
+  ON events (event_id, run_id, conversation_id, workspace_id);
+CREATE UNIQUE INDEX git_baselines_identity_aggregate_idx
+  ON git_baselines (baseline_id, run_id, conversation_id, workspace_id);
+
 CREATE TABLE git_reconciliations (
   reconciliation_id TEXT PRIMARY KEY CHECK (length(trim(reconciliation_id)) > 0),
   run_id TEXT NOT NULL,
   workspace_id TEXT NOT NULL,
   conversation_id TEXT NOT NULL,
-  baseline_id TEXT REFERENCES git_baselines (baseline_id) ON DELETE SET NULL,
-  trigger_event_id TEXT NOT NULL UNIQUE
-    REFERENCES events (event_id) ON DELETE CASCADE,
-  summary_event_id TEXT NOT NULL UNIQUE
-    REFERENCES events (event_id) ON DELETE CASCADE,
+  baseline_id TEXT,
+  trigger_event_id TEXT NOT NULL UNIQUE,
+  summary_event_id TEXT NOT NULL UNIQUE,
   boundary TEXT NOT NULL CHECK (boundary IN ('tool_batch', 'stop', 'stop_failure')),
   outcome TEXT NOT NULL CHECK (outcome IN ('captured', 'partial')),
   diagnostic_code TEXT CHECK (
@@ -733,8 +736,13 @@ CREATE TABLE git_reconciliations (
     (outcome = 'captured' AND diagnostic_code IS NULL)
     OR (outcome = 'partial' AND diagnostic_code IS NOT NULL)
   ),
-  CHECK (outcome = 'partial' OR attribution <> 'unavailable'),
-  CHECK (outcome = 'partial' OR baseline_comparison <> 'unavailable'),
+  CHECK (
+    (outcome = 'captured' AND attribution <> 'unavailable' AND baseline_comparison <> 'unavailable')
+    OR (outcome = 'partial' AND attribution = 'unavailable' AND baseline_comparison = 'unavailable')
+  ),
+  CHECK (trigger_event_id <> summary_event_id),
+  CHECK (entry_count <= 2000),
+  CHECK (baseline_comparison <> 'unchanged' OR entry_count = 0),
   CHECK (
     entry_count = created_count + modified_count + deleted_count
       + type_changed_count + unmerged_count
@@ -742,7 +750,16 @@ CREATE TABLE git_reconciliations (
   FOREIGN KEY (conversation_id, workspace_id)
     REFERENCES agent_conversations (conversation_id, workspace_id) ON DELETE CASCADE,
   FOREIGN KEY (run_id, conversation_id)
-    REFERENCES task_runs (run_id, conversation_id) ON DELETE CASCADE
+    REFERENCES task_runs (run_id, conversation_id) ON DELETE CASCADE,
+  FOREIGN KEY (baseline_id, run_id, conversation_id, workspace_id)
+    REFERENCES git_baselines (baseline_id, run_id, conversation_id, workspace_id)
+    ON DELETE CASCADE,
+  FOREIGN KEY (trigger_event_id, run_id, conversation_id, workspace_id)
+    REFERENCES events (event_id, run_id, conversation_id, workspace_id)
+    ON DELETE CASCADE,
+  FOREIGN KEY (summary_event_id, run_id, conversation_id, workspace_id)
+    REFERENCES events (event_id, run_id, conversation_id, workspace_id)
+    ON DELETE CASCADE
 ) STRICT;
 
 CREATE TABLE git_reconciliation_entries (
@@ -756,7 +773,12 @@ CREATE TABLE git_reconciliation_entries (
     AND path_identity_sha256 = lower(path_identity_sha256)
     AND path_identity_sha256 NOT GLOB '*[^0-9a-f]*'
   ),
-  relative_path TEXT,
+  relative_path TEXT CHECK (
+    relative_path IS NULL OR (
+      length(relative_path) > 0
+      AND instr(relative_path, char(0)) = 0
+    )
+  ),
   change_kind TEXT NOT NULL CHECK (
     change_kind IN ('created', 'modified', 'deleted', 'type_changed', 'unmerged')
   ),
@@ -766,7 +788,10 @@ CREATE TABLE git_reconciliation_entries (
   attribution TEXT NOT NULL CHECK (
     attribution IN ('run_relative', 'observed_only', 'unavailable')
   ),
-  CHECK (sensitivity <> 'secret' OR relative_path IS NULL),
+  CHECK (
+    (sensitivity = 'secret' AND relative_path IS NULL)
+    OR (sensitivity = 'normal' AND relative_path IS NOT NULL)
+  ),
   PRIMARY KEY (reconciliation_id, entry_index)
 ) STRICT;
 
