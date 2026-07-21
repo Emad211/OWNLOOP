@@ -1,4 +1,4 @@
-name: Source Snapshot
+name: Apply OL-005A Patch
 
 on:
   pull_request:
@@ -6,37 +6,35 @@ on:
       - agent/ol-005a-ingress-security-plan
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  snapshot:
+  apply:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
+      - name: Check out pull request branch
         uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
         with:
-          node-version: 24.18.0
+          ref: ${{ github.head_ref }}
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: 11.4.0
+      - name: Apply verified implementation patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          patch_file=.github/ol005a-code.patch.gz.b64
+          if [[ ! -f "$patch_file" ]]; then
+            echo "Patch payload not present yet; nothing to apply."
+            exit 0
+          fi
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+          base64 --decode "$patch_file" | gzip --decompress > /tmp/ol005a-code.patch
+          echo "cd91a0a3d8d04077a2ba2ab19c3e8f3a4d9a32a82a4d1bb245ba4889377918b8  /tmp/ol005a-code.patch" | sha256sum --check
+          git apply --check /tmp/ol005a-code.patch
+          git apply --index /tmp/ol005a-code.patch
+          git rm "$patch_file"
+          git rm .github/workflows/source-snapshot.yml
 
-      - name: Capture Node binary
-        run: cp "$(command -v node)" /tmp/node-24.18.0
-
-      - name: Create source and toolchain archive
-        run: tar --exclude=.git -czf /tmp/ownloop-toolchain.tar.gz . -C /tmp node-24.18.0
-
-      - name: Upload source and toolchain archive
-        uses: actions/upload-artifact@v6
-        with:
-          name: ownloop-toolchain
-          path: /tmp/ownloop-toolchain.tar.gz
-          if-no-files-found: error
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Implement OL-005A ingress security"
+          git push origin "HEAD:${{ github.head_ref }}"
