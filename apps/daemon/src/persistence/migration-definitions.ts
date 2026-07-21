@@ -221,10 +221,97 @@ CREATE TABLE run_artifacts (
 CREATE INDEX run_artifacts_artifact_idx ON run_artifacts (artifact_id);
 `;
 
+const PREPARED_INGRESS_RECEIPTS_SQL = `
+ALTER TABLE ingress_receipts
+  ADD COLUMN canonicalization_version INTEGER
+  CHECK (canonicalization_version IS NULL OR canonicalization_version > 0);
+
+ALTER TABLE ingress_receipts
+  ADD COLUMN redaction_policy_version INTEGER
+  CHECK (redaction_policy_version IS NULL OR redaction_policy_version > 0);
+
+ALTER TABLE ingress_receipts
+  ADD COLUMN adapter_version TEXT
+  CHECK (adapter_version IS NULL OR length(trim(adapter_version)) > 0);
+
+ALTER TABLE ingress_receipts
+  ADD COLUMN canonical_workspace_path TEXT
+  CHECK (canonical_workspace_path IS NULL OR length(trim(canonical_workspace_path)) > 0);
+
+ALTER TABLE ingress_receipts
+  ADD COLUMN redaction_summary_json TEXT
+  CHECK (
+    redaction_summary_json IS NULL
+    OR (json_valid(redaction_summary_json) AND json_type(redaction_summary_json) = 'object')
+  );
+
+CREATE TRIGGER ingress_receipts_require_prepared_metadata_insert
+BEFORE INSERT ON ingress_receipts
+WHEN NEW.canonicalization_version IS NULL
+  OR NEW.redaction_policy_version IS NULL
+  OR NEW.adapter_version IS NULL
+  OR NEW.canonical_workspace_path IS NULL
+  OR NEW.redaction_summary_json IS NULL
+BEGIN
+  SELECT RAISE(ABORT, 'new ingress receipts require prepared metadata');
+END;
+
+CREATE TRIGGER ingress_receipts_prepared_metadata_consistency_update
+BEFORE UPDATE OF
+  canonicalization_version,
+  redaction_policy_version,
+  adapter_version,
+  canonical_workspace_path,
+  redaction_summary_json
+ON ingress_receipts
+WHEN NOT (
+  (OLD.canonicalization_version IS NULL
+    AND OLD.redaction_policy_version IS NULL
+    AND OLD.adapter_version IS NULL
+    AND OLD.canonical_workspace_path IS NULL
+    AND OLD.redaction_summary_json IS NULL
+    AND NEW.canonicalization_version IS NULL
+    AND NEW.redaction_policy_version IS NULL
+    AND NEW.adapter_version IS NULL
+    AND NEW.canonical_workspace_path IS NULL
+    AND NEW.redaction_summary_json IS NULL)
+  OR
+  (OLD.canonicalization_version IS NULL
+    AND OLD.redaction_policy_version IS NULL
+    AND OLD.adapter_version IS NULL
+    AND OLD.canonical_workspace_path IS NULL
+    AND OLD.redaction_summary_json IS NULL
+    AND NEW.canonicalization_version IS NOT NULL
+    AND NEW.redaction_policy_version IS NOT NULL
+    AND NEW.adapter_version IS NOT NULL
+    AND NEW.canonical_workspace_path IS NOT NULL
+    AND NEW.redaction_summary_json IS NOT NULL)
+  OR
+  (OLD.canonicalization_version IS NOT NULL
+    AND OLD.redaction_policy_version IS NOT NULL
+    AND OLD.adapter_version IS NOT NULL
+    AND OLD.canonical_workspace_path IS NOT NULL
+    AND OLD.redaction_summary_json IS NOT NULL
+    AND NEW.canonicalization_version IS OLD.canonicalization_version
+    AND NEW.redaction_policy_version IS OLD.redaction_policy_version
+    AND NEW.adapter_version IS OLD.adapter_version
+    AND NEW.canonical_workspace_path IS OLD.canonical_workspace_path
+    AND NEW.redaction_summary_json IS OLD.redaction_summary_json)
+)
+BEGIN
+  SELECT RAISE(ABORT, 'ingress receipt preparation metadata is immutable once prepared');
+END;
+`;
+
 export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   Object.freeze({
     version: 1,
     name: "initial_persistence_schema",
     sql: INITIAL_SCHEMA_SQL,
+  }),
+  Object.freeze({
+    version: 2,
+    name: "prepared_ingress_receipts",
+    sql: PREPARED_INGRESS_RECEIPTS_SQL,
   }),
 ]);

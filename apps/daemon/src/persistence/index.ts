@@ -75,16 +75,16 @@ export function openPersistence(databasePath: string): OwnLoopPersistence {
   };
 }
 
+export type { PersistenceConnectionInfo } from "./database.js";
+export type {
+  MigrationErrorCode,
+  PersistenceErrorCode,
+} from "./errors.js";
 export {
   MigrationError,
   PersistenceConstraintError,
   PersistenceError,
 } from "./errors.js";
-export type {
-  MigrationErrorCode,
-  PersistenceErrorCode,
-} from "./errors.js";
-export type { PersistenceConnectionInfo } from "./database.js";
 export type {
   ArtifactMetadata,
   RunArtifactReference,
@@ -94,20 +94,22 @@ export type {
   NewAgentConversation,
 } from "./repositories/conversations.js";
 export type { EventDeduplicationRecord } from "./repositories/events.js";
-export { INGRESS_RECEIPT_STATUSES } from "./repositories/ingress-receipts.js";
 export type {
   IngressReceipt,
   IngressReceiptStatus,
-  NewIngressReceipt,
+  LegacyIngressReceipt,
+  NewPreparedIngressReceipt,
+  PreparedIngressReceiptRecord,
 } from "./repositories/ingress-receipts.js";
+export { INGRESS_RECEIPT_STATUSES } from "./repositories/ingress-receipts.js";
 export type {
   AnalysisJobRecord,
   EvidenceGapRecord,
 } from "./repositories/run-support.js";
-export { TASK_RUN_STATUSES } from "./repositories/task-runs.js";
 export type {
   NewTaskRun,
   TaskRun,
   TaskRunStatus,
 } from "./repositories/task-runs.js";
+export { TASK_RUN_STATUSES } from "./repositories/task-runs.js";
 export type { NewWorkspace, Workspace } from "./repositories/workspaces.js";

@@ -7,13 +7,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { openConfiguredDatabase } from "./database.js";
 import { isSqliteConstraintError, PersistenceConstraintError } from "./errors.js";
 import {
-  openPersistence,
   type AgentConversation,
   type AnalysisJobRecord,
   type ArtifactMetadata,
   type EvidenceGapRecord,
-  type IngressReceipt,
+  type NewPreparedIngressReceipt,
   type OwnLoopPersistence,
+  openPersistence,
   type TaskRun,
   type Workspace,
 } from "./index.js";
@@ -85,18 +85,34 @@ function taskRun(overrides: Partial<TaskRun> = {}): TaskRun {
   };
 }
 
-function ingressReceipt(overrides: Partial<IngressReceipt> = {}): IngressReceipt {
+function ingressReceipt(
+  overrides: Partial<NewPreparedIngressReceipt> = {},
+): NewPreparedIngressReceipt {
   return {
     receiptId: "receipt-1",
+    canonicalizationVersion: 1,
+    redactionPolicyVersion: 1,
     ingressContractVersion: 1,
     source: "claude_code",
+    adapterVersion: "1.2.3",
     sourceSessionId: "source-session-1",
     sourceEventName: "UserPromptSubmit",
     sourceEventId: null,
-    deduplicationKey: "receipt-deduplication-1",
+    canonicalWorkspacePath: "/workspace/project",
+    deduplicationKey: `v1:UserPromptSubmit:hmac:${"a".repeat(64)}`,
     receivedAt: TIMESTAMP,
-    payloadFingerprint: "sha256:payload-fingerprint-1",
+    payloadFingerprint: `hmac-sha256:${"a".repeat(64)}`,
     redactedPayloadJson: JSON.stringify({ prompt: "[REDACTED]" }),
+    redactionSummary: {
+      policyVersion: 1,
+      redactedFieldCount: 0,
+      redactedValueCount: 1,
+      pathReplacementCount: 0,
+      droppedUnknownFieldCount: 0,
+      truncatedValueCount: 0,
+      rulesApplied: ["string.assignment"],
+      outputUtf8Bytes: 23,
+    },
     processingStatus: "pending",
     processedAt: null,
     failureCode: null,
@@ -165,28 +181,33 @@ describe("ingress receipt persistence", () => {
     const persistence = openMemoryPersistence();
     const receipt = ingressReceipt();
 
-    persistence.ingressReceipts.insert(receipt);
+    persistence.ingressReceipts.insertPrepared(receipt);
 
-    expect(persistence.ingressReceipts.get(receipt.receiptId)).toEqual(receipt);
+    expect(persistence.ingressReceipts.get(receipt.receiptId)).toEqual({
+      ...receipt,
+      preparationStatus: "prepared",
+    });
   });
 
   it("enforces receipt deduplication within source and source session", () => {
     const persistence = openMemoryPersistence();
-    persistence.ingressReceipts.insert(ingressReceipt());
+    persistence.ingressReceipts.insertPrepared(ingressReceipt());
 
     expect(() =>
-      persistence.ingressReceipts.insert(
-        ingressReceipt({ receiptId: "receipt-2", payloadFingerprint: "sha256:other" }),
+      persistence.ingressReceipts.insertPrepared(
+        ingressReceipt({
+          receiptId: "receipt-2",
+        }),
       ),
     ).toThrowError(PersistenceConstraintError);
   });
 
   it("permits the same receipt deduplication key in a different source session", () => {
     const persistence = openMemoryPersistence();
-    persistence.ingressReceipts.insert(ingressReceipt());
+    persistence.ingressReceipts.insertPrepared(ingressReceipt());
 
     expect(() =>
-      persistence.ingressReceipts.insert(
+      persistence.ingressReceipts.insertPrepared(
         ingressReceipt({
           receiptId: "receipt-2",
           sourceSessionId: "source-session-2",
@@ -199,8 +220,8 @@ describe("ingress receipt persistence", () => {
     const persistence = openMemoryPersistence();
 
     expect(() =>
-      persistence.ingressReceipts.insert(ingressReceipt({ redactedPayloadJson: "{" })),
-    ).toThrowError(PersistenceConstraintError);
+      persistence.ingressReceipts.insertPrepared(ingressReceipt({ redactedPayloadJson: "{" })),
+    ).toThrowError(expect.objectContaining({ code: "operation_failed" }));
   });
 });
 
@@ -474,7 +495,7 @@ describe("transactions and file-backed durability", () => {
     const first = openPersistence(databasePath);
     openHandles.push(first);
 
-    first.ingressReceipts.insert(receipt);
+    first.ingressReceipts.insertPrepared(receipt);
     first.workspaces.insert(workspace());
     first.close();
 
@@ -482,7 +503,10 @@ describe("transactions and file-backed durability", () => {
     openHandles.push(reopened);
 
     expect(reopened.connectionInfo).toMatchObject({ fileBacked: true, journalMode: "wal" });
-    expect(reopened.ingressReceipts.get("receipt-1")).toEqual(receipt);
+    expect(reopened.ingressReceipts.get("receipt-1")).toEqual({
+      ...receipt,
+      preparationStatus: "prepared",
+    });
     expect(reopened.workspaces.get("workspace-1")).toEqual(workspace());
   });
 });
