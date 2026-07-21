@@ -37,8 +37,8 @@ const SECRET_FIELD_NAMES = new Set([
 ]);
 
 const AUTHORIZATION_PATTERN = /\b(Bearer|Basic)[ \t]+[A-Za-z0-9._~+/=-]{4,4096}/gi;
-const PRIVATE_KEY_PATTERN =
-  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]{0,131072}?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g;
+const PRIVATE_KEY_BEGIN_PATTERN = /-----BEGIN ((?:RSA |EC |OPENSSH )?PRIVATE KEY)-----/g;
+const MAX_PRIVATE_KEY_BLOCK_CHARACTERS = 131_072;
 const ASSIGNMENT_PATTERN =
   /\b(password|passwd|token|api[_-]?key|client[_-]?secret)([ \t]*[:=][ \t]*)([^\s;&,]{1,4096})/gi;
 const URI_PASSWORD_PATTERN = /([A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s/:@]{1,512}:)([^\s/@]{1,4096})(@)/g;
@@ -72,6 +72,43 @@ function replacePattern(
   return { output, count };
 }
 
+function redactPrivateKeyBlocks(input: string): { output: string; count: number } {
+  let cursor = 0;
+  let output = "";
+  let count = 0;
+
+  PRIVATE_KEY_BEGIN_PATTERN.lastIndex = 0;
+  for (
+    let match = PRIVATE_KEY_BEGIN_PATTERN.exec(input);
+    match !== null;
+    match = PRIVATE_KEY_BEGIN_PATTERN.exec(input)
+  ) {
+    const label = match[1];
+    if (label === undefined) {
+      continue;
+    }
+
+    output += input.slice(cursor, match.index);
+    const endMarker = `-----END ${label}-----`;
+    const endIndex = input.indexOf(endMarker, PRIVATE_KEY_BEGIN_PATTERN.lastIndex);
+    const boundedEnd = match.index + MAX_PRIVATE_KEY_BLOCK_CHARACTERS;
+
+    output += REDACTION_MARKER;
+    count += 1;
+
+    if (endIndex === -1 || endIndex + endMarker.length > boundedEnd) {
+      cursor = input.length;
+      break;
+    }
+
+    cursor = endIndex + endMarker.length;
+    PRIVATE_KEY_BEGIN_PATTERN.lastIndex = cursor;
+  }
+  PRIVATE_KEY_BEGIN_PATTERN.lastIndex = 0;
+
+  return { output: `${output}${input.slice(cursor)}`, count };
+}
+
 function redactStrongPatterns(value: string, state: RedactionState): string {
   let output = value;
 
@@ -89,7 +126,7 @@ function redactStrongPatterns(value: string, state: RedactionState): string {
   }
 
   if (output.includes("PRIVATE KEY")) {
-    const privateKey = replacePattern(output, PRIVATE_KEY_PATTERN, REDACTION_MARKER);
+    const privateKey = redactPrivateKeyBlocks(output);
     output = privateKey.output;
     if (privateKey.count > 0) {
       state.redactedValueCount += privateKey.count;
