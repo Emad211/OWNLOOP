@@ -29,7 +29,11 @@ The package accepts only runtime-validated ingress values and returns a strict, 
 Additional defensive guarantees include:
 
 - unterminated private-key blocks are redacted through the end of the retained string;
+- RSA, EC, DSA, OpenSSH, and encrypted private-key blocks are recognized by policy v1;
 - POSIX, Windows-drive, and UNC `file://` URIs are reduced using the same path policy as ordinary absolute paths;
+- malformed or credential-bearing `file://` values fail closed to a non-reversible invalid-path marker;
+- dedicated identifiers reject `file://`, URI credentials, absolute paths, control characters, secret assignments, and strong provider-token formats;
+- bounded strong-secret patterns consume the complete retained input up to the one-mebibyte source limit rather than leaking suffixes beyond a smaller regex cap;
 - prepared receipt content and preparation metadata become immutable after insertion, while processing status may still advance independently.
 
 ## Limitations
