@@ -12,9 +12,10 @@ OwnLoop is a local-first Human Ownership Layer for AI-generated software. The cu
 4. `docs/adr/0003-event-schema-and-session-lifecycle.md`
 5. `docs/adr/0004-durable-redacted-ingress-journal-and-sqlite.md`
 6. `docs/adr/0005-canonical-ingress-reduction-redaction-and-fingerprinting.md`
-7. `docs/architecture/C4.md`
-8. `docs/product/BACKLOG_v0.1.0.md`
-9. `docs/product/BACKLOG_AMENDMENT_0001_INGRESS_SECURITY_ORDER.md`
+7. `docs/adr/0006-authenticated-loopback-ingestion.md`
+8. `docs/architecture/C4.md`
+9. `docs/product/BACKLOG_v0.1.0.md`
+10. `docs/product/BACKLOG_AMENDMENT_0001_INGRESS_SECURITY_ORDER.md`
 
 Read the relevant documents before changing code. Do not silently reinterpret, expand, or supersede an accepted architectural decision. When a task conflicts with an ADR or the product scope, stop and report the conflict instead of improvising.
 
@@ -27,16 +28,16 @@ For Milestone A dependency order, accepted ADRs and the backlog amendment take p
 - Do not modify unrelated files.
 - Do not add product behavior that is outside the active issue.
 - Prefer the smallest maintainable solution over speculative abstraction.
-- Avoid cloud services, authentication, telemetry, analytics, billing, or remote persistence unless an issue explicitly requires them.
+- Avoid cloud services, remote persistence, user authentication, telemetry, analytics, or billing unless an issue explicitly requires them.
 - Never commit secrets, tokens, credentials, `.env` contents, generated private data, database files, or machine-specific paths.
-- Do not weaken type checking, linting, tests, database constraints, canonicalization rules, redaction rules, or security controls to make a task pass.
+- Do not weaken type checking, linting, tests, database constraints, canonicalization rules, redaction rules, authentication checks, or security controls to make a task pass.
 - Do not use `any`, `z.any()`, `@ts-ignore`, disabled lint rules, or skipped tests without a documented and task-specific reason.
 - Do not rewrite accepted ADRs as part of implementation work. Architectural changes require a separate ADR.
 - Source-boundary schemas may be forward-compatible; OwnLoop-owned contracts remain controlled and versioned.
 - Persist-before-acknowledge is mandatory for accepted ingress receipts.
 - Unredacted source payloads must never be written to persistent storage.
 - Unknown source fields may be accepted at parsing but must not be persisted without an explicit policy-version change.
-- Errors and diagnostics must never contain rejected source values, canonical unredacted JSON, secrets, prompts, commands, source code, absolute paths, or key material.
+- Errors, HTTP responses, and diagnostics must never contain rejected source values, canonical unredacted JSON, secrets, prompts, commands, source code, absolute paths, authorization values, token digests, fingerprints, session/source IDs, exception messages, stacks, or key material.
 
 ## Technical baseline
 
@@ -49,6 +50,7 @@ Unless a later ADR changes this baseline:
 - Local UI: React + Vite
 - Unit tests: Vitest
 - Runtime validation: Zod 4.4.3
+- Local HTTP server: Fastify 5.10.0, isolated behind the daemon ingress boundary
 - Local persistence: built-in `node:sqlite` behind the daemon persistence boundary
 - Ingress fingerprinting: Node.js built-in HMAC-SHA-256 with a secret `KeyObject`
 - Canonical parsed JSON: OwnLoop Canonical JSON v1 as defined by ADR-0005
@@ -59,7 +61,7 @@ When selecting a dependency, use a stable release compatible with Node.js 24 and
 
 `node:sqlite` is accepted for v0.1 despite its release-candidate status because Node.js is pinned exactly and ADR-0004 isolates the driver behind a small persistence boundary. Do not spread direct driver usage outside that boundary.
 
-OL-005A permits no new external runtime dependency. Stop and report before adding one.
+Fastify is the only external runtime dependency authorized for OL-003. Stop and report before adding another one.
 
 ## Repository structure
 
@@ -76,11 +78,11 @@ tools/
 └── hook-adapter/
 ```
 
-`packages/ingress-security` is authorized by ADR-0005 because the daemon and future Hook Adapter must share one pure deterministic security policy. Do not create any other application or package without explaining why the existing structure cannot support the active task.
+`packages/ingress-security` is shared by the daemon and future Hook Adapter. HTTP/Fastify code belongs only under the daemon ingress boundary. Do not create another application or package for OL-003.
 
 ## Quality gates
 
-Before declaring a task complete, run the relevant root commands and report their results:
+Before declaring a task complete, run and report:
 
 ```bash
 pnpm format:check
@@ -90,67 +92,61 @@ pnpm test
 pnpm build
 ```
 
-For OL-005A also run focused tests for:
+For OL-003 also run focused real-network tests proving:
 
-- canonicalization and JSON rejection cases;
-- secret and path absence;
-- HMAC and deduplication behavior;
-- adversarial long strings;
-- migration version-1 to version-2 upgrade.
+- IPv4 loopback binding;
+- authentication before body handling;
+- durable insert before 202;
+- exact duplicate and conflicting duplicate behavior;
+- content-type, malformed JSON, runtime validation, ingress-security, oversized-body, persistence, and internal-error mapping;
+- content-free HTTP and diagnostic surfaces;
+- file-backed durability and server shutdown behavior.
 
-If dependencies cannot be installed because network access is unavailable, still complete all work that can be validated locally and report the exact blocked checks. Never claim a check passed if it was not run.
+`Fastify.inject()` may supplement tests but does not replace real `listen()` plus Node `fetch` coverage.
+
+Never claim a check passed if it was not run.
 
 ## Git and pull-request discipline
 
-- Base implementation branches on the branch named in the active task brief.
-- Use the exact branch name requested by the task when practical.
+- Base implementation branches on the branch named in the active task.
 - Make focused commits with terse imperative messages.
 - Leave the worktree clean.
 - Do not push directly to `main`.
-- Open implementation pull requests as drafts until checks and human review are complete.
-- In the final response, summarize files changed, decisions made, checks run, failures or limitations, and anything requiring human review.
+- Keep implementation pull requests as drafts until checks and review are complete.
+- Summarize files, decisions, checks, failures, limitations, and review requirements.
 
 ## Current phase restriction
 
-The active implementation task is `OL-005A: Canonicalize and redact ingress before journaling`.
+The active implementation task is `OL-003: Implement authenticated loopback ingestion API`.
 
-Before implementing OL-005A, read:
+Before implementing OL-003, read:
 
-- GitHub issue #10 and all issue comments
-- `docs/tasks/OL-005A_CODEX_TASK.md`
-- `docs/tasks/OL-005A_CLARIFICATIONS.md`
+- GitHub issue #13 and all comments
 - ADR-0003
 - ADR-0004
 - ADR-0005
+- ADR-0006
 - C4 architecture
-- the backlog amendment
-- RFC 8785 and its verified errata
-- Node.js 24 Crypto documentation
-- OWASP Logging Cheat Sheet data-exclusion guidance
+- Backlog Amendment 0001
+- current contracts, ingress-security, and persistence code
+- Fastify 5.10.0 server and request references
 
-`docs/tasks/OL-005A_CLARIFICATIONS.md` is normative where it resolves ambiguity in issue #10 or the task brief.
+For OL-003, the following are explicitly forbidden:
 
-For OL-005A, the following are explicitly forbidden:
-
-- Fastify or any HTTP server, endpoint, or client
-- local installation-token generation
-- receipt ID generation or durable insertion orchestration
-- stdin reading or Hook forwarding
-- executable Claude Code or Codex integration
-- Claude settings files
-- pending-receipt processing
+- Hook stdin reading or forwarding
+- Claude settings installation
+- installation-token or HMAC-key persistence/rotation
+- arbitrary/non-loopback host configuration
+- raw request logging
+- pending-receipt processing or background workers
 - Workspace, Conversation, or Task Run lifecycle transitions
-- normalized event creation
-- database deduplication decisions
-- sequence allocation
-- Git baseline, diff, or reconciliation behavior
+- normalized event creation or sequence allocation
+- Git baseline, diff, or reconciliation
 - artifact content storage or cleanup
-- background worker execution
-- AI provider code or API calls
+- AI provider code or calls
 - web UI feature work
-- Ownership Moment generation
-- Build Replay behavior
+- Ownership Moment or Build Replay behavior
 - cloud backend or remote storage
-- authentication, analytics, billing, or telemetry
+- user authentication, analytics, telemetry, billing, or tracking
 
-OL-005A is complete only when the versioned prepared-receipt contracts, shared deterministic ingress-security package, canonicalization, HMAC fingerprinting, allowlist reduction, secret/path redaction, safe bounded diagnostics, migration version 2, repository mapping, and all required tests satisfy issue #10, ADR-0005, the task brief, and the normative clarifications without introducing transport or downstream processing behavior.
+OL-003 is complete only when an authenticated IPv4-loopback Fastify endpoint validates, prepares, and durably inserts or safely resolves exact duplicate prepared receipts before returning a structured 202 response; conflicting duplicates and all failure classes must map to stable content-free responses, with real-network tests and no downstream processing scope.
