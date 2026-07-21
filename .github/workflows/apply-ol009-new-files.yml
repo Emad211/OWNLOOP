@@ -6,10 +6,10 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply:
+  export:
     runs-on: ubuntu-latest
     steps:
       - name: Check out pull request branch
@@ -17,59 +17,37 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Assemble and verify archive
-        shell: bash
-        run: |
-          set -euo pipefail
-          for index in $(seq -w 0 8); do
-            test -s ".github/ol009-new/part-${index}"
-          done
-          cat .github/ol009-new/part-* > /tmp/ol009-new-files.tar.gz.b64
-          test "$(wc -c < /tmp/ol009-new-files.tar.gz.b64)" -eq 18276
-          echo "93d2e93d446fd9107081bd10e0241fda14ea939c84fb9d2b9028e986082f679c  /tmp/ol009-new-files.tar.gz.b64" | sha256sum --check
-          base64 --decode /tmp/ol009-new-files.tar.gz.b64 > /tmp/ol009-new-files.tar.gz
-          gzip --test /tmp/ol009-new-files.tar.gz
-          echo "3176f70dcf9f79287eb0a8d38617a7206388f579fc1382d3a0dceffb036bb047  /tmp/ol009-new-files.tar.gz" | sha256sum --check
+      - name: Set up exact Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.18.0
 
-      - name: Verify archive allowlist
+      - name: Enable Corepack and install dependencies
         shell: bash
         run: |
           set -euo pipefail
-          cat > /tmp/expected-files <<'FILES'
-          apps/daemon/src/git-reconciliation/README.md
-          apps/daemon/src/git-reconciliation/constants.ts
-          apps/daemon/src/git-reconciliation/index.ts
-          apps/daemon/src/git-reconciliation/observation.ts
-          apps/daemon/src/git-reconciliation/processor.test.ts
-          apps/daemon/src/git-reconciliation/processor.ts
-          apps/daemon/src/git-reconciliation/status-parser.test.ts
-          apps/daemon/src/git-reconciliation/status-parser.ts
-          apps/daemon/src/persistence/repositories/git-reconciliations.ts
-          FILES
-          tar -tzf /tmp/ol009-new-files.tar.gz > /tmp/archive-files
-          diff -u /tmp/expected-files /tmp/archive-files
-          while read -r path; do
-            test ! -e "$path"
-          done < /tmp/expected-files
+          corepack enable
+          pnpm install --frozen-lockfile
 
-      - name: Extract and publish
+      - name: Build portable toolchain archive
         shell: bash
         run: |
           set -euo pipefail
-          tar -xzf /tmp/ol009-new-files.tar.gz
-          git add \
-            apps/daemon/src/git-reconciliation/README.md \
-            apps/daemon/src/git-reconciliation/constants.ts \
-            apps/daemon/src/git-reconciliation/index.ts \
-            apps/daemon/src/git-reconciliation/observation.ts \
-            apps/daemon/src/git-reconciliation/processor.test.ts \
-            apps/daemon/src/git-reconciliation/processor.ts \
-            apps/daemon/src/git-reconciliation/status-parser.test.ts \
-            apps/daemon/src/git-reconciliation/status-parser.ts \
-            apps/daemon/src/persistence/repositories/git-reconciliations.ts
-          git rm -r .github/ol009-new
-          git rm .github/workflows/apply-ol009-new-files.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Add OL-009 reconciliation sources"
-          git push origin "HEAD:${{ github.head_ref }}"
+          rm -rf /tmp/ownloop-toolchain
+          mkdir -p /tmp/ownloop-toolchain/repo /tmp/ownloop-toolchain/node
+          rsync -a --exclude='.git' ./ /tmp/ownloop-toolchain/repo/
+          node_root="$(dirname "$(dirname "$(readlink -f "$(command -v node)")")")"
+          cp -a "$node_root"/. /tmp/ownloop-toolchain/node/
+          tar -czf /tmp/ownloop-ol009-toolchain.tar.gz -C /tmp/ownloop-toolchain repo node
+          sha256sum /tmp/ownloop-ol009-toolchain.tar.gz > /tmp/ownloop-ol009-toolchain.sha256
+
+      - name: Upload toolchain
+        uses: actions/upload-artifact@v6
+        with:
+          name: ownloop-ol009-toolchain
+          path: |
+            /tmp/ownloop-ol009-toolchain.tar.gz
+            /tmp/ownloop-ol009-toolchain.sha256
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
