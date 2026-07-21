@@ -1,6 +1,7 @@
 export type PersistenceErrorCode =
   | "async_transaction_not_supported"
   | "constraint_violation"
+  | "deduplication_conflict"
   | "invalid_persisted_row"
   | "operation_failed"
   | "transaction_already_active";
@@ -12,6 +13,16 @@ export class PersistenceError extends Error {
     super(message, options);
     this.name = "PersistenceError";
     this.code = code;
+  }
+}
+
+export class PersistenceDeduplicationConflictError extends PersistenceError {
+  constructor() {
+    super(
+      "deduplication_conflict",
+      "The ingress deduplication identity already exists with a different payload fingerprint.",
+    );
+    this.name = "PersistenceDeduplicationConflictError";
   }
 }
 
