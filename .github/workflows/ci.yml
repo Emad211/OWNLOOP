@@ -36,26 +36,7 @@ jobs:
         run: pnpm lint
 
       - name: Typecheck
-        id: typecheck
-        continue-on-error: true
-        shell: bash
-        run: |
-          set +e
-          pnpm typecheck 2>&1 | tee typecheck.log
-          status=${PIPESTATUS[0]}
-          exit "$status"
-
-      - name: Upload typecheck diagnostics
-        if: steps.typecheck.outcome == 'failure'
-        uses: actions/upload-artifact@v6
-        with:
-          name: typecheck-diagnostics
-          path: typecheck.log
-          if-no-files-found: error
-
-      - name: Fail on typecheck errors
-        if: steps.typecheck.outcome == 'failure'
-        run: exit 1
+        run: pnpm typecheck
 
       - name: Test
         run: pnpm test
