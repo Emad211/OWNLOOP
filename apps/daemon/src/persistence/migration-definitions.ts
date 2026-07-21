@@ -480,6 +480,165 @@ BEGIN
 END;
 `;
 
+const GIT_BASELINE_SQL = `
+CREATE TABLE git_baselines (
+  baseline_id TEXT PRIMARY KEY CHECK (length(trim(baseline_id)) > 0),
+  run_id TEXT NOT NULL UNIQUE,
+  workspace_id TEXT NOT NULL,
+  conversation_id TEXT NOT NULL,
+  baseline_event_id TEXT NOT NULL UNIQUE
+    REFERENCES events (event_id) ON DELETE CASCADE,
+  outcome TEXT NOT NULL CHECK (outcome IN ('captured', 'partial')),
+  diagnostic_code TEXT CHECK (
+    diagnostic_code IS NULL
+    OR diagnostic_code IN (
+      'not_a_git_repository',
+      'git_executable_unavailable',
+      'git_command_failed',
+      'git_command_timeout',
+      'git_output_limit_exceeded',
+      'repository_changed_during_capture',
+      'untracked_inventory_limit_exceeded',
+      'untracked_entry_changed',
+      'untracked_entry_unreadable',
+      'late_capture',
+      'baseline_processing_failed'
+    )
+  ),
+  repository_root TEXT NOT NULL CHECK (length(trim(repository_root)) > 0),
+  head_commit TEXT CHECK (
+    head_commit IS NULL
+    OR (
+      length(head_commit) IN (40, 64)
+      AND head_commit = lower(head_commit)
+      AND head_commit NOT GLOB '*[^0-9a-f]*'
+    )
+  ),
+  staged_diff_sha256 TEXT CHECK (
+    staged_diff_sha256 IS NULL
+    OR (
+      length(staged_diff_sha256) = 64
+      AND staged_diff_sha256 = lower(staged_diff_sha256)
+      AND staged_diff_sha256 NOT GLOB '*[^0-9a-f]*'
+    )
+  ),
+  unstaged_diff_sha256 TEXT CHECK (
+    unstaged_diff_sha256 IS NULL
+    OR (
+      length(unstaged_diff_sha256) = 64
+      AND unstaged_diff_sha256 = lower(unstaged_diff_sha256)
+      AND unstaged_diff_sha256 NOT GLOB '*[^0-9a-f]*'
+    )
+  ),
+  status_before_sha256 TEXT CHECK (
+    status_before_sha256 IS NULL
+    OR (
+      length(status_before_sha256) = 64
+      AND status_before_sha256 = lower(status_before_sha256)
+      AND status_before_sha256 NOT GLOB '*[^0-9a-f]*'
+    )
+  ),
+  status_after_sha256 TEXT CHECK (
+    status_after_sha256 IS NULL
+    OR (
+      length(status_after_sha256) = 64
+      AND status_after_sha256 = lower(status_after_sha256)
+      AND status_after_sha256 NOT GLOB '*[^0-9a-f]*'
+    )
+  ),
+  working_tree_fingerprint TEXT CHECK (
+    working_tree_fingerprint IS NULL
+    OR (
+      length(working_tree_fingerprint) = 64
+      AND working_tree_fingerprint = lower(working_tree_fingerprint)
+      AND working_tree_fingerprint NOT GLOB '*[^0-9a-f]*'
+    )
+  ),
+  staged_dirty INTEGER NOT NULL CHECK (staged_dirty IN (0, 1)),
+  unstaged_dirty INTEGER NOT NULL CHECK (unstaged_dirty IN (0, 1)),
+  untracked_count INTEGER NOT NULL CHECK (untracked_count >= 0),
+  untracked_hashed_count INTEGER NOT NULL CHECK (untracked_hashed_count >= 0),
+  untracked_omitted_count INTEGER NOT NULL CHECK (untracked_omitted_count >= 0),
+  captured_at TEXT NOT NULL CHECK (length(trim(captured_at)) > 0),
+  capture_delay_ms INTEGER NOT NULL CHECK (capture_delay_ms >= 0),
+  CHECK (
+    (outcome = 'captured' AND diagnostic_code IS NULL)
+    OR (outcome = 'partial' AND diagnostic_code IS NOT NULL)
+  ),
+  CHECK (
+    outcome = 'partial'
+    OR (
+      staged_diff_sha256 IS NOT NULL
+      AND unstaged_diff_sha256 IS NOT NULL
+      AND status_before_sha256 IS NOT NULL
+      AND status_after_sha256 IS NOT NULL
+      AND working_tree_fingerprint IS NOT NULL
+    )
+  ),
+  CHECK (untracked_hashed_count <= untracked_count),
+  CHECK (untracked_omitted_count <= untracked_count),
+  CHECK (untracked_hashed_count + untracked_omitted_count = untracked_count),
+  FOREIGN KEY (conversation_id, workspace_id)
+    REFERENCES agent_conversations (conversation_id, workspace_id) ON DELETE CASCADE,
+  FOREIGN KEY (run_id, conversation_id)
+    REFERENCES task_runs (run_id, conversation_id) ON DELETE CASCADE
+) STRICT;
+
+CREATE TABLE git_baseline_untracked_entries (
+  baseline_id TEXT NOT NULL
+    REFERENCES git_baselines (baseline_id) ON DELETE CASCADE,
+  entry_index INTEGER NOT NULL CHECK (entry_index >= 0),
+  path_identity_sha256 TEXT NOT NULL CHECK (
+    length(path_identity_sha256) = 64
+    AND path_identity_sha256 = lower(path_identity_sha256)
+    AND path_identity_sha256 NOT GLOB '*[^0-9a-f]*'
+  ),
+  relative_path TEXT,
+  kind TEXT NOT NULL CHECK (kind IN ('regular', 'symlink', 'directory', 'other')),
+  size_bytes INTEGER CHECK (size_bytes IS NULL OR size_bytes >= 0),
+  content_sha256 TEXT CHECK (
+    content_sha256 IS NULL
+    OR (
+      length(content_sha256) = 64
+      AND content_sha256 = lower(content_sha256)
+      AND content_sha256 NOT GLOB '*[^0-9a-f]*'
+    )
+  ),
+  sensitivity TEXT NOT NULL CHECK (sensitivity IN ('normal', 'secret')),
+  hash_status TEXT NOT NULL CHECK (hash_status IN (
+    'hashed',
+    'too_large',
+    'sensitive_path',
+    'unreadable',
+    'non_regular',
+    'changed_during_capture'
+  )),
+  CHECK (sensitivity <> 'secret' OR relative_path IS NULL),
+  CHECK (hash_status <> 'sensitive_path' OR (sensitivity = 'secret' AND content_sha256 IS NULL)),
+  CHECK (hash_status <> 'hashed' OR content_sha256 IS NOT NULL),
+  PRIMARY KEY (baseline_id, entry_index)
+) STRICT;
+
+CREATE INDEX git_baselines_workspace_time_idx
+  ON git_baselines (workspace_id, captured_at, baseline_id);
+CREATE INDEX git_baselines_conversation_idx
+  ON git_baselines (conversation_id, captured_at, baseline_id);
+CREATE INDEX git_baseline_untracked_path_identity_idx
+  ON git_baseline_untracked_entries (path_identity_sha256, baseline_id);
+
+CREATE TRIGGER git_baselines_reject_update
+BEFORE UPDATE ON git_baselines
+BEGIN
+  SELECT RAISE(ABORT, 'Git baselines are immutable');
+END;
+
+CREATE TRIGGER git_baseline_untracked_entries_reject_update
+BEFORE UPDATE ON git_baseline_untracked_entries
+BEGIN
+  SELECT RAISE(ABORT, 'Git baseline untracked entries are immutable');
+END;
+`;
+
 export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   Object.freeze({
     version: 1,
@@ -500,5 +659,10 @@ export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
     version: 4,
     name: "transactional_event_normalization",
     sql: EVENT_NORMALIZATION_SQL,
+  }),
+  Object.freeze({
+    version: 5,
+    name: "privacy_bounded_git_baseline",
+    sql: GIT_BASELINE_SQL,
   }),
 ]);

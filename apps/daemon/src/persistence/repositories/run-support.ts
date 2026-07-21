@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 
 import { mapPersistenceWriteError } from "../errors.js";
-import { requiredNumber } from "../row-mapping.js";
+import { nullableString, requiredNumber, requiredString } from "../row-mapping.js";
 
 export type EvidenceGapRecord = Readonly<{
   gapId: string;
@@ -80,6 +80,25 @@ export class RunSupportRepository {
     } catch (error) {
       mapPersistenceWriteError(error, "insert analysis job");
     }
+  }
+
+  listEvidenceGaps(runId: string): EvidenceGapRecord[] {
+    return this.#database
+      .prepare(
+        `SELECT gap_id, run_id, code, message, details_json, created_at
+         FROM evidence_gaps
+         WHERE run_id = ?
+         ORDER BY created_at ASC, gap_id ASC`,
+      )
+      .all(runId)
+      .map((row) => ({
+        gapId: requiredString(row, "gap_id"),
+        runId: requiredString(row, "run_id"),
+        code: requiredString(row, "code"),
+        message: requiredString(row, "message"),
+        detailsJson: nullableString(row, "details_json"),
+        createdAt: requiredString(row, "created_at"),
+      }));
   }
 
   countEvidenceGaps(runId: string): number {
