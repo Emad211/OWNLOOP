@@ -1,0 +1,35 @@
+name: Apply OL-005A Identifier Defense
+
+on:
+  pull_request:
+    branches:
+      - agent/ol-005a-ingress-security-plan
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Verify and apply identifier defense
+        shell: bash
+        run: |
+          set -euo pipefail
+          patch_file=.github/contracts-defense.patch
+          test -s "$patch_file"
+          echo "968d1c88941313a60c490be49f5492aebc07682837ac358d8d8e13e7e9e375d7  $patch_file" | sha256sum --check
+          git apply --check --verbose "$patch_file"
+          git apply --index "$patch_file"
+          git rm "$patch_file"
+          git rm .github/workflows/apply-contract-defense.yml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Harden ingress identifiers"
+          git push origin "HEAD:${{ github.head_ref }}"
