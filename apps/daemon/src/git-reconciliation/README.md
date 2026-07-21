@@ -11,5 +11,8 @@ Attribution is deliberately evidence-bounded:
 - `observed_only` describes current state when the captured baseline was already dirty;
 - `unavailable` is used for missing or partial evidence.
 
+A second status checkpoint is compared with the fingerprint capture so repository changes between
+observation and attribution become controlled partial evidence rather than a false ownership claim.
+
 Raw status/diff bytes and tracked file content are never persisted. Sensitive paths retain only a
 versioned path identity digest and have a null relative path.
