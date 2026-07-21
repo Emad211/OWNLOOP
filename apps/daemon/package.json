@@ -4,12 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @ownloop/contracts build && pnpm build && node --watch dist/index.js",
+    "dev": "pnpm --filter @ownloop/contracts build && pnpm --filter @ownloop/ingress-security build && pnpm build && node --watch dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@ownloop/contracts": "workspace:*",
-    "@ownloop/event-model": "workspace:*"
+    "@ownloop/event-model": "workspace:*",
+    "@ownloop/ingress-security": "workspace:*",
+    "fastify": "5.10.0"
   }
 }
