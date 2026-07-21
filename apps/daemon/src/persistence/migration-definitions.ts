@@ -47,7 +47,8 @@ CREATE TABLE agent_conversations (
   started_at TEXT NOT NULL CHECK (length(trim(started_at)) > 0),
   last_observed_at TEXT NOT NULL CHECK (length(trim(last_observed_at)) > 0),
   ended_at TEXT CHECK (ended_at IS NULL OR length(trim(ended_at)) > 0),
-  status TEXT NOT NULL CHECK (length(trim(status)) > 0)
+  status TEXT NOT NULL CHECK (length(trim(status)) > 0),
+  UNIQUE (conversation_id, workspace_id)
 ) STRICT;
 
 CREATE UNIQUE INDEX agent_conversations_source_session_idx
@@ -76,7 +77,8 @@ CREATE TABLE task_runs (
     CHECK (final_git_fingerprint IS NULL OR length(trim(final_git_fingerprint)) > 0),
   source_stop_reason TEXT
     CHECK (source_stop_reason IS NULL OR length(trim(source_stop_reason)) > 0),
-  evidence_gap_count INTEGER NOT NULL DEFAULT 0 CHECK (evidence_gap_count >= 0)
+  evidence_gap_count INTEGER NOT NULL DEFAULT 0 CHECK (evidence_gap_count >= 0),
+  UNIQUE (run_id, conversation_id)
 ) STRICT;
 
 CREATE UNIQUE INDEX task_runs_conversation_number_idx
@@ -85,10 +87,9 @@ CREATE UNIQUE INDEX task_runs_conversation_number_idx
 CREATE TABLE events (
   event_id TEXT PRIMARY KEY CHECK (length(trim(event_id)) > 0),
   schema_version INTEGER NOT NULL CHECK (schema_version > 0),
-  workspace_id TEXT NOT NULL REFERENCES workspaces (workspace_id) ON DELETE CASCADE,
-  conversation_id TEXT NOT NULL
-    REFERENCES agent_conversations (conversation_id) ON DELETE CASCADE,
-  run_id TEXT REFERENCES task_runs (run_id) ON DELETE CASCADE,
+  workspace_id TEXT NOT NULL,
+  conversation_id TEXT NOT NULL,
+  run_id TEXT,
   sequence INTEGER,
   event_type TEXT NOT NULL CHECK (event_type IN (
     'conversation.started',
@@ -143,7 +144,11 @@ CREATE TABLE events (
   CHECK (
     (run_id IS NULL AND sequence IS NULL)
     OR (run_id IS NOT NULL AND sequence IS NOT NULL AND sequence > 0)
-  )
+  ),
+  FOREIGN KEY (conversation_id, workspace_id)
+    REFERENCES agent_conversations (conversation_id, workspace_id) ON DELETE CASCADE,
+  FOREIGN KEY (run_id, conversation_id)
+    REFERENCES task_runs (run_id, conversation_id) ON DELETE CASCADE
 ) STRICT;
 
 CREATE UNIQUE INDEX events_run_sequence_idx ON events (run_id, sequence);
