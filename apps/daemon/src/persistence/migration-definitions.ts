@@ -639,6 +639,182 @@ BEGIN
 END;
 `;
 
+const GIT_RECONCILIATION_SQL = `
+CREATE UNIQUE INDEX events_identity_aggregate_idx
+  ON events (event_id, run_id, conversation_id, workspace_id);
+CREATE UNIQUE INDEX git_baselines_identity_aggregate_idx
+  ON git_baselines (baseline_id, run_id, conversation_id, workspace_id);
+
+CREATE TABLE git_reconciliations (
+  reconciliation_id TEXT PRIMARY KEY CHECK (length(trim(reconciliation_id)) > 0),
+  run_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  conversation_id TEXT NOT NULL,
+  baseline_id TEXT,
+  trigger_event_id TEXT NOT NULL UNIQUE,
+  summary_event_id TEXT NOT NULL UNIQUE,
+  boundary TEXT NOT NULL CHECK (boundary IN ('tool_batch', 'stop', 'stop_failure')),
+  outcome TEXT NOT NULL CHECK (outcome IN ('captured', 'partial')),
+  diagnostic_code TEXT CHECK (
+    diagnostic_code IS NULL OR diagnostic_code IN (
+      'baseline_missing',
+      'baseline_partial',
+      'not_a_git_repository',
+      'git_executable_unavailable',
+      'git_command_failed',
+      'git_command_timeout',
+      'git_output_limit_exceeded',
+      'repository_changed_during_capture',
+      'untracked_inventory_limit_exceeded',
+      'untracked_entry_changed',
+      'untracked_entry_unreadable',
+      'invalid_status_output',
+      'status_entry_limit_exceeded',
+      'invalid_trigger_event',
+      'reconciliation_processing_failed'
+    )
+  ),
+  attribution TEXT NOT NULL CHECK (
+    attribution IN ('run_relative', 'observed_only', 'unavailable')
+  ),
+  baseline_comparison TEXT NOT NULL CHECK (
+    baseline_comparison IN ('unchanged', 'changed', 'unavailable')
+  ),
+  repository_root TEXT NOT NULL CHECK (length(trim(repository_root)) > 0),
+  head_commit TEXT CHECK (
+    head_commit IS NULL OR (
+      length(head_commit) IN (40, 64)
+      AND head_commit = lower(head_commit)
+      AND head_commit NOT GLOB '*[^0-9a-f]*'
+    )
+  ),
+  staged_diff_sha256 TEXT CHECK (
+    staged_diff_sha256 IS NULL OR (
+      length(staged_diff_sha256) = 64
+      AND staged_diff_sha256 = lower(staged_diff_sha256)
+      AND staged_diff_sha256 NOT GLOB '*[^0-9a-f]*'
+    )
+  ),
+  unstaged_diff_sha256 TEXT CHECK (
+    unstaged_diff_sha256 IS NULL OR (
+      length(unstaged_diff_sha256) = 64
+      AND unstaged_diff_sha256 = lower(unstaged_diff_sha256)
+      AND unstaged_diff_sha256 NOT GLOB '*[^0-9a-f]*'
+    )
+  ),
+  status_before_sha256 TEXT CHECK (
+    status_before_sha256 IS NULL OR (
+      length(status_before_sha256) = 64
+      AND status_before_sha256 = lower(status_before_sha256)
+      AND status_before_sha256 NOT GLOB '*[^0-9a-f]*'
+    )
+  ),
+  status_after_sha256 TEXT CHECK (
+    status_after_sha256 IS NULL OR (
+      length(status_after_sha256) = 64
+      AND status_after_sha256 = lower(status_after_sha256)
+      AND status_after_sha256 NOT GLOB '*[^0-9a-f]*'
+    )
+  ),
+  working_tree_fingerprint TEXT CHECK (
+    working_tree_fingerprint IS NULL OR (
+      length(working_tree_fingerprint) = 64
+      AND working_tree_fingerprint = lower(working_tree_fingerprint)
+      AND working_tree_fingerprint NOT GLOB '*[^0-9a-f]*'
+    )
+  ),
+  staged_dirty INTEGER NOT NULL CHECK (staged_dirty IN (0, 1)),
+  unstaged_dirty INTEGER NOT NULL CHECK (unstaged_dirty IN (0, 1)),
+  entry_count INTEGER NOT NULL CHECK (entry_count >= 0),
+  created_count INTEGER NOT NULL CHECK (created_count >= 0),
+  modified_count INTEGER NOT NULL CHECK (modified_count >= 0),
+  deleted_count INTEGER NOT NULL CHECK (deleted_count >= 0),
+  type_changed_count INTEGER NOT NULL CHECK (type_changed_count >= 0),
+  unmerged_count INTEGER NOT NULL CHECK (unmerged_count >= 0),
+  captured_at TEXT NOT NULL CHECK (length(trim(captured_at)) > 0),
+  CHECK (
+    (outcome = 'captured' AND diagnostic_code IS NULL)
+    OR (outcome = 'partial' AND diagnostic_code IS NOT NULL)
+  ),
+  CHECK (
+    (outcome = 'captured' AND attribution <> 'unavailable' AND baseline_comparison <> 'unavailable')
+    OR (outcome = 'partial' AND attribution = 'unavailable' AND baseline_comparison = 'unavailable')
+  ),
+  CHECK (trigger_event_id <> summary_event_id),
+  CHECK (entry_count <= 2000),
+  CHECK (baseline_comparison <> 'unchanged' OR entry_count = 0),
+  CHECK (
+    entry_count = created_count + modified_count + deleted_count
+      + type_changed_count + unmerged_count
+  ),
+  FOREIGN KEY (conversation_id, workspace_id)
+    REFERENCES agent_conversations (conversation_id, workspace_id) ON DELETE CASCADE,
+  FOREIGN KEY (run_id, conversation_id)
+    REFERENCES task_runs (run_id, conversation_id) ON DELETE CASCADE,
+  FOREIGN KEY (baseline_id, run_id, conversation_id, workspace_id)
+    REFERENCES git_baselines (baseline_id, run_id, conversation_id, workspace_id)
+    ON DELETE CASCADE,
+  FOREIGN KEY (trigger_event_id, run_id, conversation_id, workspace_id)
+    REFERENCES events (event_id, run_id, conversation_id, workspace_id)
+    ON DELETE CASCADE,
+  FOREIGN KEY (summary_event_id, run_id, conversation_id, workspace_id)
+    REFERENCES events (event_id, run_id, conversation_id, workspace_id)
+    ON DELETE CASCADE
+) STRICT;
+
+CREATE TABLE git_reconciliation_entries (
+  reconciliation_id TEXT NOT NULL
+    REFERENCES git_reconciliations (reconciliation_id) ON DELETE CASCADE,
+  entry_index INTEGER NOT NULL CHECK (entry_index >= 0),
+  file_event_id TEXT NOT NULL UNIQUE
+    REFERENCES events (event_id) ON DELETE CASCADE,
+  path_identity_sha256 TEXT NOT NULL CHECK (
+    length(path_identity_sha256) = 64
+    AND path_identity_sha256 = lower(path_identity_sha256)
+    AND path_identity_sha256 NOT GLOB '*[^0-9a-f]*'
+  ),
+  relative_path TEXT CHECK (
+    relative_path IS NULL OR (
+      length(relative_path) > 0
+      AND instr(relative_path, char(0)) = 0
+    )
+  ),
+  change_kind TEXT NOT NULL CHECK (
+    change_kind IN ('created', 'modified', 'deleted', 'type_changed', 'unmerged')
+  ),
+  staged INTEGER NOT NULL CHECK (staged IN (0, 1)),
+  unstaged INTEGER NOT NULL CHECK (unstaged IN (0, 1)),
+  sensitivity TEXT NOT NULL CHECK (sensitivity IN ('normal', 'secret')),
+  attribution TEXT NOT NULL CHECK (
+    attribution IN ('run_relative', 'observed_only', 'unavailable')
+  ),
+  CHECK (
+    (sensitivity = 'secret' AND relative_path IS NULL)
+    OR (sensitivity = 'normal' AND relative_path IS NOT NULL)
+  ),
+  PRIMARY KEY (reconciliation_id, entry_index)
+) STRICT;
+
+CREATE INDEX git_reconciliations_run_time_idx
+  ON git_reconciliations (run_id, captured_at, reconciliation_id);
+CREATE INDEX git_reconciliations_workspace_time_idx
+  ON git_reconciliations (workspace_id, captured_at, reconciliation_id);
+CREATE INDEX git_reconciliation_entries_path_idx
+  ON git_reconciliation_entries (path_identity_sha256, reconciliation_id);
+
+CREATE TRIGGER git_reconciliations_reject_update
+BEFORE UPDATE ON git_reconciliations
+BEGIN
+  SELECT RAISE(ABORT, 'Git reconciliations are immutable');
+END;
+
+CREATE TRIGGER git_reconciliation_entries_reject_update
+BEFORE UPDATE ON git_reconciliation_entries
+BEGIN
+  SELECT RAISE(ABORT, 'Git reconciliation entries are immutable');
+END;
+`;
+
 export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   Object.freeze({
     version: 1,
@@ -664,5 +840,10 @@ export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
     version: 5,
     name: "privacy_bounded_git_baseline",
     sql: GIT_BASELINE_SQL,
+  }),
+  Object.freeze({
+    version: 6,
+    name: "evidence_bounded_git_reconciliation",
+    sql: GIT_RECONCILIATION_SQL,
   }),
 ]);

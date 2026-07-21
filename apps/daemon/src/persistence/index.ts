@@ -5,6 +5,7 @@ import { AgentConversationRepository } from "./repositories/conversations.js";
 import { EventNormalizationRepository } from "./repositories/event-normalizations.js";
 import { EventRepository } from "./repositories/events.js";
 import { GitBaselineRepository } from "./repositories/git-baselines.js";
+import { GitReconciliationRepository } from "./repositories/git-reconciliations.js";
 import { IngressReceiptRepository } from "./repositories/ingress-receipts.js";
 import { LifecycleResolutionRepository } from "./repositories/lifecycle-resolutions.js";
 import { RunSupportRepository } from "./repositories/run-support.js";
@@ -20,6 +21,7 @@ export type PersistenceRepositories = Readonly<{
   taskRuns: TaskRunRepository;
   events: EventRepository;
   gitBaselines: GitBaselineRepository;
+  gitReconciliations: GitReconciliationRepository;
   eventNormalizations: EventNormalizationRepository;
   runSupport: RunSupportRepository;
   artifacts: ArtifactRepository;
@@ -59,6 +61,7 @@ export function openPersistence(databasePath: string): OwnLoopPersistence {
     taskRuns: new TaskRunRepository(database),
     events: new EventRepository(database),
     gitBaselines: new GitBaselineRepository(database),
+    gitReconciliations: new GitReconciliationRepository(database),
     eventNormalizations: new EventNormalizationRepository(database),
     runSupport: new RunSupportRepository(database),
     artifacts: new ArtifactRepository(database),
@@ -99,30 +102,23 @@ export type {
   ArtifactMetadata,
   RunArtifactReference,
 } from "./repositories/artifacts.js";
-export { AGENT_CONVERSATION_STATUSES } from "./repositories/conversations.js";
 export type {
   AgentConversation,
   AgentConversationStatus,
   NewAgentConversation,
 } from "./repositories/conversations.js";
-export {
-  EVENT_NORMALIZATION_DIAGNOSTIC_CODES,
-  EVENT_NORMALIZATION_OUTCOMES,
-} from "./repositories/event-normalizations.js";
+export { AGENT_CONVERSATION_STATUSES } from "./repositories/conversations.js";
 export type {
   EventNormalizationDiagnosticCode,
   EventNormalizationOutcome,
   NewReceiptEventNormalization,
   ReceiptEventNormalization,
 } from "./repositories/event-normalizations.js";
-export type { EventDeduplicationRecord } from "./repositories/events.js";
 export {
-  GIT_BASELINE_DIAGNOSTIC_CODES,
-  GIT_BASELINE_ENTRY_HASH_STATUSES,
-  GIT_BASELINE_ENTRY_KINDS,
-  GIT_BASELINE_ENTRY_SENSITIVITIES,
-  GIT_BASELINE_OUTCOMES,
-} from "./repositories/git-baselines.js";
+  EVENT_NORMALIZATION_DIAGNOSTIC_CODES,
+  EVENT_NORMALIZATION_OUTCOMES,
+} from "./repositories/event-normalizations.js";
+export type { EventDeduplicationRecord } from "./repositories/events.js";
 export type {
   GitBaseline,
   GitBaselineDiagnosticCode,
@@ -135,17 +131,32 @@ export type {
   NewGitBaselineUntrackedEntry,
 } from "./repositories/git-baselines.js";
 export {
-  LIFECYCLE_DIAGNOSTIC_CODES,
-  LIFECYCLE_RESOLUTION_ACTIONS,
-  LIFECYCLE_RESOLUTION_OUTCOMES,
-} from "./repositories/lifecycle-resolutions.js";
+  GIT_BASELINE_DIAGNOSTIC_CODES,
+  GIT_BASELINE_ENTRY_HASH_STATUSES,
+  GIT_BASELINE_ENTRY_KINDS,
+  GIT_BASELINE_ENTRY_SENSITIVITIES,
+  GIT_BASELINE_OUTCOMES,
+} from "./repositories/git-baselines.js";
 export type {
-  LifecycleDiagnosticCode,
-  LifecycleResolutionAction,
-  LifecycleResolutionOutcome,
-  NewReceiptLifecycleResolution,
-  ReceiptLifecycleResolution,
-} from "./repositories/lifecycle-resolutions.js";
+  GitBaselineComparison,
+  GitReconciliation,
+  GitReconciliationAttribution,
+  GitReconciliationBoundary,
+  GitReconciliationChangeKind,
+  GitReconciliationDiagnosticCode,
+  GitReconciliationEntry,
+  GitReconciliationOutcome,
+  NewGitReconciliation,
+  NewGitReconciliationEntry,
+} from "./repositories/git-reconciliations.js";
+export {
+  GIT_BASELINE_COMPARISONS,
+  GIT_RECONCILIATION_ATTRIBUTIONS,
+  GIT_RECONCILIATION_BOUNDARIES,
+  GIT_RECONCILIATION_CHANGE_KINDS,
+  GIT_RECONCILIATION_DIAGNOSTIC_CODES,
+  GIT_RECONCILIATION_OUTCOMES,
+} from "./repositories/git-reconciliations.js";
 export type {
   IngressReceipt,
   IngressReceiptStatus,
@@ -159,6 +170,18 @@ export {
   MAX_PENDING_RECEIPT_BATCH,
 } from "./repositories/ingress-receipts.js";
 export type {
+  LifecycleDiagnosticCode,
+  LifecycleResolutionAction,
+  LifecycleResolutionOutcome,
+  NewReceiptLifecycleResolution,
+  ReceiptLifecycleResolution,
+} from "./repositories/lifecycle-resolutions.js";
+export {
+  LIFECYCLE_DIAGNOSTIC_CODES,
+  LIFECYCLE_RESOLUTION_ACTIONS,
+  LIFECYCLE_RESOLUTION_OUTCOMES,
+} from "./repositories/lifecycle-resolutions.js";
+export type {
   AnalysisJobRecord,
   EvidenceGapRecord,
 } from "./repositories/run-support.js";
@@ -169,9 +192,9 @@ export type {
   TaskRunStatus,
 } from "./repositories/task-runs.js";
 export { TASK_RUN_STATUSES } from "./repositories/task-runs.js";
-export { WORKSPACE_IDENTITY_BASES } from "./repositories/workspaces.js";
 export type {
   NewWorkspace,
   Workspace,
   WorkspaceIdentityBasis,
 } from "./repositories/workspaces.js";
+export { WORKSPACE_IDENTITY_BASES } from "./repositories/workspaces.js";

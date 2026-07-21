@@ -17,6 +17,8 @@ const REQUIRED_TABLES = [
   "evidence_gaps",
   "git_baseline_untracked_entries",
   "git_baselines",
+  "git_reconciliation_entries",
+  "git_reconciliations",
   "ingress_receipts",
   "receipt_event_normalizations",
   "receipt_lifecycle_resolutions",
@@ -86,6 +88,40 @@ describe("SQLite migrations", () => {
       });
       expect(opened.database.prepare("PRAGMA synchronous").get()).toEqual({ synchronous: 2 });
       expect(readAppliedMigrations(opened.database)).toHaveLength(MIGRATIONS.length);
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("upgrades a version-5 database to reconciliation migration version 6", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 5));
+      expect(readAppliedMigrations(opened.database)).toHaveLength(5);
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'git_reconciliations'",
+          )
+          .get(),
+      ).toBeUndefined();
+
+      runMigrations(opened.database);
+      expect(readAppliedMigrations(opened.database)).toHaveLength(6);
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'git_reconciliations'",
+          )
+          .get(),
+      ).toBeDefined();
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'git_reconciliation_entries'",
+          )
+          .get(),
+      ).toBeDefined();
     } finally {
       opened.database.close();
     }
