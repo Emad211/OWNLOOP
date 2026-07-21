@@ -1,0 +1,75 @@
+name: Add OL-009 New Files
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Assemble and verify archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          for index in $(seq -w 0 8); do
+            test -s ".github/ol009-new/part-${index}"
+          done
+          cat .github/ol009-new/part-* > /tmp/ol009-new-files.tar.gz.b64
+          test "$(wc -c < /tmp/ol009-new-files.tar.gz.b64)" -eq 18276
+          echo "93d2e93d446fd9107081bd10e0241fda14ea939c84fb9d2b9028e986082f679c  /tmp/ol009-new-files.tar.gz.b64" | sha256sum --check
+          base64 --decode /tmp/ol009-new-files.tar.gz.b64 > /tmp/ol009-new-files.tar.gz
+          gzip --test /tmp/ol009-new-files.tar.gz
+          echo "3176f70dcf9f79287eb0a8d38617a7206388f579fc1382d3a0dceffb036bb047  /tmp/ol009-new-files.tar.gz" | sha256sum --check
+
+      - name: Verify archive allowlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/expected-files <<'FILES'
+          apps/daemon/src/git-reconciliation/README.md
+          apps/daemon/src/git-reconciliation/constants.ts
+          apps/daemon/src/git-reconciliation/index.ts
+          apps/daemon/src/git-reconciliation/observation.ts
+          apps/daemon/src/git-reconciliation/processor.test.ts
+          apps/daemon/src/git-reconciliation/processor.ts
+          apps/daemon/src/git-reconciliation/status-parser.test.ts
+          apps/daemon/src/git-reconciliation/status-parser.ts
+          apps/daemon/src/persistence/repositories/git-reconciliations.ts
+          FILES
+          tar -tzf /tmp/ol009-new-files.tar.gz > /tmp/archive-files
+          diff -u /tmp/expected-files /tmp/archive-files
+          while read -r path; do
+            test ! -e "$path"
+          done < /tmp/expected-files
+
+      - name: Extract and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -xzf /tmp/ol009-new-files.tar.gz
+          git add \
+            apps/daemon/src/git-reconciliation/README.md \
+            apps/daemon/src/git-reconciliation/constants.ts \
+            apps/daemon/src/git-reconciliation/index.ts \
+            apps/daemon/src/git-reconciliation/observation.ts \
+            apps/daemon/src/git-reconciliation/processor.test.ts \
+            apps/daemon/src/git-reconciliation/processor.ts \
+            apps/daemon/src/git-reconciliation/status-parser.test.ts \
+            apps/daemon/src/git-reconciliation/status-parser.ts \
+            apps/daemon/src/persistence/repositories/git-reconciliations.ts
+          git rm -r .github/ol009-new
+          git rm .github/workflows/apply-ol009-new-files.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Add OL-009 reconciliation sources"
+          git push origin "HEAD:${{ github.head_ref }}"
