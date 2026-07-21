@@ -106,7 +106,7 @@ describe("SQLite migrations", () => {
           .get(),
       ).toBeUndefined();
 
-      runMigrations(opened.database);
+      runMigrations(opened.database, MIGRATIONS.slice(0, 6));
       expect(readAppliedMigrations(opened.database)).toHaveLength(6);
       expect(
         opened.database
@@ -122,6 +122,193 @@ describe("SQLite migrations", () => {
           )
           .get(),
       ).toBeDefined();
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("upgrades a version-6 database to artifact-store migration version 7", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 6));
+      opened.database
+        .prepare(
+          `INSERT INTO artifacts (
+             artifact_id, digest, storage_path, size_bytes, kind, sensitivity, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "legacy-artifact",
+          "sha256:legacy",
+          "legacy/path",
+          1,
+          "legacy",
+          "normal",
+          "2026-07-22T00:00:00.000Z",
+        );
+
+      runMigrations(opened.database);
+
+      expect(readAppliedMigrations(opened.database)).toHaveLength(7);
+      expect(
+        opened.database
+          .prepare(
+            `SELECT storage_version, media_type
+             FROM artifacts
+             WHERE artifact_id = ?`,
+          )
+          .get("legacy-artifact"),
+      ).toEqual({ storage_version: 0, media_type: null });
+      expect(
+        opened.database
+          .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = ?")
+          .get("run_artifacts_reject_update"),
+      ).toBeDefined();
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("enforces version-1 artifact identity, sensitivity, and reference immutability", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    const digest = `sha256:${"a".repeat(64)}`;
+    const storagePath = `objects/sha256/aa/${"a".repeat(62)}`;
+    try {
+      runMigrations(opened.database);
+      opened.database
+        .prepare(
+          `INSERT INTO artifacts (
+             artifact_id, digest, storage_path, size_bytes, kind, sensitivity,
+             storage_version, media_type, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "artifact-1",
+          digest,
+          storagePath,
+          1,
+          "prepared-evidence",
+          "public",
+          1,
+          "application/octet-stream",
+          "2026-07-22T00:00:00.000Z",
+        );
+
+      expect(() =>
+        opened.database
+          .prepare("UPDATE artifacts SET sensitivity = ? WHERE artifact_id = ?")
+          .run("secret", "artifact-1"),
+      ).not.toThrow();
+      expect(() =>
+        opened.database
+          .prepare("UPDATE artifacts SET sensitivity = ? WHERE artifact_id = ?")
+          .run("normal", "artifact-1"),
+      ).toThrow();
+      expect(() =>
+        opened.database
+          .prepare("UPDATE artifacts SET kind = ? WHERE artifact_id = ?")
+          .run("changed-kind", "artifact-1"),
+      ).toThrow();
+
+      for (const invalid of [
+        {
+          artifactId: "invalid-digest",
+          digest: `sha256:${"A".repeat(64)}`,
+          storagePath,
+          mediaType: "application/octet-stream",
+        },
+        {
+          artifactId: "invalid-path",
+          digest: `sha256:${"b".repeat(64)}`,
+          storagePath: "objects/sha256/00/not-derived",
+          mediaType: "application/octet-stream",
+        },
+        {
+          artifactId: "invalid-media",
+          digest: `sha256:${"c".repeat(64)}`,
+          storagePath: `objects/sha256/cc/${"c".repeat(62)}`,
+          mediaType: null,
+        },
+      ]) {
+        expect(() =>
+          opened.database
+            .prepare(
+              `INSERT INTO artifacts (
+                 artifact_id, digest, storage_path, size_bytes, kind, sensitivity,
+                 storage_version, media_type, created_at
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              invalid.artifactId,
+              invalid.digest,
+              invalid.storagePath,
+              1,
+              "prepared-evidence",
+              "normal",
+              1,
+              invalid.mediaType,
+              "2026-07-22T00:00:00.000Z",
+            ),
+        ).toThrow();
+      }
+
+      opened.database
+        .prepare(
+          `INSERT INTO workspaces (
+             workspace_id, canonical_path, repository_root, git_remote,
+             initial_repository_fingerprint, created_at, last_observed_at, identity_basis
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "workspace-1",
+          "/workspace",
+          "/workspace",
+          null,
+          "fingerprint",
+          "2026-07-22T00:00:00.000Z",
+          "2026-07-22T00:00:00.000Z",
+          "legacy",
+        );
+      opened.database
+        .prepare(
+          `INSERT INTO agent_conversations (
+             conversation_id, workspace_id, source, source_session_id, start_mode,
+             started_at, last_observed_at, ended_at, status
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "conversation-1",
+          "workspace-1",
+          "claude_code",
+          "session-1",
+          null,
+          "2026-07-22T00:00:00.000Z",
+          "2026-07-22T00:00:00.000Z",
+          null,
+          "Active",
+        );
+      opened.database
+        .prepare(
+          `INSERT INTO task_runs (
+             run_id, conversation_id, run_number, redacted_prompt, started_at, status
+           ) VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run("run-1", "conversation-1", 1, "prompt", "2026-07-22T00:00:00.000Z", "Capturing");
+      opened.database
+        .prepare(
+          `INSERT INTO run_artifacts (run_id, artifact_id, role, created_at)
+           VALUES (?, ?, ?, ?)`,
+        )
+        .run("run-1", "artifact-1", "final-diff", "2026-07-22T00:00:00.000Z");
+
+      expect(() =>
+        opened.database
+          .prepare(
+            `UPDATE run_artifacts SET role = ?
+             WHERE run_id = ? AND artifact_id = ? AND role = ?`,
+          )
+          .run("changed-role", "run-1", "artifact-1", "final-diff"),
+      ).toThrow();
     } finally {
       opened.database.close();
     }

@@ -815,6 +815,100 @@ BEGIN
 END;
 `;
 
+const CONTENT_ADDRESSED_ARTIFACT_STORE_SQL = `
+ALTER TABLE artifacts
+  ADD COLUMN storage_version INTEGER NOT NULL DEFAULT 0
+  CHECK (storage_version IN (0, 1));
+
+ALTER TABLE artifacts
+  ADD COLUMN media_type TEXT
+  CHECK (media_type IS NULL OR length(trim(media_type)) > 0);
+
+CREATE INDEX artifacts_storage_version_created_idx
+  ON artifacts (storage_version, created_at, artifact_id);
+
+CREATE TRIGGER artifacts_v1_insert_guard
+BEFORE INSERT ON artifacts
+WHEN NEW.storage_version = 1
+BEGIN
+  SELECT CASE
+    WHEN length(NEW.digest) <> 71
+      OR substr(NEW.digest, 1, 7) <> 'sha256:'
+      OR substr(NEW.digest, 8) <> lower(substr(NEW.digest, 8))
+      OR substr(NEW.digest, 8) GLOB '*[^0-9a-f]*'
+    THEN RAISE(ABORT, 'invalid version-1 artifact digest')
+  END;
+  SELECT CASE
+    WHEN NEW.storage_path <> (
+      'objects/sha256/' || substr(NEW.digest, 8, 2) || '/' || substr(NEW.digest, 10, 62)
+    )
+    THEN RAISE(ABORT, 'invalid version-1 artifact path')
+  END;
+  SELECT CASE
+    WHEN NEW.media_type IS NULL OR length(trim(NEW.media_type)) = 0
+    THEN RAISE(ABORT, 'version-1 artifact media type is required')
+  END;
+END;
+
+CREATE TRIGGER artifacts_v1_update_guard
+BEFORE UPDATE ON artifacts
+WHEN NEW.storage_version = 1
+BEGIN
+  SELECT CASE
+    WHEN length(NEW.digest) <> 71
+      OR substr(NEW.digest, 1, 7) <> 'sha256:'
+      OR substr(NEW.digest, 8) <> lower(substr(NEW.digest, 8))
+      OR substr(NEW.digest, 8) GLOB '*[^0-9a-f]*'
+    THEN RAISE(ABORT, 'invalid version-1 artifact digest')
+  END;
+  SELECT CASE
+    WHEN NEW.storage_path <> (
+      'objects/sha256/' || substr(NEW.digest, 8, 2) || '/' || substr(NEW.digest, 10, 62)
+    )
+    THEN RAISE(ABORT, 'invalid version-1 artifact path')
+  END;
+  SELECT CASE
+    WHEN NEW.media_type IS NULL OR length(trim(NEW.media_type)) = 0
+    THEN RAISE(ABORT, 'version-1 artifact media type is required')
+  END;
+END;
+
+CREATE TRIGGER artifacts_v1_identity_reject_update
+BEFORE UPDATE OF artifact_id, digest, storage_path, size_bytes, kind, storage_version, media_type, created_at
+ON artifacts
+WHEN OLD.storage_version = 1 OR NEW.storage_version = 1
+BEGIN
+  SELECT RAISE(ABORT, 'version-1 artifact identity is immutable');
+END;
+
+CREATE TRIGGER artifacts_sensitivity_reject_downgrade
+BEFORE UPDATE OF sensitivity ON artifacts
+WHEN (
+  CASE NEW.sensitivity
+    WHEN 'public' THEN 0
+    WHEN 'normal' THEN 1
+    WHEN 'sensitive' THEN 2
+    WHEN 'secret' THEN 3
+  END
+) < (
+  CASE OLD.sensitivity
+    WHEN 'public' THEN 0
+    WHEN 'normal' THEN 1
+    WHEN 'sensitive' THEN 2
+    WHEN 'secret' THEN 3
+  END
+)
+BEGIN
+  SELECT RAISE(ABORT, 'artifact sensitivity cannot be downgraded');
+END;
+
+CREATE TRIGGER run_artifacts_reject_update
+BEFORE UPDATE ON run_artifacts
+BEGIN
+  SELECT RAISE(ABORT, 'Run artifact references are immutable');
+END;
+`;
+
 export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   Object.freeze({
     version: 1,
@@ -845,5 +939,10 @@ export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
     version: 6,
     name: "evidence_bounded_git_reconciliation",
     sql: GIT_RECONCILIATION_SQL,
+  }),
+  Object.freeze({
+    version: 7,
+    name: "local_content_addressed_artifact_store",
+    sql: CONTENT_ADDRESSED_ARTIFACT_STORE_SQL,
   }),
 ]);

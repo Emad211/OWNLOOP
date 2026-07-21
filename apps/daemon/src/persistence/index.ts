@@ -100,8 +100,11 @@ export {
 } from "./errors.js";
 export type {
   ArtifactMetadata,
+  ArtifactStorageVersion,
+  RunArtifactRecord,
   RunArtifactReference,
 } from "./repositories/artifacts.js";
+export { ARTIFACT_STORAGE_VERSIONS } from "./repositories/artifacts.js";
 export type {
   AgentConversation,
   AgentConversationStatus,
