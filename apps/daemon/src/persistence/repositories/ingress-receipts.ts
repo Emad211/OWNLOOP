@@ -1,13 +1,25 @@
 import type { DatabaseSync } from "node:sqlite";
+import {
+  type PreparedIngressReceiptV1,
+  PreparedIngressReceiptV1Schema,
+  type RedactionSummaryV1,
+} from "@ownloop/contracts";
 
-import { mapPersistenceWriteError } from "../errors.js";
+import { mapPersistenceWriteError, PersistenceError } from "../errors.js";
 import { nullableString, requiredNumber, requiredString } from "../row-mapping.js";
 
 export const INGRESS_RECEIPT_STATUSES = ["pending", "processed", "failed"] as const;
 export type IngressReceiptStatus = (typeof INGRESS_RECEIPT_STATUSES)[number];
 
-export type IngressReceipt = Readonly<{
+type OperationalReceiptFields = Readonly<{
   receiptId: string;
+  processingStatus: IngressReceiptStatus;
+  processedAt: string | null;
+  failureCode: string | null;
+  createdAt: string;
+}>;
+
+type LegacyReceiptPayload = Readonly<{
   ingressContractVersion: number;
   source: string;
   sourceSessionId: string;
@@ -17,13 +29,66 @@ export type IngressReceipt = Readonly<{
   receivedAt: string;
   payloadFingerprint: string;
   redactedPayloadJson: string;
-  processingStatus: IngressReceiptStatus;
-  processedAt: string | null;
-  failureCode: string | null;
-  createdAt: string;
 }>;
 
-export type NewIngressReceipt = IngressReceipt;
+export type LegacyIngressReceipt = OperationalReceiptFields &
+  LegacyReceiptPayload &
+  Readonly<{ preparationStatus: "legacy" }>;
+
+export type PreparedIngressReceiptRecord = OperationalReceiptFields &
+  PreparedIngressReceiptV1 &
+  Readonly<{ preparationStatus: "prepared" }>;
+
+export type IngressReceipt = LegacyIngressReceipt | PreparedIngressReceiptRecord;
+
+export type NewPreparedIngressReceipt = OperationalReceiptFields & PreparedIngressReceiptV1;
+
+function parseSummary(value: string): RedactionSummaryV1 {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new PersistenceError(
+      "invalid_persisted_row",
+      "The persisted ingress receipt contains invalid redaction summary JSON.",
+    );
+  }
+
+  const result = PreparedIngressReceiptV1Schema.shape.redactionSummary.safeParse(parsed);
+  if (!result.success) {
+    throw new PersistenceError(
+      "invalid_persisted_row",
+      "The persisted ingress receipt contains an invalid redaction summary.",
+    );
+  }
+  return result.data;
+}
+
+function validatePreparedContract(receipt: NewPreparedIngressReceipt): PreparedIngressReceiptV1 {
+  const result = PreparedIngressReceiptV1Schema.safeParse({
+    canonicalizationVersion: receipt.canonicalizationVersion,
+    redactionPolicyVersion: receipt.redactionPolicyVersion,
+    ingressContractVersion: receipt.ingressContractVersion,
+    source: receipt.source,
+    adapterVersion: receipt.adapterVersion,
+    sourceSessionId: receipt.sourceSessionId,
+    sourceEventName: receipt.sourceEventName,
+    sourceEventId: receipt.sourceEventId,
+    canonicalWorkspacePath: receipt.canonicalWorkspacePath,
+    receivedAt: receipt.receivedAt,
+    payloadFingerprint: receipt.payloadFingerprint,
+    deduplicationKey: receipt.deduplicationKey,
+    redactedPayloadJson: receipt.redactedPayloadJson,
+    redactionSummary: receipt.redactionSummary,
+  });
+  if (!result.success) {
+    throw new PersistenceError(
+      "operation_failed",
+      "The prepared ingress receipt violates its runtime contract.",
+    );
+  }
+  return result.data;
+}
 
 export class IngressReceiptRepository {
   readonly #database: DatabaseSync;
@@ -32,7 +97,9 @@ export class IngressReceiptRepository {
     this.#database = database;
   }
 
-  insert(receipt: NewIngressReceipt): void {
+  insertPrepared(receipt: NewPreparedIngressReceipt): void {
+    const prepared = validatePreparedContract(receipt);
+
     try {
       this.#database
         .prepare(
@@ -50,27 +117,37 @@ export class IngressReceiptRepository {
              processing_status,
              processed_at,
              failure_code,
-             created_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             created_at,
+             canonicalization_version,
+             redaction_policy_version,
+             adapter_version,
+             canonical_workspace_path,
+             redaction_summary_json
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           receipt.receiptId,
-          receipt.ingressContractVersion,
-          receipt.source,
-          receipt.sourceSessionId,
-          receipt.sourceEventName,
-          receipt.sourceEventId,
-          receipt.deduplicationKey,
-          receipt.receivedAt,
-          receipt.payloadFingerprint,
-          receipt.redactedPayloadJson,
+          prepared.ingressContractVersion,
+          prepared.source,
+          prepared.sourceSessionId,
+          prepared.sourceEventName,
+          prepared.sourceEventId,
+          prepared.deduplicationKey,
+          prepared.receivedAt,
+          prepared.payloadFingerprint,
+          prepared.redactedPayloadJson,
           receipt.processingStatus,
           receipt.processedAt,
           receipt.failureCode,
           receipt.createdAt,
+          prepared.canonicalizationVersion,
+          prepared.redactionPolicyVersion,
+          prepared.adapterVersion,
+          prepared.canonicalWorkspacePath,
+          JSON.stringify(prepared.redactionSummary),
         );
     } catch (error) {
-      mapPersistenceWriteError(error, "insert ingress receipt");
+      mapPersistenceWriteError(error, "insert prepared ingress receipt");
     }
   }
 
@@ -91,7 +168,12 @@ export class IngressReceiptRepository {
            processing_status,
            processed_at,
            failure_code,
-           created_at
+           created_at,
+           canonicalization_version,
+           redaction_policy_version,
+           adapter_version,
+           canonical_workspace_path,
+           redaction_summary_json
          FROM ingress_receipts
          WHERE receipt_id = ?`,
       )
@@ -101,8 +183,14 @@ export class IngressReceiptRepository {
       return null;
     }
 
-    return {
+    const operational: OperationalReceiptFields = {
       receiptId: requiredString(row, "receipt_id"),
+      processingStatus: requiredString(row, "processing_status") as IngressReceiptStatus,
+      processedAt: nullableString(row, "processed_at"),
+      failureCode: nullableString(row, "failure_code"),
+      createdAt: requiredString(row, "created_at"),
+    };
+    const legacyPayload: LegacyReceiptPayload = {
       ingressContractVersion: requiredNumber(row, "ingress_contract_version"),
       source: requiredString(row, "source"),
       sourceSessionId: requiredString(row, "source_session_id"),
@@ -112,10 +200,41 @@ export class IngressReceiptRepository {
       receivedAt: requiredString(row, "received_at"),
       payloadFingerprint: requiredString(row, "payload_fingerprint"),
       redactedPayloadJson: requiredString(row, "redacted_payload_json"),
-      processingStatus: requiredString(row, "processing_status") as IngressReceiptStatus,
-      processedAt: nullableString(row, "processed_at"),
-      failureCode: nullableString(row, "failure_code"),
-      createdAt: requiredString(row, "created_at"),
     };
+
+    const preparationMetadata = [
+      row.canonicalization_version,
+      row.redaction_policy_version,
+      row.adapter_version,
+      row.canonical_workspace_path,
+      row.redaction_summary_json,
+    ];
+    const nullMetadataCount = preparationMetadata.filter((value) => value === null).length;
+    if (nullMetadataCount === preparationMetadata.length) {
+      return { ...operational, ...legacyPayload, preparationStatus: "legacy" };
+    }
+    if (nullMetadataCount > 0) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The persisted ingress receipt contains incomplete preparation metadata.",
+      );
+    }
+
+    const prepared = PreparedIngressReceiptV1Schema.safeParse({
+      ...legacyPayload,
+      canonicalizationVersion: requiredNumber(row, "canonicalization_version"),
+      redactionPolicyVersion: requiredNumber(row, "redaction_policy_version"),
+      adapterVersion: requiredString(row, "adapter_version"),
+      canonicalWorkspacePath: requiredString(row, "canonical_workspace_path"),
+      redactionSummary: parseSummary(requiredString(row, "redaction_summary_json")),
+    });
+    if (!prepared.success) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The persisted prepared ingress receipt violates its runtime contract.",
+      );
+    }
+
+    return { ...operational, ...prepared.data, preparationStatus: "prepared" };
   }
 }
