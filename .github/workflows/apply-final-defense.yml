@@ -1,0 +1,35 @@
+name: Apply Final OL-005A Defense
+
+on:
+  pull_request:
+    branches:
+      - agent/ol-005a-ingress-security-plan
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Verify and apply final defense
+        shell: bash
+        run: |
+          set -euo pipefail
+          patch_file=.github/final-defense.patch
+          test -s "$patch_file"
+          echo "89987f6d3742c063e2aa554c0531e63507f1b5e8c9a4cae8b4c4b34c2288ecb7  $patch_file" | sha256sum --check
+          git apply --check --verbose "$patch_file"
+          git apply --index "$patch_file"
+          git rm "$patch_file"
+          git rm .github/workflows/apply-final-defense.yml
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Close final OL-005A defense gaps"
+          git push origin "HEAD:${{ github.head_ref }}"
