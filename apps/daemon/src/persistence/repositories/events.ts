@@ -144,6 +144,11 @@ export class EventRepository {
     }
   }
 
+  countAll(): number {
+    const row = this.#database.prepare("SELECT count(*) AS count FROM events").get();
+    return row === undefined ? 0 : requiredNumber(row, "count");
+  }
+
   countDeduplicationKeysForEvent(eventId: string): number {
     const row = this.#database
       .prepare("SELECT count(*) AS count FROM event_deduplication WHERE event_id = ?")

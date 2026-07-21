@@ -46,6 +46,7 @@ function workspace(overrides: Partial<Workspace> = {}): Workspace {
     repositoryRoot: "C:/projects/ownloop",
     gitRemote: "https://github.com/Emad211/OWNLOOP.git",
     initialRepositoryFingerprint: "workspace-fingerprint-1",
+    identityBasis: "legacy",
     createdAt: TIMESTAMP,
     lastObservedAt: TIMESTAMP,
     ...overrides,
@@ -62,7 +63,7 @@ function conversation(overrides: Partial<AgentConversation> = {}): AgentConversa
     startedAt: TIMESTAMP,
     lastObservedAt: TIMESTAMP,
     endedAt: null,
-    status: "active",
+    status: "Active",
     ...overrides,
   };
 }
