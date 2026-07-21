@@ -148,12 +148,14 @@ function normalizedEvent(
 function artifact(overrides: Partial<ArtifactMetadata> = {}): ArtifactMetadata {
   return {
     artifactId: "artifact-1",
-    digest: "sha256:artifact-digest-1",
-    storagePath: "artifacts/sha256/artifact-digest-1",
+    digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    storagePath: "objects/sha256/aa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     sizeBytes: 42,
     kind: "redacted-diff",
     sensitivity: "normal",
     createdAt: TIMESTAMP,
+    storageVersion: 1,
+    mediaType: "text/plain",
     ...overrides,
   };
 }

@@ -106,7 +106,7 @@ describe("SQLite migrations", () => {
           .get(),
       ).toBeUndefined();
 
-      runMigrations(opened.database);
+      runMigrations(opened.database, MIGRATIONS.slice(0, 6));
       expect(readAppliedMigrations(opened.database)).toHaveLength(6);
       expect(
         opened.database

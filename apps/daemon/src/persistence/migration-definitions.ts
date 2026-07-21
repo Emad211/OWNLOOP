@@ -815,6 +815,101 @@ BEGIN
 END;
 `;
 
+const CONTENT_ADDRESSED_ARTIFACT_SQL = `
+ALTER TABLE artifacts
+  ADD COLUMN storage_version INTEGER NOT NULL DEFAULT 0
+  CHECK (storage_version IN (0, 1));
+
+ALTER TABLE artifacts
+  ADD COLUMN media_type TEXT
+  CHECK (media_type IS NULL OR length(trim(media_type)) > 0);
+
+CREATE TRIGGER artifacts_require_content_addressed_insert
+BEFORE INSERT ON artifacts
+WHEN NEW.storage_version <> 1
+BEGIN
+  SELECT RAISE(ABORT, 'new artifacts require content-addressed storage metadata');
+END;
+
+CREATE TRIGGER artifacts_validate_content_addressed_insert
+BEFORE INSERT ON artifacts
+WHEN NEW.storage_version = 1 AND NOT (
+  length(NEW.digest) = 71
+  AND substr(NEW.digest, 1, 7) = 'sha256:'
+  AND substr(NEW.digest, 8) = lower(substr(NEW.digest, 8))
+  AND substr(NEW.digest, 8) NOT GLOB '*[^0-9a-f]*'
+  AND length(NEW.storage_path) = 80
+  AND substr(NEW.storage_path, 1, 15) = 'objects/sha256/'
+  AND substr(NEW.storage_path, 16, 2) = substr(NEW.digest, 8, 2)
+  AND substr(NEW.storage_path, 18, 1) = '/'
+  AND substr(NEW.storage_path, 19) = substr(NEW.digest, 10)
+  AND substr(NEW.storage_path, 16) NOT GLOB '*[^0-9a-f/]*'
+  AND NEW.media_type IS NOT NULL
+  AND length(trim(NEW.media_type)) > 0
+  AND length(trim(NEW.kind)) > 0
+)
+BEGIN
+  SELECT RAISE(ABORT, 'invalid content-addressed artifact metadata');
+END;
+
+CREATE TRIGGER artifacts_reject_content_identity_update
+BEFORE UPDATE OF
+  artifact_id,
+  digest,
+  storage_path,
+  size_bytes,
+  kind,
+  created_at,
+  storage_version,
+  media_type
+ON artifacts
+WHEN NEW.artifact_id IS NOT OLD.artifact_id
+  OR NEW.digest IS NOT OLD.digest
+  OR NEW.storage_path IS NOT OLD.storage_path
+  OR NEW.size_bytes IS NOT OLD.size_bytes
+  OR NEW.kind IS NOT OLD.kind
+  OR NEW.created_at IS NOT OLD.created_at
+  OR NEW.storage_version IS NOT OLD.storage_version
+  OR NEW.media_type IS NOT OLD.media_type
+BEGIN
+  SELECT RAISE(ABORT, 'artifact content identity is immutable');
+END;
+
+CREATE TRIGGER artifacts_reject_sensitivity_downgrade
+BEFORE UPDATE OF sensitivity ON artifacts
+WHEN (
+  CASE NEW.sensitivity
+    WHEN 'public' THEN 0
+    WHEN 'normal' THEN 1
+    WHEN 'sensitive' THEN 2
+    WHEN 'secret' THEN 3
+  END
+) < (
+  CASE OLD.sensitivity
+    WHEN 'public' THEN 0
+    WHEN 'normal' THEN 1
+    WHEN 'sensitive' THEN 2
+    WHEN 'secret' THEN 3
+  END
+)
+BEGIN
+  SELECT RAISE(ABORT, 'artifact sensitivity cannot be downgraded');
+END;
+
+CREATE TRIGGER artifacts_reject_referenced_delete
+BEFORE DELETE ON artifacts
+WHEN EXISTS (SELECT 1 FROM run_artifacts WHERE artifact_id = OLD.artifact_id)
+BEGIN
+  SELECT RAISE(ABORT, 'referenced artifact metadata cannot be deleted');
+END;
+
+CREATE TRIGGER run_artifacts_reject_update
+BEFORE UPDATE ON run_artifacts
+BEGIN
+  SELECT RAISE(ABORT, 'run artifact references are immutable');
+END;
+`;
+
 export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   Object.freeze({
     version: 1,
@@ -845,5 +940,10 @@ export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
     version: 6,
     name: "evidence_bounded_git_reconciliation",
     sql: GIT_RECONCILIATION_SQL,
+  }),
+  Object.freeze({
+    version: 7,
+    name: "content_addressed_artifact_store",
+    sql: CONTENT_ADDRESSED_ARTIFACT_SQL,
   }),
 ]);

@@ -100,6 +100,7 @@ export {
 } from "./errors.js";
 export type {
   ArtifactMetadata,
+  ArtifactStorageVersion,
   RunArtifactReference,
 } from "./repositories/artifacts.js";
 export type {
