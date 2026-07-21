@@ -83,6 +83,7 @@ export type {
 export {
   MigrationError,
   PersistenceConstraintError,
+  PersistenceDeduplicationConflictError,
   PersistenceError,
 } from "./errors.js";
 export type {
@@ -99,6 +100,7 @@ export type {
   IngressReceiptStatus,
   LegacyIngressReceipt,
   NewPreparedIngressReceipt,
+  PreparedIngressInsertResult,
   PreparedIngressReceiptRecord,
 } from "./repositories/ingress-receipts.js";
 export { INGRESS_RECEIPT_STATUSES } from "./repositories/ingress-receipts.js";

@@ -15,10 +15,14 @@ describe("structured ingestion responses", () => {
     expect(IngestionResponseSchema.safeParse(input).success).toBe(false);
   });
 
-  it("exposes only the initial stable error codes", () => {
+  it("exposes the loopback ingestion error codes", () => {
     expect(INGESTION_ERROR_CODES).toEqual([
+      "unauthorized",
       "invalid_payload",
       "unsupported_hook",
+      "payload_too_large",
+      "unsupported_media_type",
+      "deduplication_conflict",
       "persistence_failed",
       "internal_error",
     ]);

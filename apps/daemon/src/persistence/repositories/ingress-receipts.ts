@@ -5,7 +5,12 @@ import {
   type RedactionSummaryV1,
 } from "@ownloop/contracts";
 
-import { mapPersistenceWriteError, PersistenceError } from "../errors.js";
+import {
+  mapPersistenceWriteError,
+  PersistenceDeduplicationConflictError,
+  PersistenceError,
+} from "../errors.js";
+import { runInTransaction } from "../transaction.js";
 import { nullableString, requiredNumber, requiredString } from "../row-mapping.js";
 
 export const INGRESS_RECEIPT_STATUSES = ["pending", "processed", "failed"] as const;
@@ -42,6 +47,11 @@ export type PreparedIngressReceiptRecord = OperationalReceiptFields &
 export type IngressReceipt = LegacyIngressReceipt | PreparedIngressReceiptRecord;
 
 export type NewPreparedIngressReceipt = OperationalReceiptFields & PreparedIngressReceiptV1;
+
+export type PreparedIngressInsertResult = Readonly<{
+  receiptId: string;
+  duplicate: boolean;
+}>;
 
 function parseSummary(value: string): RedactionSummaryV1 {
   let parsed: unknown;
@@ -148,6 +158,101 @@ export class IngressReceiptRepository {
         );
     } catch (error) {
       mapPersistenceWriteError(error, "insert prepared ingress receipt");
+    }
+  }
+
+  insertPreparedOrGetExisting(receipt: NewPreparedIngressReceipt): PreparedIngressInsertResult {
+    const prepared = validatePreparedContract(receipt);
+
+    try {
+      return runInTransaction(this.#database, () => {
+        const inserted = this.#database
+          .prepare(
+            `INSERT INTO ingress_receipts (
+               receipt_id,
+               ingress_contract_version,
+               source,
+               source_session_id,
+               source_event_name,
+               source_event_id,
+               deduplication_key,
+               received_at,
+               payload_fingerprint,
+               redacted_payload_json,
+               processing_status,
+               processed_at,
+               failure_code,
+               created_at,
+               canonicalization_version,
+               redaction_policy_version,
+               adapter_version,
+               canonical_workspace_path,
+               redaction_summary_json
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(source, source_session_id, deduplication_key) DO NOTHING`,
+          )
+          .run(
+            receipt.receiptId,
+            prepared.ingressContractVersion,
+            prepared.source,
+            prepared.sourceSessionId,
+            prepared.sourceEventName,
+            prepared.sourceEventId,
+            prepared.deduplicationKey,
+            prepared.receivedAt,
+            prepared.payloadFingerprint,
+            prepared.redactedPayloadJson,
+            receipt.processingStatus,
+            receipt.processedAt,
+            receipt.failureCode,
+            receipt.createdAt,
+            prepared.canonicalizationVersion,
+            prepared.redactionPolicyVersion,
+            prepared.adapterVersion,
+            prepared.canonicalWorkspacePath,
+            JSON.stringify(prepared.redactionSummary),
+          );
+
+        if (inserted.changes === 1) {
+          return { receiptId: receipt.receiptId, duplicate: false };
+        }
+
+        const identityRow = this.#database
+          .prepare(
+            `SELECT receipt_id
+             FROM ingress_receipts
+             WHERE source = ?
+               AND source_session_id = ?
+               AND deduplication_key = ?`,
+          )
+          .get(prepared.source, prepared.sourceSessionId, prepared.deduplicationKey);
+
+        if (identityRow === undefined) {
+          throw new PersistenceError(
+            "operation_failed",
+            "The existing ingress receipt could not be resolved after a deduplication collision.",
+          );
+        }
+
+        const existingReceiptId = requiredString(identityRow, "receipt_id");
+        const existing = this.get(existingReceiptId);
+        if (existing === null || existing.preparationStatus !== "prepared") {
+          throw new PersistenceError(
+            "invalid_persisted_row",
+            "The existing ingress deduplication identity is not a prepared receipt.",
+          );
+        }
+        if (existing.payloadFingerprint !== prepared.payloadFingerprint) {
+          throw new PersistenceDeduplicationConflictError();
+        }
+
+        return { receiptId: existing.receiptId, duplicate: true };
+      });
+    } catch (error) {
+      if (error instanceof PersistenceError) {
+        throw error;
+      }
+      mapPersistenceWriteError(error, "insert or resolve prepared ingress receipt");
     }
   }
 
