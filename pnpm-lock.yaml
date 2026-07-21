@@ -26,6 +26,9 @@ importers:
       '@ownloop/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@ownloop/event-model':
+        specifier: workspace:*
+        version: link:../../packages/event-model
 
   apps/web:
     dependencies:

@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@ownloop/contracts": "workspace:*"
+    "@ownloop/contracts": "workspace:*",
+    "@ownloop/event-model": "workspace:*"
   }
 }
