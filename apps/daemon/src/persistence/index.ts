@@ -7,10 +7,7 @@ import { IngressReceiptRepository } from "./repositories/ingress-receipts.js";
 import { RunSupportRepository } from "./repositories/run-support.js";
 import { TaskRunRepository } from "./repositories/task-runs.js";
 import { WorkspaceRepository } from "./repositories/workspaces.js";
-import {
-  assertSynchronousTransactionOperation,
-  runInTransaction,
-} from "./transaction.js";
+import { assertSynchronousTransactionOperation, runInTransaction } from "./transaction.js";
 
 export type PersistenceRepositories = Readonly<{
   ingressReceipts: IngressReceiptRepository;
