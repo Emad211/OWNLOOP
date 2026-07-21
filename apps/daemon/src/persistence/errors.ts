@@ -1,4 +1,5 @@
 export type PersistenceErrorCode =
+  | "async_transaction_not_supported"
   | "constraint_violation"
   | "invalid_persisted_row"
   | "operation_failed"
