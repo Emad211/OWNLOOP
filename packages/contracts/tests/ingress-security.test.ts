@@ -186,6 +186,24 @@ describe("ingress-security contracts", () => {
     expect(
       PreparedIngressReceiptV1Schema.safeParse({
         ...validReceipt,
+        sourceSessionId: "opaque:https://fixture-user:fixture-password@example.invalid",
+      }).success,
+    ).toBe(false);
+    expect(
+      PreparedIngressReceiptV1Schema.safeParse({
+        ...validReceipt,
+        sourceSessionId: "opaque:token=fixture-secret-value",
+      }).success,
+    ).toBe(false);
+    expect(
+      PreparedIngressReceiptV1Schema.safeParse({
+        ...validReceipt,
+        sourceSessionId: "token_count=42",
+      }).success,
+    ).toBe(true);
+    expect(
+      PreparedIngressReceiptV1Schema.safeParse({
+        ...validReceipt,
         sourceSessionId: "file:///private/session",
       }).success,
     ).toBe(false);

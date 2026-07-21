@@ -172,38 +172,13 @@ const absolutePathPattern = /^(?:\/|[A-Za-z]:[\\/]|\\\\|\/\/)/;
 const embeddedAbsolutePathPattern = /(?:^|[\s"'([{=,:;])(?:\/(?!\/)|[A-Za-z]:[\\/]|\\\\)/;
 const strongIdentifierSecretPattern =
   /(?:^|[^A-Za-z0-9_])(?:sk|ghp|github_pat|xox[baprs])[-_][A-Za-z0-9_-]{12,}/i;
-const identifierUriCredentialPattern = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/:@]+:[^/@]+@/;
+const identifierUriCredentialPattern = /[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/;
 const identifierFileUriPattern = /file:\/\//i;
-const IDENTIFIER_SECRET_ASSIGNMENT_NAMES = new Set([
-  "authorization",
-  "proxyauthorization",
-  "cookie",
-  "setcookie",
-  "password",
-  "passwd",
-  "secret",
-  "clientsecret",
-  "apikey",
-  "accesstoken",
-  "refreshtoken",
-  "idtoken",
-  "token",
-  "privatekey",
-  "sshprivatekey",
-  "credential",
-  "credentials",
-]);
+const identifierSecretAssignmentPattern =
+  /(?:^|[^A-Za-z0-9])(?:authorization|proxy[_.-]?authorization|cookie|set[_.-]?cookie|password|passwd|secret|client[_.-]?secret|api[_.-]?key|access[_.-]?token|refresh[_.-]?token|id[_.-]?token|token|private[_.-]?key|ssh[_.-]?private[_.-]?key|credential|credentials)[:=]/i;
 
 function containsIdentifierSecretAssignment(value: string): boolean {
-  const separatorIndex = value.search(/[:=]/);
-  if (separatorIndex <= 0) {
-    return false;
-  }
-  const name = value
-    .slice(0, separatorIndex)
-    .toLowerCase()
-    .replace(/[_.\-\s]/g, "");
-  return IDENTIFIER_SECRET_ASSIGNMENT_NAMES.has(name);
+  return identifierSecretAssignmentPattern.test(value);
 }
 
 function containsControlCharacter(value: string): boolean {
