@@ -17,26 +17,16 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Verify chunks
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat > /tmp/expected <<'HASHES'
-          ba650f74a2e0b3ba5ab1504c0ef3491ab43e65e9 .github/ol007-parts/part-00
-          9954c79f05a460b64d65439cb88d22c384f2faef .github/ol007-parts/part-01
-          dc4c0ec3297aa561884862a6bcc5da63f853e178 .github/ol007-parts/part-02
-          HASHES
-          while read -r expected file; do
-            test -s "$file"
-            test "$(git hash-object "$file")" = "$expected"
-          done < /tmp/expected
-
       - name: Assemble and verify patch
         shell: bash
         run: |
           set -euo pipefail
+          test -s .github/ol007-parts/part-00
+          test -s .github/ol007-parts/part-01
+          test -s .github/ol007-parts/part-02
           cat .github/ol007-parts/part-* > /tmp/ol007.diff.gz.b64
           test "$(wc -c < /tmp/ol007.diff.gz.b64)" -eq 15532
+          echo "9117f9961d909918cbcafa214cf2e70acaaac39e4b431d0ff58662478b5b6970  /tmp/ol007.diff.gz.b64" | sha256sum --check
           base64 --decode /tmp/ol007.diff.gz.b64 > /tmp/ol007.diff.gz
           gzip --test /tmp/ol007.diff.gz
           gzip --decompress --stdout /tmp/ol007.diff.gz > /tmp/ol007.diff
