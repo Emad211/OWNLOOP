@@ -15,12 +15,28 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
 
-      - name: Create source archive
-        run: tar --exclude=.git -czf /tmp/ownloop-source.tar.gz .
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
 
-      - name: Upload source archive
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Capture Node binary
+        run: cp "$(command -v node)" /tmp/node-24.18.0
+
+      - name: Create source and toolchain archive
+        run: tar --exclude=.git -czf /tmp/ownloop-toolchain.tar.gz . -C /tmp node-24.18.0
+
+      - name: Upload source and toolchain archive
         uses: actions/upload-artifact@v6
         with:
-          name: ownloop-source
-          path: /tmp/ownloop-source.tar.gz
+          name: ownloop-toolchain
+          path: /tmp/ownloop-toolchain.tar.gz
           if-no-files-found: error
