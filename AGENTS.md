@@ -13,9 +13,10 @@ OwnLoop is a local-first Human Ownership Layer for AI-generated software. The cu
 5. `docs/adr/0004-durable-redacted-ingress-journal-and-sqlite.md`
 6. `docs/adr/0005-canonical-ingress-reduction-redaction-and-fingerprinting.md`
 7. `docs/adr/0006-authenticated-loopback-ingestion.md`
-8. `docs/architecture/C4.md`
-9. `docs/product/BACKLOG_v0.1.0.md`
-10. `docs/product/BACKLOG_AMENDMENT_0001_INGRESS_SECURITY_ORDER.md`
+8. `docs/adr/0007-fail-open-command-hook-adapter.md`
+9. `docs/architecture/C4.md`
+10. `docs/product/BACKLOG_v0.1.0.md`
+11. `docs/product/BACKLOG_AMENDMENT_0001_INGRESS_SECURITY_ORDER.md`
 
 Read the relevant documents before changing code. Do not silently reinterpret, expand, or supersede an accepted architectural decision. When a task conflicts with an ADR or the product scope, stop and report the conflict instead of improvising.
 
@@ -26,18 +27,19 @@ For Milestone A dependency order, accepted ADRs and the backlog amendment take p
 - Work on exactly one issue or task at a time.
 - Keep each pull request small and independently reviewable.
 - Do not modify unrelated files.
-- Do not add product behavior that is outside the active issue.
+- Do not add product behavior outside the active issue.
 - Prefer the smallest maintainable solution over speculative abstraction.
-- Avoid cloud services, remote persistence, user authentication, telemetry, analytics, or billing unless an issue explicitly requires them.
+- Avoid cloud services, remote persistence, user authentication, telemetry, analytics, or billing unless explicitly required.
 - Never commit secrets, tokens, credentials, `.env` contents, generated private data, database files, or machine-specific paths.
-- Do not weaken type checking, linting, tests, database constraints, canonicalization rules, redaction rules, authentication checks, or security controls to make a task pass.
-- Do not use `any`, `z.any()`, `@ts-ignore`, disabled lint rules, or skipped tests without a documented and task-specific reason.
+- Do not weaken type checking, linting, tests, database constraints, canonicalization, redaction, authentication, fail-open semantics, or other security controls to make a task pass.
+- Do not use `any`, `z.any()`, `@ts-ignore`, disabled lint rules, or skipped tests without a documented task-specific reason.
 - Do not rewrite accepted ADRs as part of implementation work. Architectural changes require a separate ADR.
 - Source-boundary schemas may be forward-compatible; OwnLoop-owned contracts remain controlled and versioned.
-- Persist-before-acknowledge is mandatory for accepted ingress receipts.
+- Persist-before-acknowledge remains mandatory for accepted daemon receipts.
 - Unredacted source payloads must never be written to persistent storage.
-- Unknown source fields may be accepted at parsing but must not be persisted without an explicit policy-version change.
-- Errors, HTTP responses, and diagnostics must never contain rejected source values, canonical unredacted JSON, secrets, prompts, commands, source code, absolute paths, authorization values, token digests, fingerprints, session/source IDs, exception messages, stacks, or key material.
+- The Hook Adapter must not redact or mutate a validated source payload before authoritative daemon fingerprinting.
+- Production Hook Adapter execution must always be fail-open: exit code 0, zero stdout, zero stderr, and no Claude decision output.
+- Errors, HTTP responses, adapter outputs, and diagnostics must never contain source values, canonical unredacted JSON, secrets, prompts, commands, source code, absolute paths, authorization values, token digests, fingerprints, session/source IDs, exception messages, stacks, or key material.
 
 ## Technical baseline
 
@@ -45,23 +47,20 @@ Unless a later ADR changes this baseline:
 
 - Runtime: Node.js 24.18.0 LTS
 - Language: TypeScript 6.0.3 in strict mode
-- Package manager: pnpm 11.4.0, pinned through `packageManager`
+- Package manager: pnpm 11.4.0
 - Repository shape: pnpm workspace / modular monolith
 - Local UI: React + Vite
 - Unit tests: Vitest
 - Runtime validation: Zod 4.4.3
-- Local HTTP server: Fastify 5.10.0, isolated behind the daemon ingress boundary
+- Local HTTP server: Fastify 5.10.0 behind the daemon ingress boundary
 - Local persistence: built-in `node:sqlite` behind the daemon persistence boundary
-- Ingress fingerprinting: Node.js built-in HMAC-SHA-256 with a secret `KeyObject`
-- Canonical parsed JSON: OwnLoop Canonical JSON v1 as defined by ADR-0005
+- Ingress fingerprinting: Node.js HMAC-SHA-256 with a secret `KeyObject`
+- Canonical parsed JSON: OwnLoop Canonical JSON v1
+- Hook transport adapter: Node.js built-ins plus `@ownloop/contracts` only
 - CI: GitHub Actions
 - Formatting and linting: Biome
 
-When selecting a dependency, use a stable release compatible with Node.js 24 and TypeScript 6. Pin direct dependencies and commit the lockfile. Avoid experimental packages unless an ADR or issue explicitly accepts the risk.
-
-`node:sqlite` is accepted for v0.1 despite its release-candidate status because Node.js is pinned exactly and ADR-0004 isolates the driver behind a small persistence boundary. Do not spread direct driver usage outside that boundary.
-
-Fastify is the only external runtime dependency authorized for OL-003. Stop and report before adding another one.
+Do not add an external runtime dependency for OL-004. The adapter may use only Node.js built-ins and workspace contracts.
 
 ## Repository structure
 
@@ -78,7 +77,7 @@ tools/
 └── hook-adapter/
 ```
 
-`packages/ingress-security` is shared by the daemon and future Hook Adapter. HTTP/Fastify code belongs only under the daemon ingress boundary. Do not create another application or package for OL-003.
+OL-004 implementation belongs only under `tools/hook-adapter`, except for documentation and workspace dependency metadata. It must not import daemon, persistence, Fastify, ingress-security behavior, Git, or UI code.
 
 ## Quality gates
 
@@ -92,23 +91,22 @@ pnpm test
 pnpm build
 ```
 
-For OL-003 also run focused real-network tests proving:
+For OL-004 also run focused tests proving:
 
-- IPv4 loopback binding;
-- authentication before body handling;
-- durable insert before 202;
-- exact duplicate and conflicting duplicate behavior;
-- content-type, malformed JSON, runtime validation, ingress-security, oversized-body, persistence, and internal-error mapping;
-- content-free HTTP and diagnostic surfaces;
-- file-backed durability and server shutdown behavior.
-
-`Fastify.inject()` may supplement tests but does not replace real `listen()` plus Node `fetch` coverage.
+- all nine supported Hook payloads wrap and deliver unchanged;
+- bounded streaming stdin and bounded response handling;
+- fixed IPv4-loopback endpoint and strict environment validation;
+- redirect, network, timeout, non-202, and invalid-response fail-open behavior;
+- child-process exit code 0 with empty stdout/stderr for success and every failure family;
+- real child-process delivery to a real OL-003 server with durable persistence;
+- duplicate child-process delivery remains idempotent;
+- sample settings validity and absence of secrets.
 
 Never claim a check passed if it was not run.
 
 ## Git and pull-request discipline
 
-- Base implementation branches on the branch named in the active task.
+- Base implementation on the active task branch.
 - Make focused commits with terse imperative messages.
 - Leave the worktree clean.
 - Do not push directly to `main`.
@@ -117,36 +115,36 @@ Never claim a check passed if it was not run.
 
 ## Current phase restriction
 
-The active implementation task is `OL-003: Implement authenticated loopback ingestion API`.
+The active task is `OL-004: Implement fail-open Claude Code command-hook adapter`.
 
-Before implementing OL-003, read:
+Before implementing OL-004, read:
 
-- GitHub issue #13 and all comments
-- ADR-0003
+- GitHub issue #15 and all comments
 - ADR-0004
 - ADR-0005
 - ADR-0006
-- C4 architecture
-- Backlog Amendment 0001
-- current contracts, ingress-security, and persistence code
-- Fastify 5.10.0 server and request references
+- ADR-0007
+- current Claude Hook source contracts
+- current OL-003 endpoint and response contracts
+- official Claude Code Hooks and Settings references
 
-For OL-003, the following are explicitly forbidden:
+For OL-004, the following are explicitly forbidden:
 
-- Hook stdin reading or forwarding
-- Claude settings installation
+- daemon start/stop orchestration
+- arbitrary endpoint URL or non-loopback host configuration
 - installation-token or HMAC-key persistence/rotation
-- arbitrary/non-loopback host configuration
-- raw request logging
-- pending-receipt processing or background workers
-- Workspace, Conversation, or Task Run lifecycle transitions
-- normalized event creation or sequence allocation
-- Git baseline, diff, or reconciliation
-- artifact content storage or cleanup
-- AI provider code or calls
-- web UI feature work
-- Ownership Moment or Build Replay behavior
-- cloud backend or remote storage
-- user authentication, analytics, telemetry, billing, or tracking
+- modifying a real `.claude/settings.json`
+- adapter-side source payload redaction or mutation
+- retries, background queue, disk spool, or local diagnostic log
+- non-zero production exit codes
+- intentional stdout or stderr output
+- Claude decision JSON or context injection
+- pending-receipt processing
+- Workspace/Conversation/Task Run lifecycle transitions
+- normalized events or sequence allocation
+- Git baseline/diff/reconciliation
+- artifact content storage
+- AI or web UI work
+- cloud backend, analytics, telemetry, billing, or user authentication
 
-OL-003 is complete only when an authenticated IPv4-loopback Fastify endpoint validates, prepares, and durably inserts or safely resolves exact duplicate prepared receipts before returning a structured 202 response; conflicting duplicates and all failure classes must map to stable content-free responses, with real-network tests and no downstream processing scope.
+OL-004 is complete only when the built command-hook adapter silently and fail-open reads one bounded source event, validates and wraps it unchanged, attempts one authenticated fixed-loopback delivery under a strict timeout, validates the accepted response, and always exits 0 with no output; real child-process integration and standard quality gates must pass.
