@@ -1,9 +1,9 @@
 name: Export OL-009 Toolchain
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/ol-009-reconciliation
+      - main
 
 permissions:
   contents: read
@@ -12,8 +12,10 @@ jobs:
   export:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out branch
+      - name: Check out pull request branch
         uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
 
       - name: Set up exact Node.js
         uses: actions/setup-node@v6
