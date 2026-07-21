@@ -4,6 +4,7 @@ import { ArtifactRepository } from "./repositories/artifacts.js";
 import { AgentConversationRepository } from "./repositories/conversations.js";
 import { EventRepository } from "./repositories/events.js";
 import { IngressReceiptRepository } from "./repositories/ingress-receipts.js";
+import { LifecycleResolutionRepository } from "./repositories/lifecycle-resolutions.js";
 import { RunSupportRepository } from "./repositories/run-support.js";
 import { TaskRunRepository } from "./repositories/task-runs.js";
 import { WorkspaceRepository } from "./repositories/workspaces.js";
@@ -11,6 +12,7 @@ import { assertSynchronousTransactionOperation, runInTransaction } from "./trans
 
 export type PersistenceRepositories = Readonly<{
   ingressReceipts: IngressReceiptRepository;
+  lifecycleResolutions: LifecycleResolutionRepository;
   workspaces: WorkspaceRepository;
   conversations: AgentConversationRepository;
   taskRuns: TaskRunRepository;
@@ -47,6 +49,7 @@ export function openPersistence(databasePath: string): OwnLoopPersistence {
 
   const repositories: PersistenceRepositories = {
     ingressReceipts: new IngressReceiptRepository(database),
+    lifecycleResolutions: new LifecycleResolutionRepository(database),
     workspaces: new WorkspaceRepository(database),
     conversations: new AgentConversationRepository(database),
     taskRuns: new TaskRunRepository(database),
@@ -90,11 +93,25 @@ export type {
   ArtifactMetadata,
   RunArtifactReference,
 } from "./repositories/artifacts.js";
+export { AGENT_CONVERSATION_STATUSES } from "./repositories/conversations.js";
 export type {
   AgentConversation,
+  AgentConversationStatus,
   NewAgentConversation,
 } from "./repositories/conversations.js";
 export type { EventDeduplicationRecord } from "./repositories/events.js";
+export {
+  LIFECYCLE_DIAGNOSTIC_CODES,
+  LIFECYCLE_RESOLUTION_ACTIONS,
+  LIFECYCLE_RESOLUTION_OUTCOMES,
+} from "./repositories/lifecycle-resolutions.js";
+export type {
+  LifecycleDiagnosticCode,
+  LifecycleResolutionAction,
+  LifecycleResolutionOutcome,
+  NewReceiptLifecycleResolution,
+  ReceiptLifecycleResolution,
+} from "./repositories/lifecycle-resolutions.js";
 export type {
   IngressReceipt,
   IngressReceiptStatus,
@@ -103,15 +120,24 @@ export type {
   PreparedIngressInsertResult,
   PreparedIngressReceiptRecord,
 } from "./repositories/ingress-receipts.js";
-export { INGRESS_RECEIPT_STATUSES } from "./repositories/ingress-receipts.js";
+export {
+  INGRESS_RECEIPT_STATUSES,
+  MAX_PENDING_RECEIPT_BATCH,
+} from "./repositories/ingress-receipts.js";
 export type {
   AnalysisJobRecord,
   EvidenceGapRecord,
 } from "./repositories/run-support.js";
 export type {
   NewTaskRun,
+  StaleTaskRun,
   TaskRun,
   TaskRunStatus,
 } from "./repositories/task-runs.js";
 export { TASK_RUN_STATUSES } from "./repositories/task-runs.js";
-export type { NewWorkspace, Workspace } from "./repositories/workspaces.js";
+export { WORKSPACE_IDENTITY_BASES } from "./repositories/workspaces.js";
+export type {
+  NewWorkspace,
+  Workspace,
+  WorkspaceIdentityBasis,
+} from "./repositories/workspaces.js";

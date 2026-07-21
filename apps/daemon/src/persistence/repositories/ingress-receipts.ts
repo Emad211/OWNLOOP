@@ -14,6 +14,7 @@ import { runInTransaction } from "../transaction.js";
 import { nullableString, requiredNumber, requiredString } from "../row-mapping.js";
 
 export const INGRESS_RECEIPT_STATUSES = ["pending", "processed", "failed"] as const;
+export const MAX_PENDING_RECEIPT_BATCH = 100;
 export type IngressReceiptStatus = (typeof INGRESS_RECEIPT_STATUSES)[number];
 
 type OperationalReceiptFields = Readonly<{
@@ -254,6 +255,59 @@ export class IngressReceiptRepository {
       }
       mapPersistenceWriteError(error, "insert or resolve prepared ingress receipt");
     }
+  }
+
+  listPendingReceiptIds(limit: number): string[] {
+    if (!Number.isInteger(limit) || limit < 1 || limit > MAX_PENDING_RECEIPT_BATCH) {
+      return [];
+    }
+    return this.#database
+      .prepare(
+        `SELECT receipt_id
+         FROM ingress_receipts
+         WHERE processing_status = 'pending'
+         ORDER BY created_at ASC, receipt_id ASC
+         LIMIT ?`,
+      )
+      .all(limit)
+      .map((row) => requiredString(row, "receipt_id"));
+  }
+
+  listPending(limit: number): IngressReceipt[] {
+    return this.listPendingReceiptIds(limit).map((receiptId) => {
+      const receipt = this.get(receiptId);
+      if (receipt === null) {
+        throw new PersistenceError(
+          "invalid_persisted_row",
+          "A pending ingress receipt disappeared during deterministic listing.",
+        );
+      }
+      return receipt;
+    });
+  }
+
+  markProcessed(receiptId: string, processedAt: string): boolean {
+    return (
+      this.#database
+        .prepare(
+          `UPDATE ingress_receipts
+           SET processing_status = 'processed', processed_at = ?, failure_code = NULL
+           WHERE receipt_id = ? AND processing_status = 'pending'`,
+        )
+        .run(processedAt, receiptId).changes === 1
+    );
+  }
+
+  markFailed(receiptId: string, processedAt: string, failureCode: string): boolean {
+    return (
+      this.#database
+        .prepare(
+          `UPDATE ingress_receipts
+           SET processing_status = 'failed', processed_at = ?, failure_code = ?
+           WHERE receipt_id = ? AND processing_status = 'pending'`,
+        )
+        .run(processedAt, failureCode, receiptId).changes === 1
+    );
   }
 
   get(receiptId: string): IngressReceipt | null {

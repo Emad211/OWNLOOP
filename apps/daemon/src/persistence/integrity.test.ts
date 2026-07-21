@@ -21,6 +21,7 @@ function workspace(id: string): Workspace {
     repositoryRoot: `/fixtures/${id}`,
     gitRemote: null,
     initialRepositoryFingerprint: `workspace-fingerprint-${id}`,
+    identityBasis: "legacy",
     createdAt: TIMESTAMP,
     lastObservedAt: TIMESTAMP,
   };
@@ -36,7 +37,7 @@ function conversation(id: string, workspaceId: string): AgentConversation {
     startedAt: TIMESTAMP,
     lastObservedAt: TIMESTAMP,
     endedAt: null,
-    status: "active",
+    status: "Active",
   };
 }
 

@@ -16,6 +16,7 @@ const REQUIRED_TABLES = [
   "events",
   "evidence_gaps",
   "ingress_receipts",
+  "receipt_lifecycle_resolutions",
   "run_artifacts",
   "schema_migrations",
   "task_runs",

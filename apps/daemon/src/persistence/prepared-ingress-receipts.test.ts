@@ -100,7 +100,7 @@ describe("prepared ingress receipt migration", () => {
         receiptId: "legacy-receipt",
         preparationStatus: "legacy",
       });
-      expect(readAppliedMigrations(opened.database)).toHaveLength(2);
+      expect(readAppliedMigrations(opened.database)).toHaveLength(MIGRATIONS.length);
       expect(() => runMigrations(opened.database)).not.toThrow();
     } finally {
       opened.database.close();

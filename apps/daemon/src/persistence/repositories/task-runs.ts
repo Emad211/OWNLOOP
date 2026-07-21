@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 
 import { mapPersistenceWriteError } from "../errors.js";
-import { nullableString, requiredNumber, requiredString } from "../row-mapping.js";
+import { nullableString, requiredNumber, requiredString, type SqliteRow } from "../row-mapping.js";
 
 export const TASK_RUN_STATUSES = [
   "Capturing",
@@ -29,6 +29,43 @@ export type TaskRun = Readonly<{
 }>;
 
 export type NewTaskRun = TaskRun;
+
+export type StaleTaskRun = Readonly<{
+  run: TaskRun;
+  conversationLastObservedAt: string;
+}>;
+
+function mapTaskRun(row: SqliteRow): TaskRun {
+  return {
+    runId: requiredString(row, "run_id"),
+    conversationId: requiredString(row, "conversation_id"),
+    runNumber: requiredNumber(row, "run_number"),
+    redactedPrompt: requiredString(row, "redacted_prompt"),
+    baselineGitCommit: nullableString(row, "baseline_git_commit"),
+    baselineWorkingTreeFingerprint: nullableString(row, "baseline_working_tree_fingerprint"),
+    startedAt: requiredString(row, "started_at"),
+    endedAt: nullableString(row, "ended_at"),
+    status: requiredString(row, "status") as TaskRunStatus,
+    finalGitFingerprint: nullableString(row, "final_git_fingerprint"),
+    sourceStopReason: nullableString(row, "source_stop_reason"),
+    evidenceGapCount: requiredNumber(row, "evidence_gap_count"),
+  };
+}
+
+const TASK_RUN_SELECT = `SELECT
+  run_id,
+  conversation_id,
+  run_number,
+  redacted_prompt,
+  baseline_git_commit,
+  baseline_working_tree_fingerprint,
+  started_at,
+  ended_at,
+  status,
+  final_git_fingerprint,
+  source_stop_reason,
+  evidence_gap_count
+FROM task_runs`;
 
 export class TaskRunRepository {
   readonly #database: DatabaseSync;
@@ -76,44 +113,101 @@ export class TaskRunRepository {
   }
 
   get(runId: string): TaskRun | null {
+    const row = this.#database.prepare(`${TASK_RUN_SELECT} WHERE run_id = ?`).get(runId);
+    return row === undefined ? null : mapTaskRun(row);
+  }
+
+  listForConversation(conversationId: string): TaskRun[] {
+    return this.#database
+      .prepare(`${TASK_RUN_SELECT} WHERE conversation_id = ? ORDER BY run_number ASC`)
+      .all(conversationId)
+      .map(mapTaskRun);
+  }
+
+  getLatestActive(conversationId: string): TaskRun | null {
     const row = this.#database
       .prepare(
-        `SELECT
-           run_id,
-           conversation_id,
-           run_number,
-           redacted_prompt,
-           baseline_git_commit,
-           baseline_working_tree_fingerprint,
-           started_at,
-           ended_at,
-           status,
-           final_git_fingerprint,
-           source_stop_reason,
-           evidence_gap_count
-         FROM task_runs
-         WHERE run_id = ?`,
+        `${TASK_RUN_SELECT}
+         WHERE conversation_id = ? AND status IN ('Capturing', 'Finalizing')
+         ORDER BY run_number DESC
+         LIMIT 1`,
       )
-      .get(runId);
+      .get(conversationId);
+    return row === undefined ? null : mapTaskRun(row);
+  }
 
-    if (row === undefined) {
-      return null;
+  nextRunNumber(conversationId: string): number {
+    const row = this.#database
+      .prepare(
+        `SELECT coalesce(max(run_number), 0) + 1 AS next_run_number
+         FROM task_runs
+         WHERE conversation_id = ?`,
+      )
+      .get(conversationId);
+    return row === undefined ? 1 : requiredNumber(row, "next_run_number");
+  }
+
+  abandonCapturing(conversationId: string, endedAt: string, reason: string): number {
+    return Number(
+      this.#database
+        .prepare(
+          `UPDATE task_runs
+           SET ended_at = ?, status = 'Abandoned', source_stop_reason = ?
+           WHERE conversation_id = ? AND status = 'Capturing'`,
+        )
+        .run(endedAt, reason, conversationId).changes,
+    );
+  }
+
+  transitionToFinalizing(runId: string, sourceStopReason: string): boolean {
+    return (
+      this.#database
+        .prepare(
+          `UPDATE task_runs
+           SET status = 'Finalizing',
+               source_stop_reason = CASE
+                 WHEN ? <> 'stop' THEN ?
+                 WHEN source_stop_reason IS NULL THEN 'stop'
+                 ELSE source_stop_reason
+               END
+           WHERE run_id = ? AND status IN ('Capturing', 'Finalizing')`,
+        )
+        .run(sourceStopReason, sourceStopReason, runId).changes === 1
+    );
+  }
+
+  listStaleActive(cutoff: string, limit: number): StaleTaskRun[] {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 1_000) {
+      return [];
     }
-
-    return {
-      runId: requiredString(row, "run_id"),
-      conversationId: requiredString(row, "conversation_id"),
-      runNumber: requiredNumber(row, "run_number"),
-      redactedPrompt: requiredString(row, "redacted_prompt"),
-      baselineGitCommit: nullableString(row, "baseline_git_commit"),
-      baselineWorkingTreeFingerprint: nullableString(row, "baseline_working_tree_fingerprint"),
-      startedAt: requiredString(row, "started_at"),
-      endedAt: nullableString(row, "ended_at"),
-      status: requiredString(row, "status") as TaskRunStatus,
-      finalGitFingerprint: nullableString(row, "final_git_fingerprint"),
-      sourceStopReason: nullableString(row, "source_stop_reason"),
-      evidenceGapCount: requiredNumber(row, "evidence_gap_count"),
-    };
+    const rows = this.#database
+      .prepare(
+        `SELECT
+           tr.run_id,
+           tr.conversation_id,
+           tr.run_number,
+           tr.redacted_prompt,
+           tr.baseline_git_commit,
+           tr.baseline_working_tree_fingerprint,
+           tr.started_at,
+           tr.ended_at,
+           tr.status,
+           tr.final_git_fingerprint,
+           tr.source_stop_reason,
+           tr.evidence_gap_count,
+           ac.last_observed_at AS conversation_last_observed_at
+         FROM task_runs tr
+         JOIN agent_conversations ac ON ac.conversation_id = tr.conversation_id
+         WHERE tr.status IN ('Capturing', 'Finalizing')
+           AND ac.last_observed_at < ?
+         ORDER BY ac.last_observed_at ASC, tr.conversation_id ASC, tr.run_number ASC
+         LIMIT ?`,
+      )
+      .all(cutoff, limit);
+    return rows.map((row) => ({
+      run: mapTaskRun(row),
+      conversationLastObservedAt: requiredString(row, "conversation_last_observed_at"),
+    }));
   }
 
   delete(runId: string): boolean {

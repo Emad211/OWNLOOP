@@ -332,6 +332,104 @@ BEGIN
 END;
 `;
 
+const LIFECYCLE_RESOLUTION_SQL = `
+ALTER TABLE workspaces
+  ADD COLUMN identity_basis TEXT NOT NULL DEFAULT 'legacy'
+  CHECK (identity_basis IN ('legacy', 'canonical_path_v1', 'git_resolved_v1'));
+
+CREATE TRIGGER agent_conversations_validate_status_insert
+BEFORE INSERT ON agent_conversations
+WHEN NEW.status NOT IN ('Active', 'Ended')
+BEGIN
+  SELECT RAISE(ABORT, 'invalid Agent Conversation status');
+END;
+
+CREATE TRIGGER agent_conversations_validate_status_update
+BEFORE UPDATE OF status ON agent_conversations
+WHEN NEW.status NOT IN ('Active', 'Ended')
+BEGIN
+  SELECT RAISE(ABORT, 'invalid Agent Conversation status');
+END;
+
+CREATE TABLE receipt_lifecycle_resolutions (
+  receipt_id TEXT PRIMARY KEY
+    REFERENCES ingress_receipts (receipt_id) ON DELETE CASCADE,
+  workspace_id TEXT
+    REFERENCES workspaces (workspace_id) ON DELETE CASCADE,
+  conversation_id TEXT,
+  run_id TEXT,
+  outcome TEXT NOT NULL CHECK (outcome IN ('applied', 'associated', 'failed')),
+  action TEXT NOT NULL CHECK (action IN (
+    'conversation_started',
+    'conversation_resumed',
+    'conversation_inferred',
+    'run_started',
+    'run_associated',
+    'run_finalizing',
+    'conversation_ended',
+    'receipt_failed'
+  )),
+  diagnostic_code TEXT CHECK (
+    diagnostic_code IS NULL
+    OR diagnostic_code IN (
+      'legacy_receipt_unsupported',
+      'invalid_redacted_payload',
+      'conversation_workspace_conflict',
+      'conversation_ended',
+      'no_active_run',
+      'invalid_transition',
+      'lifecycle_processing_failed'
+    )
+  ),
+  resolved_at TEXT NOT NULL CHECK (length(trim(resolved_at)) > 0),
+  CHECK (
+    (outcome = 'failed' AND action = 'receipt_failed' AND diagnostic_code IS NOT NULL)
+    OR
+    (outcome IN ('applied', 'associated') AND action <> 'receipt_failed' AND diagnostic_code IS NULL)
+  ),
+  CHECK (conversation_id IS NULL OR workspace_id IS NOT NULL),
+  CHECK (run_id IS NULL OR conversation_id IS NOT NULL),
+  CHECK (outcome = 'failed' OR (workspace_id IS NOT NULL AND conversation_id IS NOT NULL)),
+  CHECK (
+    (action IN ('run_started', 'run_associated', 'run_finalizing') AND run_id IS NOT NULL)
+    OR
+    (action NOT IN ('run_started', 'run_associated', 'run_finalizing'))
+  ),
+  CHECK (
+    (action IN (
+      'conversation_started',
+      'conversation_resumed',
+      'conversation_inferred',
+      'conversation_ended'
+    ) AND run_id IS NULL)
+    OR
+    (action NOT IN (
+      'conversation_started',
+      'conversation_resumed',
+      'conversation_inferred',
+      'conversation_ended'
+    ))
+  ),
+  FOREIGN KEY (conversation_id, workspace_id)
+    REFERENCES agent_conversations (conversation_id, workspace_id) ON DELETE CASCADE,
+  FOREIGN KEY (run_id, conversation_id)
+    REFERENCES task_runs (run_id, conversation_id) ON DELETE CASCADE
+) STRICT;
+
+CREATE INDEX receipt_lifecycle_resolutions_workspace_idx
+  ON receipt_lifecycle_resolutions (workspace_id, resolved_at, receipt_id);
+CREATE INDEX receipt_lifecycle_resolutions_conversation_idx
+  ON receipt_lifecycle_resolutions (conversation_id, resolved_at, receipt_id);
+CREATE INDEX receipt_lifecycle_resolutions_run_idx
+  ON receipt_lifecycle_resolutions (run_id, resolved_at, receipt_id);
+
+CREATE TRIGGER receipt_lifecycle_resolutions_reject_update
+BEFORE UPDATE ON receipt_lifecycle_resolutions
+BEGIN
+  SELECT RAISE(ABORT, 'receipt lifecycle resolutions are immutable');
+END;
+`;
+
 export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   Object.freeze({
     version: 1,
@@ -342,5 +440,10 @@ export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
     version: 2,
     name: "prepared_ingress_receipts",
     sql: PREPARED_INGRESS_RECEIPTS_SQL,
+  }),
+  Object.freeze({
+    version: 3,
+    name: "transactional_lifecycle_resolution",
+    sql: LIFECYCLE_RESOLUTION_SQL,
   }),
 ]);

@@ -1,7 +1,10 @@
 import type { DatabaseSync } from "node:sqlite";
 
 import { mapPersistenceWriteError } from "../errors.js";
-import { nullableString, requiredString } from "../row-mapping.js";
+import { nullableString, requiredString, type SqliteRow } from "../row-mapping.js";
+
+export const WORKSPACE_IDENTITY_BASES = ["legacy", "canonical_path_v1", "git_resolved_v1"] as const;
+export type WorkspaceIdentityBasis = (typeof WORKSPACE_IDENTITY_BASES)[number];
 
 export type Workspace = Readonly<{
   workspaceId: string;
@@ -9,11 +12,36 @@ export type Workspace = Readonly<{
   repositoryRoot: string;
   gitRemote: string | null;
   initialRepositoryFingerprint: string;
+  identityBasis: WorkspaceIdentityBasis;
   createdAt: string;
   lastObservedAt: string;
 }>;
 
 export type NewWorkspace = Workspace;
+
+function mapWorkspace(row: SqliteRow): Workspace {
+  return {
+    workspaceId: requiredString(row, "workspace_id"),
+    canonicalPath: requiredString(row, "canonical_path"),
+    repositoryRoot: requiredString(row, "repository_root"),
+    gitRemote: nullableString(row, "git_remote"),
+    initialRepositoryFingerprint: requiredString(row, "initial_repository_fingerprint"),
+    identityBasis: requiredString(row, "identity_basis") as WorkspaceIdentityBasis,
+    createdAt: requiredString(row, "created_at"),
+    lastObservedAt: requiredString(row, "last_observed_at"),
+  };
+}
+
+const WORKSPACE_SELECT = `SELECT
+  workspace_id,
+  canonical_path,
+  repository_root,
+  git_remote,
+  initial_repository_fingerprint,
+  identity_basis,
+  created_at,
+  last_observed_at
+FROM workspaces`;
 
 export class WorkspaceRepository {
   readonly #database: DatabaseSync;
@@ -32,9 +60,10 @@ export class WorkspaceRepository {
              repository_root,
              git_remote,
              initial_repository_fingerprint,
+             identity_basis,
              created_at,
              last_observed_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           workspace.workspaceId,
@@ -42,6 +71,7 @@ export class WorkspaceRepository {
           workspace.repositoryRoot,
           workspace.gitRemote,
           workspace.initialRepositoryFingerprint,
+          workspace.identityBasis,
           workspace.createdAt,
           workspace.lastObservedAt,
         );
@@ -52,33 +82,31 @@ export class WorkspaceRepository {
 
   get(workspaceId: string): Workspace | null {
     const row = this.#database
-      .prepare(
-        `SELECT
-           workspace_id,
-           canonical_path,
-           repository_root,
-           git_remote,
-           initial_repository_fingerprint,
-           created_at,
-           last_observed_at
-         FROM workspaces
-         WHERE workspace_id = ?`,
-      )
+      .prepare(`${WORKSPACE_SELECT} WHERE workspace_id = ?`)
       .get(workspaceId);
+    return row === undefined ? null : mapWorkspace(row);
+  }
 
-    if (row === undefined) {
-      return null;
-    }
+  getByCanonicalPath(canonicalPath: string): Workspace | null {
+    const row = this.#database
+      .prepare(`${WORKSPACE_SELECT} WHERE canonical_path = ?`)
+      .get(canonicalPath);
+    return row === undefined ? null : mapWorkspace(row);
+  }
 
-    return {
-      workspaceId: requiredString(row, "workspace_id"),
-      canonicalPath: requiredString(row, "canonical_path"),
-      repositoryRoot: requiredString(row, "repository_root"),
-      gitRemote: nullableString(row, "git_remote"),
-      initialRepositoryFingerprint: requiredString(row, "initial_repository_fingerprint"),
-      createdAt: requiredString(row, "created_at"),
-      lastObservedAt: requiredString(row, "last_observed_at"),
-    };
+  touch(workspaceId: string, observedAt: string): boolean {
+    return (
+      this.#database
+        .prepare(
+          `UPDATE workspaces
+           SET last_observed_at = CASE
+             WHEN last_observed_at < ? THEN ?
+             ELSE last_observed_at
+           END
+           WHERE workspace_id = ?`,
+        )
+        .run(observedAt, observedAt, workspaceId).changes === 1
+    );
   }
 
   delete(workspaceId: string): boolean {
