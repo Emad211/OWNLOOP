@@ -17,18 +17,44 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Assemble and verify payload
+      - name: Assemble payload
         shell: bash
         run: |
           set -euo pipefail
-          test "$(find .github/ol010-v2-parts -maxdepth 1 -type f | wc -l)" -eq 12
+          count="$(find .github/ol010-v2-parts -maxdepth 1 -type f | wc -l)"
+          echo "part-count=$count"
+          test "$count" -eq 12
           cat .github/ol010-v2-parts/part-* > /tmp/ol010-v2.diff.gz.b64
-          test "$(wc -c < /tmp/ol010-v2.diff.gz.b64)" -eq 28836
+          size="$(wc -c < /tmp/ol010-v2.diff.gz.b64)"
+          echo "payload-size=$size"
+          test "$size" -eq 28836
+
+      - name: Verify encoded payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum /tmp/ol010-v2.diff.gz.b64
           echo "24811832d659eab6852d02c6392356723fea58004bf811c37297f94be1308066  /tmp/ol010-v2.diff.gz.b64" | sha256sum --check
+
+      - name: Decode payload
+        shell: bash
+        run: |
+          set -euo pipefail
           base64 --decode /tmp/ol010-v2.diff.gz.b64 > /tmp/ol010-v2.diff.gz
           gzip --test /tmp/ol010-v2.diff.gz
           gzip --decompress --stdout /tmp/ol010-v2.diff.gz > /tmp/ol010-v2.diff
+
+      - name: Verify patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum /tmp/ol010-v2.diff
           echo "3c76e18abb5b576f05cf75f58498764b94bf86a8ae781f269d54bc1cb991244c  /tmp/ol010-v2.diff" | sha256sum --check
+
+      - name: Verify patch baseline
+        shell: bash
+        run: |
+          set -euo pipefail
           git apply --check --verbose /tmp/ol010-v2.diff
 
       - name: Apply and publish
