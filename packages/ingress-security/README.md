@@ -32,7 +32,8 @@ Additional defensive guarantees include:
 - RSA, EC, DSA, OpenSSH, and encrypted private-key blocks are recognized by policy v1;
 - POSIX, Windows-drive, and UNC `file://` URIs are reduced using the same path policy as ordinary absolute paths;
 - malformed or credential-bearing `file://` values fail closed to a non-reversible invalid-path marker;
-- dedicated identifiers reject `file://`, URI credentials, absolute paths, control characters, secret assignments, and strong provider-token formats;
+- dedicated identifiers reject `file://`, absolute paths, control characters, strong provider-token formats, and URI credentials or exact secret assignments even when embedded after an opaque prefix;
+- metadata names such as `token_count` remain valid because policy matching uses exact secret-bearing assignment names rather than a `token` substring rule;
 - bounded strong-secret patterns consume the complete retained input up to the one-mebibyte source limit rather than leaking suffixes beyond a smaller regex cap;
 - prepared receipt content and preparation metadata become immutable after insertion, while processing status may still advance independently.
 
