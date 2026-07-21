@@ -7,7 +7,10 @@ import { IngressReceiptRepository } from "./repositories/ingress-receipts.js";
 import { RunSupportRepository } from "./repositories/run-support.js";
 import { TaskRunRepository } from "./repositories/task-runs.js";
 import { WorkspaceRepository } from "./repositories/workspaces.js";
-import { runInTransaction } from "./transaction.js";
+import {
+  assertSynchronousTransactionOperation,
+  runInTransaction,
+} from "./transaction.js";
 
 export type PersistenceRepositories = Readonly<{
   ingressReceipts: IngressReceiptRepository;
@@ -19,10 +22,17 @@ export type PersistenceRepositories = Readonly<{
   artifacts: ArtifactRepository;
 }>;
 
+type AsyncTransactionGuard<Result> = Result extends PromiseLike<unknown>
+  ? [error: "Async transaction callbacks are not supported"]
+  : [];
+
 export type OwnLoopPersistence = PersistenceRepositories &
   Readonly<{
     connectionInfo: PersistenceConnectionInfo;
-    withTransaction<Result>(operation: (repositories: PersistenceRepositories) => Result): Result;
+    withTransaction<Result>(
+      operation: (repositories: PersistenceRepositories) => Result,
+      ...asyncTransactionGuard: AsyncTransactionGuard<Result>
+    ): Result;
     close(): void;
   }>;
 
@@ -46,12 +56,18 @@ export function openPersistence(databasePath: string): OwnLoopPersistence {
     artifacts: new ArtifactRepository(database),
   };
 
+  function withTransaction<Result>(
+    operation: (repositories: PersistenceRepositories) => Result,
+    ..._asyncTransactionGuard: AsyncTransactionGuard<Result>
+  ): Result {
+    assertSynchronousTransactionOperation(operation);
+    return runInTransaction(database, () => operation(repositories));
+  }
+
   return {
     ...repositories,
     connectionInfo,
-    withTransaction<Result>(operation: (repositories: PersistenceRepositories) => Result): Result {
-      return runInTransaction(database, () => operation(repositories));
-    },
+    withTransaction,
     close(): void {
       if (database.isOpen) {
         database.close();
