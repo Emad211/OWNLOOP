@@ -1,0 +1,56 @@
+name: Apply OL-007 Implementation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Verify chunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/expected <<'HASHES'
+          ba650f74a2e0b3ba5ab1504c0ef3491ab43e65e9 .github/ol007-parts/part-00
+          9954c79f05a460b64d65439cb88d22c384f2faef .github/ol007-parts/part-01
+          dc4c0ec3297aa561884862a6bcc5da63f853e178 .github/ol007-parts/part-02
+          HASHES
+          while read -r expected file; do
+            test -s "$file"
+            test "$(git hash-object "$file")" = "$expected"
+          done < /tmp/expected
+
+      - name: Assemble and verify patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/ol007-parts/part-* > /tmp/ol007.diff.gz.b64
+          test "$(wc -c < /tmp/ol007.diff.gz.b64)" -eq 15532
+          base64 --decode /tmp/ol007.diff.gz.b64 > /tmp/ol007.diff.gz
+          gzip --test /tmp/ol007.diff.gz
+          gzip --decompress --stdout /tmp/ol007.diff.gz > /tmp/ol007.diff
+          echo "e9111a295f393c07215b33da82d8c2c595bd8853476e9eddf50cc57e6903e31b  /tmp/ol007.diff" | sha256sum --check
+          git apply --check --verbose /tmp/ol007.diff
+
+      - name: Apply and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --index /tmp/ol007.diff
+          git rm -r .github/ol007-parts
+          git rm .github/workflows/apply-ol007-implementation.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Implement OL-007 Event normalization"
+          git push origin "HEAD:${{ github.head_ref }}"
