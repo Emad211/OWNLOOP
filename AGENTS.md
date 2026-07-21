@@ -116,8 +116,9 @@ The active implementation task is `OL-005A: Canonicalize and redact ingress befo
 
 Before implementing OL-005A, read:
 
-- GitHub issue #10
+- GitHub issue #10 and all issue comments
 - `docs/tasks/OL-005A_CODEX_TASK.md`
+- `docs/tasks/OL-005A_CLARIFICATIONS.md`
 - ADR-0003
 - ADR-0004
 - ADR-0005
@@ -126,6 +127,8 @@ Before implementing OL-005A, read:
 - RFC 8785 and its verified errata
 - Node.js 24 Crypto documentation
 - OWASP Logging Cheat Sheet data-exclusion guidance
+
+`docs/tasks/OL-005A_CLARIFICATIONS.md` is normative where it resolves ambiguity in issue #10 or the task brief.
 
 For OL-005A, the following are explicitly forbidden:
 
@@ -150,4 +153,4 @@ For OL-005A, the following are explicitly forbidden:
 - cloud backend or remote storage
 - authentication, analytics, billing, or telemetry
 
-OL-005A is complete only when the versioned prepared-receipt contracts, shared deterministic ingress-security package, canonicalization, HMAC fingerprinting, allowlist reduction, secret/path redaction, safe bounded diagnostics, migration version 2, repository mapping, and all required tests satisfy issue #10, ADR-0005, and the task brief without introducing transport or downstream processing behavior.
+OL-005A is complete only when the versioned prepared-receipt contracts, shared deterministic ingress-security package, canonicalization, HMAC fingerprinting, allowlist reduction, secret/path redaction, safe bounded diagnostics, migration version 2, repository mapping, and all required tests satisfy issue #10, ADR-0005, the task brief, and the normative clarifications without introducing transport or downstream processing behavior.
