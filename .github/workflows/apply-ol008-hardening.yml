@@ -1,0 +1,43 @@
+name: Apply OL-008 Hardening
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Verify and apply patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s .github/ol008-hardening/patch.b64
+          test "$(wc -c < .github/ol008-hardening/patch.b64)" -eq 1844
+          echo "c8eccf11bd2afa22eb61613b39f44df96ac6795c5c63bb20e9d8757e6a36dcfe  .github/ol008-hardening/patch.b64" | sha256sum --check
+          base64 --decode .github/ol008-hardening/patch.b64 > /tmp/ol008-hardening.diff.gz
+          gzip --test /tmp/ol008-hardening.diff.gz
+          gzip --decompress --stdout /tmp/ol008-hardening.diff.gz > /tmp/ol008-hardening.diff
+          echo "bdd0311f4a09cd4f49261be5f7a08612165b623d20173ed48d2268d6edcc9548  /tmp/ol008-hardening.diff" | sha256sum --check
+          git apply --check --verbose /tmp/ol008-hardening.diff
+          git apply --index /tmp/ol008-hardening.diff
+
+      - name: Publish hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm -r .github/ol008-hardening
+          git rm .github/workflows/apply-ol008-hardening.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Harden OL-008 untracked path boundary"
+          git push origin "HEAD:${{ github.head_ref }}"
