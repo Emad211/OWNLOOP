@@ -5,8 +5,9 @@ hashed with SHA-256, materialized once under the deterministic digest layout, an
 metadata is resolved in SQLite.
 
 The store never accepts caller-selected object paths and never writes inside an analyzed repository.
-Version-1 reads verify path derivation, containment, regular-file type, exact size, and digest before
-returning bytes.
+Prospective root overlap is rejected before any managed artifact directory is created. Version-1
+reads verify path derivation, containment, regular-file type, exact size, and digest before returning
+bytes.
 
 Run references are idempotent and many-to-many. Garbage collection is explicit, bounded, and deletes
 metadata only while the artifact remains unreferenced. Orphan sweeping is restricted to the exact
