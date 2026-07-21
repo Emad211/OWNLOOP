@@ -19,9 +19,10 @@ export type PersistenceRepositories = Readonly<{
   artifacts: ArtifactRepository;
 }>;
 
-type AsyncTransactionGuard<Result> = Result extends PromiseLike<unknown>
-  ? [error: "Async transaction callbacks are not supported"]
-  : [];
+type AsyncTransactionGuard<Result> =
+  Result extends PromiseLike<unknown>
+    ? [error: "Async transaction callbacks are not supported"]
+    : [];
 
 export type OwnLoopPersistence = PersistenceRepositories &
   Readonly<{
