@@ -6,7 +6,7 @@ import {
   type AgentConversation,
   type OwnLoopPersistence,
   PersistenceConstraintError,
-  PersistenceError,
+  type PersistenceError,
   type PersistenceRepositories,
   type TaskRun,
   type Workspace,
@@ -92,11 +92,10 @@ function withPersistence(operation: (persistence: OwnLoopPersistence) => void): 
   }
 }
 
-if (false) {
-  const persistence = openPersistence(":memory:");
+void ((persistence: OwnLoopPersistence) => {
   // @ts-expect-error Persistence transaction callbacks must not return PromiseLike values.
   persistence.withTransaction(async () => undefined);
-}
+});
 
 describe("Event aggregate consistency", () => {
   it("rejects an Event whose Conversation belongs to another Workspace", () => {
