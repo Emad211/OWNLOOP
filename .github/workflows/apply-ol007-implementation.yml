@@ -17,20 +17,42 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Assemble and verify patch
+      - name: Assemble payload
         shell: bash
         run: |
           set -euo pipefail
           test -s .github/ol007-parts/part-00
-          test -s .github/ol007-parts/part-01
+          test -s .github/ol007-parts/part-01-00
+          test -s .github/ol007-parts/part-01-01
+          test -s .github/ol007-parts/part-01-02
           test -s .github/ol007-parts/part-02
           cat .github/ol007-parts/part-* > /tmp/ol007.diff.gz.b64
           test "$(wc -c < /tmp/ol007.diff.gz.b64)" -eq 15532
+
+      - name: Verify encoded payload
+        shell: bash
+        run: |
+          set -euo pipefail
           echo "9117f9961d909918cbcafa214cf2e70acaaac39e4b431d0ff58662478b5b6970  /tmp/ol007.diff.gz.b64" | sha256sum --check
+
+      - name: Decode payload
+        shell: bash
+        run: |
+          set -euo pipefail
           base64 --decode /tmp/ol007.diff.gz.b64 > /tmp/ol007.diff.gz
           gzip --test /tmp/ol007.diff.gz
           gzip --decompress --stdout /tmp/ol007.diff.gz > /tmp/ol007.diff
+
+      - name: Verify patch
+        shell: bash
+        run: |
+          set -euo pipefail
           echo "e9111a295f393c07215b33da82d8c2c595bd8853476e9eddf50cc57e6903e31b  /tmp/ol007.diff" | sha256sum --check
+
+      - name: Verify patch baseline
+        shell: bash
+        run: |
+          set -euo pipefail
           git apply --check --verbose /tmp/ol007.diff
 
       - name: Apply and publish
