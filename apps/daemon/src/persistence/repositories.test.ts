@@ -153,6 +153,8 @@ function artifact(overrides: Partial<ArtifactMetadata> = {}): ArtifactMetadata {
     sizeBytes: 42,
     kind: "redacted-diff",
     sensitivity: "normal",
+    storageVersion: 0,
+    mediaType: null,
     createdAt: TIMESTAMP,
     ...overrides,
   };
