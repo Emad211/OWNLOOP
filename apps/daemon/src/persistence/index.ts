@@ -2,6 +2,7 @@ import { openConfiguredDatabase, type PersistenceConnectionInfo } from "./databa
 import { runMigrations } from "./migrations.js";
 import { ArtifactRepository } from "./repositories/artifacts.js";
 import { AgentConversationRepository } from "./repositories/conversations.js";
+import { EventNormalizationRepository } from "./repositories/event-normalizations.js";
 import { EventRepository } from "./repositories/events.js";
 import { IngressReceiptRepository } from "./repositories/ingress-receipts.js";
 import { LifecycleResolutionRepository } from "./repositories/lifecycle-resolutions.js";
@@ -17,6 +18,7 @@ export type PersistenceRepositories = Readonly<{
   conversations: AgentConversationRepository;
   taskRuns: TaskRunRepository;
   events: EventRepository;
+  eventNormalizations: EventNormalizationRepository;
   runSupport: RunSupportRepository;
   artifacts: ArtifactRepository;
 }>;
@@ -54,6 +56,7 @@ export function openPersistence(databasePath: string): OwnLoopPersistence {
     conversations: new AgentConversationRepository(database),
     taskRuns: new TaskRunRepository(database),
     events: new EventRepository(database),
+    eventNormalizations: new EventNormalizationRepository(database),
     runSupport: new RunSupportRepository(database),
     artifacts: new ArtifactRepository(database),
   };
@@ -99,6 +102,16 @@ export type {
   AgentConversationStatus,
   NewAgentConversation,
 } from "./repositories/conversations.js";
+export {
+  EVENT_NORMALIZATION_DIAGNOSTIC_CODES,
+  EVENT_NORMALIZATION_OUTCOMES,
+} from "./repositories/event-normalizations.js";
+export type {
+  EventNormalizationDiagnosticCode,
+  EventNormalizationOutcome,
+  NewReceiptEventNormalization,
+  ReceiptEventNormalization,
+} from "./repositories/event-normalizations.js";
 export type { EventDeduplicationRecord } from "./repositories/events.js";
 export {
   LIFECYCLE_DIAGNOSTIC_CODES,

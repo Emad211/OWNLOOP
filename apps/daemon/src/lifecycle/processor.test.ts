@@ -215,7 +215,7 @@ describe("migration version 3", () => {
         );
 
       runMigrations(opened.database);
-      expect(readAppliedMigrations(opened.database)).toHaveLength(3);
+      expect(readAppliedMigrations(opened.database)).toHaveLength(MIGRATIONS.length);
       expect(
         opened.database
           .prepare("SELECT identity_basis FROM workspaces WHERE workspace_id = ?")

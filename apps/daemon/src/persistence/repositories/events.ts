@@ -144,6 +144,40 @@ export class EventRepository {
     }
   }
 
+  nextSequence(runId: string): number {
+    const row = this.#database
+      .prepare(
+        `SELECT coalesce(max(sequence), 0) + 1 AS next_sequence
+         FROM events
+         WHERE run_id = ?`,
+      )
+      .get(runId);
+    return row === undefined ? 1 : requiredNumber(row, "next_sequence");
+  }
+
+  listDeduplicationRecordsForEvent(eventId: string): EventDeduplicationRecord[] {
+    return this.#database
+      .prepare(
+        `SELECT source, source_session_id, deduplication_key, event_id, created_at
+         FROM event_deduplication
+         WHERE event_id = ?
+         ORDER BY source, source_session_id, deduplication_key`,
+      )
+      .all(eventId)
+      .map((row) => ({
+        source: requiredString(row, "source"),
+        sourceSessionId: requiredString(row, "source_session_id"),
+        deduplicationKey: requiredString(row, "deduplication_key"),
+        eventId: requiredString(row, "event_id"),
+        createdAt: requiredString(row, "created_at"),
+      }));
+  }
+
+  countDeduplicationRows(): number {
+    const row = this.#database.prepare("SELECT count(*) AS count FROM event_deduplication").get();
+    return row === undefined ? 0 : requiredNumber(row, "count");
+  }
+
   countAll(): number {
     const row = this.#database.prepare("SELECT count(*) AS count FROM events").get();
     return row === undefined ? 0 : requiredNumber(row, "count");
