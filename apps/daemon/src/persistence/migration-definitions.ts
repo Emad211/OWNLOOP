@@ -430,6 +430,56 @@ BEGIN
 END;
 `;
 
+const EVENT_NORMALIZATION_SQL = `
+CREATE TABLE receipt_event_normalizations (
+  receipt_id TEXT PRIMARY KEY
+    REFERENCES receipt_lifecycle_resolutions (receipt_id) ON DELETE CASCADE,
+  outcome TEXT NOT NULL CHECK (outcome IN ('normalized', 'skipped', 'failed')),
+  event_count INTEGER NOT NULL CHECK (event_count >= 0),
+  diagnostic_code TEXT CHECK (
+    diagnostic_code IS NULL
+    OR diagnostic_code IN (
+      'lifecycle_failed',
+      'legacy_receipt_unsupported',
+      'invalid_redacted_payload',
+      'missing_lifecycle_resolution',
+      'invalid_event_mapping',
+      'normalization_processing_failed'
+    )
+  ),
+  normalized_at TEXT NOT NULL CHECK (length(trim(normalized_at)) > 0),
+  CHECK (
+    (outcome = 'normalized' AND event_count >= 1 AND diagnostic_code IS NULL)
+    OR
+    (outcome IN ('skipped', 'failed') AND event_count = 0 AND diagnostic_code IS NOT NULL)
+  )
+) STRICT;
+
+CREATE TABLE receipt_normalized_events (
+  receipt_id TEXT NOT NULL
+    REFERENCES receipt_event_normalizations (receipt_id) ON DELETE CASCADE,
+  event_index INTEGER NOT NULL CHECK (event_index >= 0),
+  event_id TEXT NOT NULL UNIQUE
+    REFERENCES events (event_id) ON DELETE CASCADE,
+  PRIMARY KEY (receipt_id, event_index)
+) STRICT;
+
+CREATE INDEX receipt_event_normalizations_time_idx
+  ON receipt_event_normalizations (normalized_at, receipt_id);
+
+CREATE TRIGGER receipt_event_normalizations_reject_update
+BEFORE UPDATE ON receipt_event_normalizations
+BEGIN
+  SELECT RAISE(ABORT, 'receipt event normalizations are immutable');
+END;
+
+CREATE TRIGGER receipt_normalized_events_reject_update
+BEFORE UPDATE ON receipt_normalized_events
+BEGIN
+  SELECT RAISE(ABORT, 'receipt normalized event links are immutable');
+END;
+`;
+
 export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   Object.freeze({
     version: 1,
@@ -445,5 +495,10 @@ export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
     version: 3,
     name: "transactional_lifecycle_resolution",
     sql: LIFECYCLE_RESOLUTION_SQL,
+  }),
+  Object.freeze({
+    version: 4,
+    name: "transactional_event_normalization",
+    sql: EVENT_NORMALIZATION_SQL,
   }),
 ]);
