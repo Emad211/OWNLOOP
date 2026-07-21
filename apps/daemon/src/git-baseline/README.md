@@ -15,6 +15,7 @@ A partial baseline records one evidence gap but does not change the active Task 
 - Output size and command duration are bounded.
 - Raw diff and status bytes are streamed into SHA-256 and discarded.
 - Symlinks are never followed for content hashing; only the link-target string may be hashed.
+- Before opening an untracked entry, the canonical parent directory is verified to remain inside the canonical repository root. A nested path routed through an escaping parent symlink is rejected without reading content.
 - Sensitive untracked paths are persisted as path digests only and their content is never read.
 
 ## Transaction and lifecycle guarantees
