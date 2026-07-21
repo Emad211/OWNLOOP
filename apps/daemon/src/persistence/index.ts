@@ -4,6 +4,7 @@ import { ArtifactRepository } from "./repositories/artifacts.js";
 import { AgentConversationRepository } from "./repositories/conversations.js";
 import { EventNormalizationRepository } from "./repositories/event-normalizations.js";
 import { EventRepository } from "./repositories/events.js";
+import { GitBaselineRepository } from "./repositories/git-baselines.js";
 import { IngressReceiptRepository } from "./repositories/ingress-receipts.js";
 import { LifecycleResolutionRepository } from "./repositories/lifecycle-resolutions.js";
 import { RunSupportRepository } from "./repositories/run-support.js";
@@ -18,6 +19,7 @@ export type PersistenceRepositories = Readonly<{
   conversations: AgentConversationRepository;
   taskRuns: TaskRunRepository;
   events: EventRepository;
+  gitBaselines: GitBaselineRepository;
   eventNormalizations: EventNormalizationRepository;
   runSupport: RunSupportRepository;
   artifacts: ArtifactRepository;
@@ -56,6 +58,7 @@ export function openPersistence(databasePath: string): OwnLoopPersistence {
     conversations: new AgentConversationRepository(database),
     taskRuns: new TaskRunRepository(database),
     events: new EventRepository(database),
+    gitBaselines: new GitBaselineRepository(database),
     eventNormalizations: new EventNormalizationRepository(database),
     runSupport: new RunSupportRepository(database),
     artifacts: new ArtifactRepository(database),
@@ -113,6 +116,24 @@ export type {
   ReceiptEventNormalization,
 } from "./repositories/event-normalizations.js";
 export type { EventDeduplicationRecord } from "./repositories/events.js";
+export {
+  GIT_BASELINE_DIAGNOSTIC_CODES,
+  GIT_BASELINE_ENTRY_HASH_STATUSES,
+  GIT_BASELINE_ENTRY_KINDS,
+  GIT_BASELINE_ENTRY_SENSITIVITIES,
+  GIT_BASELINE_OUTCOMES,
+} from "./repositories/git-baselines.js";
+export type {
+  GitBaseline,
+  GitBaselineDiagnosticCode,
+  GitBaselineEntryHashStatus,
+  GitBaselineEntryKind,
+  GitBaselineEntrySensitivity,
+  GitBaselineOutcome,
+  GitBaselineUntrackedEntry,
+  NewGitBaseline,
+  NewGitBaselineUntrackedEntry,
+} from "./repositories/git-baselines.js";
 export {
   LIFECYCLE_DIAGNOSTIC_CODES,
   LIFECYCLE_RESOLUTION_ACTIONS,

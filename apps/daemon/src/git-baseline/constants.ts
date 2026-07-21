@@ -1,0 +1,10 @@
+export const GIT_BASELINE_COLLECTOR_VERSION = "0.1.0" as const;
+export const GIT_BASELINE_FINGERPRINT_VERSION = "ownloop-git-baseline-v1" as const;
+export const GIT_BASELINE_EVENT_DEDUPLICATION_VERSION = "v1:git-baseline" as const;
+
+export const DEFAULT_GIT_COMMAND_TIMEOUT_MS = 10_000;
+export const DEFAULT_GIT_OUTPUT_LIMIT_BYTES = 8 * 1024 * 1024;
+export const DEFAULT_UNTRACKED_ENTRY_LIMIT = 10_000;
+export const DEFAULT_UNTRACKED_HASH_LIMIT_BYTES = 1024 * 1024;
+export const DEFAULT_LATE_CAPTURE_THRESHOLD_MS = 30_000;
+export const MAX_GIT_BASELINE_BATCH = 25;

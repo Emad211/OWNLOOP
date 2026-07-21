@@ -176,6 +176,36 @@ export class TaskRunRepository {
     );
   }
 
+  applyBaseline(
+    runId: string,
+    baselineGitCommit: string | null,
+    baselineWorkingTreeFingerprint: string,
+  ): boolean {
+    return (
+      this.#database
+        .prepare(
+          `UPDATE task_runs
+           SET baseline_git_commit = ?, baseline_working_tree_fingerprint = ?
+           WHERE run_id = ?
+             AND baseline_git_commit IS NULL
+             AND baseline_working_tree_fingerprint IS NULL`,
+        )
+        .run(baselineGitCommit, baselineWorkingTreeFingerprint, runId).changes === 1
+    );
+  }
+
+  incrementEvidenceGapCount(runId: string): boolean {
+    return (
+      this.#database
+        .prepare(
+          `UPDATE task_runs
+           SET evidence_gap_count = evidence_gap_count + 1
+           WHERE run_id = ?`,
+        )
+        .run(runId).changes === 1
+    );
+  }
+
   listStaleActive(cutoff: string, limit: number): StaleTaskRun[] {
     if (!Number.isInteger(limit) || limit < 1 || limit > 1_000) {
       return [];

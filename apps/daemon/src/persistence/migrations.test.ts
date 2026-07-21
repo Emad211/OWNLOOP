@@ -15,6 +15,8 @@ const REQUIRED_TABLES = [
   "event_deduplication",
   "events",
   "evidence_gaps",
+  "git_baseline_untracked_entries",
+  "git_baselines",
   "ingress_receipts",
   "receipt_event_normalizations",
   "receipt_lifecycle_resolutions",

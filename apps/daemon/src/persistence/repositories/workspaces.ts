@@ -109,6 +109,30 @@ export class WorkspaceRepository {
     );
   }
 
+  upgradeGitIdentity(
+    workspaceId: string,
+    repositoryRoot: string,
+    workingTreeFingerprint: string | null,
+  ): boolean {
+    return (
+      this.#database
+        .prepare(
+          `UPDATE workspaces
+           SET repository_root = ?,
+               identity_basis = 'git_resolved_v1',
+               initial_repository_fingerprint = CASE
+                 WHEN ? IS NOT NULL
+                   AND initial_repository_fingerprint LIKE 'path-sha256:%'
+                   THEN ?
+                 ELSE initial_repository_fingerprint
+               END
+           WHERE workspace_id = ?`,
+        )
+        .run(repositoryRoot, workingTreeFingerprint, workingTreeFingerprint, workspaceId)
+        .changes === 1
+    );
+  }
+
   delete(workspaceId: string): boolean {
     return (
       this.#database.prepare("DELETE FROM workspaces WHERE workspace_id = ?").run(workspaceId)
