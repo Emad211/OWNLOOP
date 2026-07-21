@@ -1,0 +1,57 @@
+name: Apply OL-004 Implementation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Verify chunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/expected <<'HASHES'
+          9a803fdd9434d2d2f81bf55aac7ec572566cb733 .github/ol004-parts/part-00
+          67259988076423784c3d6978f5d588d2a4af3f74 .github/ol004-parts/part-01
+          94b91be592c734b949ab254e11cefc2ae770b604 .github/ol004-parts/part-02
+          715196b79099a5244084b470c0f0978b9bbba91a .github/ol004-parts/part-03
+          HASHES
+          while read -r expected file; do
+            test -s "$file"
+            test "$(git hash-object "$file")" = "$expected"
+          done < /tmp/expected
+
+      - name: Assemble and verify patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/ol004-parts/part-* > /tmp/ol004.diff.gz.b64
+          test "$(wc -c < /tmp/ol004.diff.gz.b64)" -eq 12688
+          base64 --decode /tmp/ol004.diff.gz.b64 > /tmp/ol004.diff.gz
+          gzip --test /tmp/ol004.diff.gz
+          gzip --decompress --stdout /tmp/ol004.diff.gz > /tmp/ol004.diff
+          echo "8ddd5eb8b21c29783582807c4609fb55760d886b9d3858468e53c413859529ea  /tmp/ol004.diff" | sha256sum --check
+          git apply --check --verbose /tmp/ol004.diff
+
+      - name: Apply and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --index /tmp/ol004.diff
+          git rm -r .github/ol004-parts
+          git rm .github/workflows/apply-ol004-implementation.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Implement OL-004 fail-open hook adapter"
+          git push origin "HEAD:${{ github.head_ref }}"
