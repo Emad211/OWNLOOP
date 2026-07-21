@@ -17,21 +17,28 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Apply verified implementation patch
+      - name: Decode implementation patch
         shell: bash
         run: |
           set -euo pipefail
           patch_file=.github/ol005a-code.patch.gz.b64
-          if [[ ! -f "$patch_file" ]]; then
-            echo "Patch payload not present yet; nothing to apply."
-            exit 0
-          fi
+          test -s "$patch_file"
+          base64 --decode "$patch_file" > /tmp/ol005a-code.patch.gz
+          gzip --test /tmp/ol005a-code.patch.gz
+          gzip --decompress --stdout /tmp/ol005a-code.patch.gz > /tmp/ol005a-code.patch
+          test -s /tmp/ol005a-code.patch
+          sha256sum /tmp/ol005a-code.patch
 
-          base64 --decode "$patch_file" | gzip --decompress > /tmp/ol005a-code.patch
-          echo "cd91a0a3d8d04077a2ba2ab19c3e8f3a4d9a32a82a4d1bb245ba4889377918b8  /tmp/ol005a-code.patch" | sha256sum --check
-          git apply --check /tmp/ol005a-code.patch
+      - name: Verify implementation patch
+        shell: bash
+        run: git apply --check --verbose /tmp/ol005a-code.patch
+
+      - name: Apply and publish implementation
+        shell: bash
+        run: |
+          set -euo pipefail
           git apply --index /tmp/ol005a-code.patch
-          git rm "$patch_file"
+          git rm .github/ol005a-code.patch.gz.b64
           git rm .github/workflows/source-snapshot.yml
 
           git config user.name "github-actions[bot]"
