@@ -26,6 +26,12 @@ Object keys are reduced as well as values. If two keys become identical after se
 
 The package accepts only runtime-validated ingress values and returns a strict, versioned `PreparedIngressReceiptV1`. It never writes the source payload itself. Persistence receives only the prepared receipt's canonical redacted JSON, keyed fingerprint, deduplication key, dedicated routing metadata, and content-free aggregate summary.
 
+Additional defensive guarantees include:
+
+- unterminated private-key blocks are redacted through the end of the retained string;
+- POSIX, Windows-drive, and UNC `file://` URIs are reduced using the same path policy as ordinary absolute paths;
+- prepared receipt content and preparation metadata become immutable after insertion, while processing status may still advance independently.
+
 ## Limitations
 
 Policy v1 uses an exact secret-field denylist and bounded strong string patterns. It intentionally does not use entropy heuristics and cannot guarantee detection of every proprietary or novel secret format.
