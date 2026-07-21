@@ -17,44 +17,30 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Assemble payload
+      - { name: Verify part-00, run: 'test "$(git hash-object .github/ol010-v2-parts/part-00)" = faedb1f8fb925a12d0723a3a5469ff20b6a1a2a2' }
+      - { name: Verify part-01, run: 'test "$(git hash-object .github/ol010-v2-parts/part-01)" = 65554a6097e6a8c9ea92e2d2931f1c7553c8e979' }
+      - { name: Verify part-02, run: 'test "$(git hash-object .github/ol010-v2-parts/part-02)" = 770cb836d84b1daf34c60de65ff8d85acd9b2b16' }
+      - { name: Verify part-03, run: 'test "$(git hash-object .github/ol010-v2-parts/part-03)" = 4aa697dead7662b23d428941b7039764c17f2b0f' }
+      - { name: Verify part-04, run: 'test "$(git hash-object .github/ol010-v2-parts/part-04)" = a2fbd6239e659f9c23b61a7e761e092678b2c999' }
+      - { name: Verify part-05, run: 'test "$(git hash-object .github/ol010-v2-parts/part-05)" = f631044a4485d4bb288f0e754633c3fffbdf0d54' }
+      - { name: Verify part-06, run: 'test "$(git hash-object .github/ol010-v2-parts/part-06)" = 7b9debed5e6615ca14a821524d885e8c58404c88' }
+      - { name: Verify part-07, run: 'test "$(git hash-object .github/ol010-v2-parts/part-07)" = 819e01ca9675a0e11be5429895df206ff110e1a3' }
+      - { name: Verify part-08, run: 'test "$(git hash-object .github/ol010-v2-parts/part-08)" = 6b881242bf8b9f303559363350c3bc7734bee3eb' }
+      - { name: Verify part-09, run: 'test "$(git hash-object .github/ol010-v2-parts/part-09)" = 955e515d70524fbfd0401ac821858429adef8710' }
+      - { name: Verify part-10, run: 'test "$(git hash-object .github/ol010-v2-parts/part-10)" = 7ef9e870f0870eaf04e8c7f84b31dbd0318b8792' }
+      - { name: Verify part-11, run: 'test "$(git hash-object .github/ol010-v2-parts/part-11)" = df2746d81f6bd1286fa7d943ce7491ca5fb60333' }
+
+      - name: Assemble and verify payload
         shell: bash
         run: |
           set -euo pipefail
-          count="$(find .github/ol010-v2-parts -maxdepth 1 -type f | wc -l)"
-          echo "part-count=$count"
-          test "$count" -eq 12
           cat .github/ol010-v2-parts/part-* > /tmp/ol010-v2.diff.gz.b64
-          size="$(wc -c < /tmp/ol010-v2.diff.gz.b64)"
-          echo "payload-size=$size"
-          test "$size" -eq 28836
-
-      - name: Verify encoded payload
-        shell: bash
-        run: |
-          set -euo pipefail
-          sha256sum /tmp/ol010-v2.diff.gz.b64
+          test "$(wc -c < /tmp/ol010-v2.diff.gz.b64)" -eq 28836
           echo "24811832d659eab6852d02c6392356723fea58004bf811c37297f94be1308066  /tmp/ol010-v2.diff.gz.b64" | sha256sum --check
-
-      - name: Decode payload
-        shell: bash
-        run: |
-          set -euo pipefail
           base64 --decode /tmp/ol010-v2.diff.gz.b64 > /tmp/ol010-v2.diff.gz
           gzip --test /tmp/ol010-v2.diff.gz
           gzip --decompress --stdout /tmp/ol010-v2.diff.gz > /tmp/ol010-v2.diff
-
-      - name: Verify patch
-        shell: bash
-        run: |
-          set -euo pipefail
-          sha256sum /tmp/ol010-v2.diff
           echo "3c76e18abb5b576f05cf75f58498764b94bf86a8ae781f269d54bc1cb991244c  /tmp/ol010-v2.diff" | sha256sum --check
-
-      - name: Verify patch baseline
-        shell: bash
-        run: |
-          set -euo pipefail
           git apply --check --verbose /tmp/ol010-v2.diff
 
       - name: Apply and publish
