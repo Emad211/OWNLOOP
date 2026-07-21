@@ -1,0 +1,51 @@
+name: Export OL-009 Toolchain
+
+on:
+  push:
+    branches:
+      - agent/ol-009-reconciliation
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v7
+
+      - name: Set up exact Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.18.0
+
+      - name: Enable Corepack and install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Build portable toolchain archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/ownloop-toolchain
+          mkdir -p /tmp/ownloop-toolchain/repo /tmp/ownloop-toolchain/node
+          rsync -a --exclude='.git' ./ /tmp/ownloop-toolchain/repo/
+          node_root="$(dirname "$(dirname "$(readlink -f "$(command -v node)")")")"
+          cp -a "$node_root"/. /tmp/ownloop-toolchain/node/
+          tar -czf /tmp/ownloop-ol009-toolchain.tar.gz -C /tmp/ownloop-toolchain repo node
+          sha256sum /tmp/ownloop-ol009-toolchain.tar.gz > /tmp/ownloop-ol009-toolchain.sha256
+
+      - name: Upload toolchain
+        uses: actions/upload-artifact@v6
+        with:
+          name: ownloop-ol009-toolchain
+          path: |
+            /tmp/ownloop-ol009-toolchain.tar.gz
+            /tmp/ownloop-ol009-toolchain.sha256
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
