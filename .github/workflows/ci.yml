@@ -30,7 +30,27 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Check formatting
+        id: formatting
+        continue-on-error: true
         run: pnpm format:check
+
+      - name: Capture formatter diff
+        if: steps.formatting.outcome == 'failure'
+        run: |
+          pnpm format
+          git diff --binary > format.diff
+
+      - name: Upload formatter diff
+        if: steps.formatting.outcome == 'failure'
+        uses: actions/upload-artifact@v6
+        with:
+          name: formatter-diff
+          path: format.diff
+          if-no-files-found: error
+
+      - name: Fail on formatter drift
+        if: steps.formatting.outcome == 'failure'
+        run: exit 1
 
       - name: Lint
         run: pnpm lint
