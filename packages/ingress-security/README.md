@@ -22,6 +22,10 @@ Unknown Hook-schema extension fields are dropped. Arbitrary JSON inside approved
 
 Object keys are reduced as well as values. If two keys become identical after secret or path reduction, preparation fails with a content-free policy error rather than silently overwriting data.
 
+## Validation boundary
+
+The package accepts only runtime-validated ingress values and returns a strict, versioned `PreparedIngressReceiptV1`. It never writes the source payload itself. Persistence receives only the prepared receipt's canonical redacted JSON, keyed fingerprint, deduplication key, dedicated routing metadata, and content-free aggregate summary.
+
 ## Limitations
 
 Policy v1 uses an exact secret-field denylist and bounded strong string patterns. It intentionally does not use entropy heuristics and cannot guarantee detection of every proprietary or novel secret format.
