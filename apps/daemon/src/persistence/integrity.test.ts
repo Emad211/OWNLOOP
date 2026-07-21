@@ -223,8 +223,7 @@ describe("Synchronous transaction boundary", () => {
 
   it("rejects a native async callback before it can write", () => {
     withPersistence((persistence) => {
-      const unsafeWithTransaction =
-        persistence.withTransaction as unknown as UnsafeWithTransaction;
+      const unsafeWithTransaction = persistence.withTransaction as unknown as UnsafeWithTransaction;
       const asyncWorkspace = workspace("native-async");
 
       expect(() =>
@@ -242,8 +241,7 @@ describe("Synchronous transaction boundary", () => {
 
   it("rolls back synchronous writes when a callback returns a Promise", () => {
     withPersistence((persistence) => {
-      const unsafeWithTransaction =
-        persistence.withTransaction as unknown as UnsafeWithTransaction;
+      const unsafeWithTransaction = persistence.withTransaction as unknown as UnsafeWithTransaction;
       const thenableWorkspace = workspace("thenable");
 
       expect(() =>
@@ -293,9 +291,7 @@ describe("Synchronous transaction boundary", () => {
   it("continues to reject nested transactions", () => {
     withPersistence((persistence) => {
       expect(() =>
-        persistence.withTransaction(() =>
-          persistence.withTransaction(() => "nested transaction"),
-        ),
+        persistence.withTransaction(() => persistence.withTransaction(() => "nested transaction")),
       ).toThrowError(
         expect.objectContaining<Partial<PersistenceError>>({
           code: "transaction_already_active",
