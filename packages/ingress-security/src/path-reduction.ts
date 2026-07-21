@@ -76,6 +76,37 @@ function isStructuredPathField(fieldName: string): boolean {
   );
 }
 
+function fileUriToAbsolutePath(value: string): string | null {
+  if (!/^file:\/\//i.test(value)) {
+    return null;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "file:" || parsed.username.length > 0 || parsed.password.length > 0) {
+    return null;
+  }
+
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(parsed.pathname);
+  } catch {
+    return null;
+  }
+
+  if (parsed.hostname.length > 0 && parsed.hostname.toLowerCase() !== "localhost") {
+    return `\\\\${parsed.hostname}${pathname.replace(/\//g, "\\")}`;
+  }
+  if (/^\/[A-Za-z]:\//.test(pathname)) {
+    return pathname.slice(1).replace(/\//g, "\\");
+  }
+  return pathname.startsWith("/") ? pathname : null;
+}
+
 function detectFlavor(value: string): PathFlavor | null {
   if (/^[A-Za-z]:[\\/]/.test(value) || /^\\\\[^\\]/.test(value) || /^\/\/[^/]/.test(value)) {
     return "windows";
@@ -155,14 +186,16 @@ export function reduceStructuredPath(
   context: PathReductionContext,
   state: RedactionState,
 ): string {
-  const flavor = detectFlavor(value);
+  const filePath = fileUriToAbsolutePath(value);
+  const absoluteValue = filePath ?? value;
+  const flavor = detectFlavor(absoluteValue);
   if (flavor === null) {
     return value.replace(/\\/g, "/");
   }
 
   let candidate: CanonicalPath;
   try {
-    candidate = canonicalizeAbsolutePath(value);
+    candidate = canonicalizeAbsolutePath(absoluteValue);
   } catch {
     markPathReplacement(state, "absolutePath");
     return "$ABSOLUTE/invalid";
@@ -191,6 +224,10 @@ export function reduceStructuredPath(
 
 function isPathStartBoundary(value: string, index: number): boolean {
   return index === 0 || PATH_START_BOUNDARIES.has(value[index - 1] ?? "");
+}
+
+function isFileUriStart(value: string, index: number): boolean {
+  return value.slice(index, index + 7).toLowerCase() === "file://";
 }
 
 function isWindowsDriveStart(value: string, index: number): boolean {
@@ -254,7 +291,8 @@ function reduceEmbeddedAbsolutePaths(
   while (cursor < value.length) {
     const candidateStart =
       isPathStartBoundary(value, cursor) &&
-      (isWindowsDriveStart(value, cursor) ||
+      (isFileUriStart(value, cursor) ||
+        isWindowsDriveStart(value, cursor) ||
         isUncStart(value, cursor) ||
         isPosixStart(value, cursor));
 

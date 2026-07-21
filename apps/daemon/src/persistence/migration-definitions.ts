@@ -256,6 +256,35 @@ BEGIN
   SELECT RAISE(ABORT, 'new ingress receipts require prepared metadata');
 END;
 
+CREATE TRIGGER ingress_receipts_reject_content_update
+BEFORE UPDATE OF
+  receipt_id,
+  ingress_contract_version,
+  source,
+  source_session_id,
+  source_event_name,
+  source_event_id,
+  deduplication_key,
+  received_at,
+  payload_fingerprint,
+  redacted_payload_json,
+  created_at
+ON ingress_receipts
+WHEN NEW.receipt_id IS NOT OLD.receipt_id
+  OR NEW.ingress_contract_version IS NOT OLD.ingress_contract_version
+  OR NEW.source IS NOT OLD.source
+  OR NEW.source_session_id IS NOT OLD.source_session_id
+  OR NEW.source_event_name IS NOT OLD.source_event_name
+  OR NEW.source_event_id IS NOT OLD.source_event_id
+  OR NEW.deduplication_key IS NOT OLD.deduplication_key
+  OR NEW.received_at IS NOT OLD.received_at
+  OR NEW.payload_fingerprint IS NOT OLD.payload_fingerprint
+  OR NEW.redacted_payload_json IS NOT OLD.redacted_payload_json
+  OR NEW.created_at IS NOT OLD.created_at
+BEGIN
+  SELECT RAISE(ABORT, 'ingress receipt content is immutable');
+END;
+
 CREATE TRIGGER ingress_receipts_prepared_metadata_consistency_update
 BEFORE UPDATE OF
   canonicalization_version,

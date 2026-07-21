@@ -289,6 +289,59 @@ describe("prepared ingress receipt migration", () => {
     }
   });
 
+  it("prevents prepared receipt content from being rewritten after insertion", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    const receipt = preparedReceipt();
+    try {
+      runMigrations(opened.database);
+      const repository = new IngressReceiptRepository(opened.database);
+      repository.insertPrepared(receipt);
+
+      expect(() =>
+        opened.database
+          .prepare(
+            `UPDATE ingress_receipts
+             SET redacted_payload_json = ?
+             WHERE receipt_id = ?`,
+          )
+          .run('{"changed":true}', receipt.receiptId),
+      ).toThrow();
+      expect(repository.get(receipt.receiptId)).toMatchObject({
+        redactedPayloadJson: receipt.redactedPayloadJson,
+        payloadFingerprint: receipt.payloadFingerprint,
+        deduplicationKey: receipt.deduplicationKey,
+      });
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("allows processing-state updates without changing prepared content", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    const receipt = preparedReceipt();
+    try {
+      runMigrations(opened.database);
+      const repository = new IngressReceiptRepository(opened.database);
+      repository.insertPrepared(receipt);
+
+      opened.database
+        .prepare(
+          `UPDATE ingress_receipts
+           SET processing_status = ?, processed_at = ?
+           WHERE receipt_id = ?`,
+        )
+        .run("processed", TIMESTAMP, receipt.receiptId);
+
+      expect(repository.get(receipt.receiptId)).toMatchObject({
+        processingStatus: "processed",
+        processedAt: TIMESTAMP,
+        redactedPayloadJson: receipt.redactedPayloadJson,
+      });
+    } finally {
+      opened.database.close();
+    }
+  });
+
   it("prevents prepared rows from being downgraded to legacy metadata", () => {
     const opened = openConfiguredDatabase(":memory:");
     const receipt = preparedReceipt();

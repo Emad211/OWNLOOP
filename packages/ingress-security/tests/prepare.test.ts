@@ -198,6 +198,24 @@ describe("prepareIngressReceipt", () => {
     );
   });
 
+  it("redacts an unterminated private-key block through the end of the string", () => {
+    const privateBody = "fixtureUnterminatedPrivateKeyBody123456";
+    const trailingSecret = "fixtureTrailingPrivateKeyContent123456";
+    const prepared = prepare(
+      ingressFixture("PreToolUse", {
+        tool_input: {
+          value: `before -----BEGIN PRIVATE KEY-----\n${privateBody}\n${trailingSecret}`,
+        },
+      }),
+    );
+    const serialized = JSON.stringify(prepared);
+
+    expect(serialized).not.toContain(privateBody);
+    expect(serialized).not.toContain(trailingSecret);
+    expect(serialized).toContain(REDACTION_MARKER);
+    expect(prepared.redactionSummary.rulesApplied).toContain("string.private-key");
+  });
+
   it("redacts each explicitly supported provider-token prefix", () => {
     const values = [
       `sk-proj-${"a".repeat(24)}`,
@@ -243,6 +261,30 @@ describe("prepareIngressReceipt", () => {
     expect(serialized).not.toContain("/home/fixture");
     expect(serialized).not.toContain("/opt/fixture");
     expect(prepared.canonicalWorkspacePath).toBe("/home/fixture/workspace/project");
+  });
+
+  it("reduces POSIX, Windows, and UNC file URIs without changing ordinary URLs", () => {
+    const ingress = ingressFixture("PreToolUse", {
+      tool_input: {
+        workspace_uri: "file:///home/fixture/workspace/project/src/file-uri.ts",
+        windows_uri: "file:///C:/Users/Fixture/Private/result.txt",
+        unc_uri: "file://FixtureServer/PrivateShare/secret.txt",
+        message:
+          "Read file:///home/fixture/workspace/project/src/embedded.ts and keep https://example.invalid/file:///docs",
+      },
+    });
+    const prepared = prepare(ingress);
+    const payload = JSON.parse(prepared.redactedPayloadJson) as Record<string, unknown>;
+    const serialized = JSON.stringify(payload);
+
+    expect(payload).toHaveProperty("tool_input.workspace_uri", "$WORKSPACE/src/file-uri.ts");
+    expect(payload).toHaveProperty("tool_input.windows_uri", "$ABSOLUTE/result.txt");
+    expect(payload).toHaveProperty("tool_input.unc_uri", "$ABSOLUTE/secret.txt");
+    expect(serialized).toContain("$WORKSPACE/src/embedded.ts");
+    expect(serialized).toContain("https://example.invalid/file:///docs");
+    expect(serialized).not.toContain("file:///home/fixture");
+    expect(serialized).not.toContain("file:///C:/Users/Fixture");
+    expect(serialized).not.toContain("file://FixtureServer");
   });
 
   it("reduces unrelated absolute paths embedded in text and object keys", () => {
