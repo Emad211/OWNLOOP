@@ -16,11 +16,11 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Create source archive
-        run: tar --exclude=.git -czf ownloop-source.tar.gz .
+        run: tar --exclude=.git -czf /tmp/ownloop-source.tar.gz .
 
       - name: Upload source archive
         uses: actions/upload-artifact@v6
         with:
           name: ownloop-source
-          path: ownloop-source.tar.gz
+          path: /tmp/ownloop-source.tar.gz
           if-no-files-found: error
