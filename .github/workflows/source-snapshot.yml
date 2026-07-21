@@ -1,0 +1,26 @@
+name: Source Snapshot
+
+on:
+  pull_request:
+    branches:
+      - agent/ol-005a-ingress-security-plan
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Create source archive
+        run: tar --exclude=.git -czf ownloop-source.tar.gz .
+
+      - name: Upload source archive
+        uses: actions/upload-artifact@v6
+        with:
+          name: ownloop-source
+          path: ownloop-source.tar.gz
+          if-no-files-found: error
