@@ -14,19 +14,21 @@ Inside that transaction OwnLoop:
 - appends exactly one terminal Run Event;
 - records deterministic Event deduplication keys;
 - links the prepared manifest artifact to the Run;
-- inserts any new controlled evidence gap and updates the evidence counter;
+- inserts at most one new controlled finalization evidence gap, and only when the Run has no existing evidence gap;
 - transitions the Run to its terminal status;
 - inserts one immutable `run_finalizations` row.
 
 `Completed` is intentionally strict. It requires a normal Stop, captured baseline, captured reconciliation, reliable final fingerprint, stored final manifest, zero evidence gaps, and consistent Event continuity. Missing or incomplete retainable evidence produces `Partial`; `StopFailure` produces `Failed`.
 
+An existing OL-008, OL-009, or earlier controlled evidence gap still prevents `Completed`, but finalization does not duplicate it. The terminal diagnostic remains specific to the finalization classification even when no additional evidence row is inserted.
+
 ## Crash recovery
 
 Recovery is an explicit bounded API rather than a timer or background worker.
 
-- stale `Capturing` Runs become `Abandoned` with one controlled missing-stop evidence gap and one `run.abandoned` Event;
-- stale `Finalizing` Runs use the same accepted evidence path but are forced to `Partial` with a restart-recovery evidence gap;
-- status and staleness are re-checked inside the write transaction;
+- stale `Capturing` Runs become `Abandoned` and receive a controlled missing-stop evidence gap only when the Run has no existing gap;
+- stale `Finalizing` Runs use the same accepted evidence path, are forced to `Partial`, and receive a restart-recovery gap only when no gap already exists;
+- status, staleness, and evidence-row/counter consistency are re-checked inside the write transaction;
 - repeated or concurrent recovery is idempotent;
 - recovery never invokes, contacts, or resumes Claude Code.
 
@@ -36,7 +38,9 @@ Manifest bytes are prepared outside SQLite because the OL-010 object store is fi
 
 ## Database invariants
 
-Migration v8 and repository reads validate:
+Migration v8 introduced immutable Run finalization records. Migration v9 validates every existing v8 row and installs stricter insert-time validation for terminal-status, mode, and diagnostic combinations.
+
+Migration v8/v9 and repository reads validate:
 
 - one finalization per Run;
 - Workspace, Conversation, Run, trigger Event, reconciliation, artifact, snapshot Event, and terminal Event ownership;
@@ -45,11 +49,14 @@ Migration v8 and repository reads validate:
 - deterministic Event deduplication keys for both final snapshot and terminal Events;
 - final-manifest artifact kind, media type, storage version, and Run role;
 - terminal Run status, timestamp, fingerprint, evidence counter, and actual evidence-row count consistency;
-- controlled terminal-status, mode, diagnostic, reconciliation, snapshot, manifest, and fingerprint combinations;
+- normal `Partial` diagnostics are restricted to normal finalization evidence codes;
+- recovery `Partial` requires exactly `stale_finalizing_recovered`;
+- `source_stop_failure` remains exclusive to normal `Failed`;
+- `stale_capturing_recovered` remains exclusive to recovery `Abandoned`;
 - strict evidence requirements for `Completed`;
 - immutable finalization rows.
 
-Repository reads intentionally repeat critical cross-table checks after insertion. Regression tests corrupt terminal deduplication, predecessor continuity, and the evidence counter in file-backed databases and verify that restart-time reads reject each case as `invalid_persisted_row`.
+Repository reads intentionally repeat critical cross-table checks after insertion. Migration v9 rejects invalid existing v8 mode/diagnostic combinations rather than silently relabeling them. Regression tests also corrupt terminal deduplication, predecessor continuity, and the evidence counter in file-backed databases and verify that restart-time reads reject each case as `invalid_persisted_row`.
 
 Persisted corruption is surfaced as a content-free persistence error rather than silently accepted.
 
@@ -59,4 +66,4 @@ Final manifests contain controlled reconciliation metadata only. Raw Git status,
 
 ## Explicit non-ownership
 
-OL-011 does not implement replay projection or UI, AI summaries, Ownership Moments, cloud replication, analytics, telemetry, billing, user authentication, background scheduling, Git mutation, or agent resumption.
+OL-011 and this invariant hotfix do not implement replay projection or UI, AI summaries, Ownership Moments, cloud replication, analytics, telemetry, billing, user authentication, background scheduling, Git mutation, or agent resumption.
