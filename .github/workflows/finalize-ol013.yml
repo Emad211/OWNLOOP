@@ -56,6 +56,7 @@ jobs:
         run: |
           set -euo pipefail
           git apply /tmp/ol013.patch
+          git add -N .
           cat > /tmp/expected-files <<'FILES'
           AGENTS.md
           README.md
