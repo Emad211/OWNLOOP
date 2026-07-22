@@ -4,7 +4,7 @@ These instructions apply to the entire repository.
 
 ## Product boundary
 
-OwnLoop is a local-first Human Ownership Layer for AI-generated software. The accepted direction is defined by the product scope, C4 architecture, backlog amendments, and ADR-0001 through ADR-0013.
+OwnLoop is a local-first Human Ownership Layer for AI-generated software. The accepted direction is defined by the product scope, C4 architecture, backlog amendments, and ADR-0001 through ADR-0014.
 
 Read the relevant documents before changing code. Do not silently reinterpret an accepted decision. Architectural changes require a new ADR.
 
@@ -12,16 +12,15 @@ Read the relevant documents before changing code. Do not silently reinterpret an
 
 - Work on exactly one issue at a time and keep the Pull Request independently reviewable.
 - Do not modify unrelated files or add speculative behavior.
-- Never commit secrets, credentials, `.env` contents, database files, raw Git output, prepared artifact bytes, source-file content, machine-specific roots, or exception stacks.
-- Do not weaken type checking, linting, tests, database constraints, append-only Events, sequence integrity, artifact integrity, transactionality, idempotency, evidence gating, or recovery safety.
-- Do not use `any`, `z.any()`, `@ts-ignore`, disabled lint rules, or skipped tests without an issue-specific documented reason.
-- Completion is evidence-gated. Missing evidence is represented as `Partial`, `Failed`, or `Abandoned`; it is never inferred away.
-- Finalization may consume only accepted lifecycle, baseline, reconciliation, Event, evidence-gap, and artifact-store boundaries.
-- Raw Git status, patch/diff bytes, commit hashes, repository roots, prompts, source/session IDs, and file contents must not enter final manifests, synthetic Events, safe results, or evidence messages.
-- Artifact bytes may be materialized before the SQLite transaction, but the Run reference must be created inside the finalization transaction. A failed transaction may leave only an unreferenced GC-eligible object.
-- A terminal Run, immutable finalization row, terminal Event, final snapshot Event when applicable, artifact reference, final fingerprint, evidence gaps, and sequence allocation must be transactionally consistent.
-- Crash recovery must never invoke, contact, or resume Claude Code.
-- Repeated and concurrent finalization/recovery must not duplicate Events, sequences, artifact references, or evidence gaps.
+- Never commit secrets, credentials, installation tokens, `.env` contents, database files, raw Git output, prepared artifact bytes, source-file content, machine-specific roots, or exception stacks.
+- Do not weaken strict contracts, runtime validation, authentication, type checking, linting, tests, database constraints, append-only Events, sequence integrity, artifact verification, transactionality, idempotency, evidence gating, or recovery safety.
+- Do not use `any`, `z.any()`, `@ts-ignore`, disabled lint rules, skipped tests, arbitrary HTML injection, or external browser assets without an issue-specific accepted decision.
+- Raw Replay is a read-only projection. It must not mutate lifecycle, Events, evidence, Git, artifacts, finalizations, or receipts.
+- Causality may be displayed only from persisted relationships. Do not infer edges from time, text, filenames, or similarity.
+- Missing verification is not success. Missing or inconsistent terminal evidence is not silently repaired.
+- Browser contracts and output must not contain repository roots, commit IDs, Git hashes/fingerprints, source-session IDs, artifact digests/storage paths, sensitive filenames, raw source, or tokens.
+- Browser installation tokens are memory-only and may be sent only to `window.location.origin` as a Bearer header.
+- Do not add localStorage, sessionStorage, IndexedDB, cookies, URL token transport, CORS, or a second network listener.
 
 ## Technical baseline
 
@@ -29,19 +28,25 @@ Read the relevant documents before changing code. Do not silently reinterpret an
 - Language: TypeScript 6.0.3 strict mode
 - Package manager: pnpm 11.4.0
 - Runtime validation: Zod 4.4.3
-- HTTP: Fastify 5.10.0 behind daemon ingress
+- HTTP: Fastify 5.10.0 on authenticated IPv4 loopback
 - Persistence: built-in `node:sqlite`
+- UI: React 19.2.7 and Vite 8.1.5
 - Artifact store: local SHA-256 content-addressed storage
-- Git integration: read-only system Git through Node.js built-ins
 - Tests: Vitest
 - CI: GitHub Actions
 - Formatting/linting: Biome
 
-No external runtime dependency is authorized for OL-011.
+No new runtime dependency is authorized for OL-012.
 
 ## Repository placement
 
-Finalization behavior belongs under `apps/daemon/src/finalization/`. Persistence changes stay inside the existing daemon persistence boundary. Do not create a new package or service.
+- shared replay contracts belong in `packages/contracts/`;
+- read-only projection, routes, cursor handling, and contained static delivery belong in `apps/daemon/src/replay/`;
+- SQL remains inside persistence repositories;
+- browser viewer and same-origin client belong in `apps/web/`;
+- architectural policy belongs in ADR-0014.
+
+Do not create a new service, listener, database table, replay cache, or package.
 
 ## Quality gates
 
@@ -55,51 +60,48 @@ pnpm test
 pnpm build
 ```
 
-Focused OL-011 tests must prove:
+Focused OL-012 tests must prove:
 
-- migration 7→8, fresh migration, reopen, checksum history, SQL constraints, aggregate linkage, and immutability;
-- normal complete Stop → Completed;
-- incomplete normal Stop → Partial;
-- StopFailure → Failed;
-- deterministic privacy-bounded manifest creation and artifact deduplication;
-- contiguous final snapshot/terminal Event sequences and deterministic deduplication;
-- terminal Run/finalization/Event/artifact/evidence writes are atomic;
-- rollback leaves no terminal state, reference, Event, evidence increment, or sequence gap;
-- idempotent and concurrent finalization;
-- stale Capturing → Abandoned and stale Finalizing → forced Partial;
-- stale status/time re-check inside the write transaction;
-- bounded deterministic recovery after file-backed restart;
-- corruption detection for aggregate, trigger Event, reconciliation, artifact, snapshot Event, and terminal Event linkage;
-- safe results/errors and manifest/Event/evidence surfaces contain no sensitive values;
-- no agent resume, Git mutation, raw patch persistence, background scheduler, replay UI, AI, cloud, analytics, telemetry, billing, or authentication behavior.
+- strict Raw Replay v1 list, detail, error, causal-link, changed-file, evidence, finalization, artifact, and manifest contracts;
+- deterministic list ordering, code-point prompt preview, cursor pagination, and malformed cursor rejection;
+- `Capturing`, `Finalizing`, `Completed`, `Partial`, `Failed`, and `Abandoned` display semantics;
+- contiguous bounded Event reads and persisted causal relationships only;
+- absence of paths, roots, commits, hashes, fingerprints, source-session identifiers, artifact digest/storage paths, sensitive filenames, raw payloads, and tokens;
+- authentication before every replay read;
+- real loopback list/detail/artifact routes and content-free errors;
+- OL-010 verified and bounded artifact delivery;
+- static root containment, traversal/encoded traversal/symlink rejection, SPA fallback, and security headers;
+- missing/invalid web root does not break API routes;
+- browser token is memory-only, API origin is same-origin, and UI uses no dangerous HTML or external assets;
+- functional accessible loading, empty, error, in-progress, complete, partial, failed, abandoned, evidence-gap, no-verification, and artifact states;
+- no persistence mutation or new migration.
 
 Never claim a check passed unless it completed successfully.
 
 ## Git and Pull Request discipline
 
-- Base implementation on `agent/ol-011-finalization-recovery`.
+- Base implementation on `agent/ol-012-raw-replay` from current `main`.
 - Make focused commits and leave the worktree clean.
 - Do not push directly to `main`.
 - Keep the PR draft until clean-checkout CI and final review pass.
+- Remove all temporary export/transfer workflows before review.
 - Merge only with the exact reviewed head SHA.
 
 ## Current phase restriction
 
-The active issue is `OL-011: Implement deterministic run finalization and crash recovery` (#29).
+The active issue is `OL-012: Implement the deterministic Raw Replay API and local browser viewer` (#37). Issue #32 and PR #34 are superseded and must not be reused.
 
-Before implementing, read issue #29, ADR-0003, ADR-0008 through ADR-0013, and the current Task Run, Event, Git baseline, Git reconciliation, evidence-gap, artifact-store, transaction, migration, and persistence error code.
+Before implementing, read issue #37, ADR-0003, ADR-0006, ADR-0009 through ADR-0014, and the current ingress auth/server, persistence repositories, artifact store, finalization, contracts, and web code.
 
 Explicitly forbidden:
 
-- raw Git status/patch/content capture;
-- a parallel repository-analysis model;
-- agent/session probing or resume;
-- automatic timers/background scheduling;
-- arbitrary terminal-status inference;
-- terminal Run mutation without an immutable finalization row;
-- artifact content or paths in safe results/errors;
-- replay API/UI projection;
-- AI summaries or Ownership Moments;
-- cloud replication, analytics, telemetry, billing, or user authentication.
+- replay database/cache or projection migration;
+- inferred causality or success;
+- raw receipt/Git/source/artifact metadata exposure;
+- direct artifact filesystem reads;
+- lifecycle, Event, evidence, Git, artifact, or finalization mutation;
+- token persistence or arbitrary browser API host;
+- CORS, second listener, remote binding, HTTPS termination, or multi-user auth;
+- AI summaries, classification, Moments, Evidence Graph, cloud, analytics, telemetry, or billing.
 
-OL-011 is complete only when every eligible Run can be finalized or recovered deterministically into exactly one terminal state with immutable evidence-backed finalization metadata, contiguous append-only terminal Events, an optional prepared final-manifest artifact, explicit evidence gaps, idempotency, crash durability, and no agent resumption.
+OL-012 is complete only when accepted persisted facts can be viewed through a deterministic, bounded, privacy-safe, authenticated Raw Replay contract and same-origin local viewer without creating a second truth model or widening the local security boundary.

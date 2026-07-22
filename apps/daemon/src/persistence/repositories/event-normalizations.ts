@@ -28,6 +28,11 @@ export type ReceiptEventNormalization = Readonly<{
 
 export type NewReceiptEventNormalization = Omit<ReceiptEventNormalization, "eventIds">;
 
+export type ReceiptReplayEventGroup = Readonly<{
+  receiptId: string;
+  eventIds: readonly string[];
+}>;
+
 function mapNormalization(row: SqliteRow, eventIds: readonly string[]): ReceiptEventNormalization {
   return {
     receiptId: requiredString(row, "receipt_id"),
@@ -118,6 +123,44 @@ export class EventNormalizationRepository {
       );
     }
     return normalization;
+  }
+
+  listReplayEventGroupsForRun(runId: string, limit = 10_000): readonly ReceiptReplayEventGroup[] {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 10_000) {
+      return [];
+    }
+    const rows = this.#database
+      .prepare(
+        `SELECT rne.receipt_id, rne.event_index, rne.event_id
+         FROM receipt_normalized_events rne
+         JOIN events e ON e.event_id = rne.event_id
+         WHERE e.run_id = ?
+         ORDER BY rne.receipt_id ASC, rne.event_index ASC
+         LIMIT ?`,
+      )
+      .all(runId, limit + 1);
+    if (rows.length > limit) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The persisted Run exceeds the replay receipt-link limit.",
+      );
+    }
+    const groups = new Map<string, string[]>();
+    for (const row of rows) {
+      const receiptId = requiredString(row, "receipt_id");
+      const eventIndex = requiredNumber(row, "event_index");
+      const eventId = requiredString(row, "event_id");
+      const eventIds = groups.get(receiptId) ?? [];
+      if (eventIndex !== eventIds.length) {
+        throw new PersistenceError(
+          "invalid_persisted_row",
+          "The persisted replay receipt Event indices are not contiguous.",
+        );
+      }
+      eventIds.push(eventId);
+      groups.set(receiptId, eventIds);
+    }
+    return [...groups.entries()].map(([receiptId, eventIds]) => ({ receiptId, eventIds }));
   }
 
   listEligibleReceiptIds(limit: number): string[] {

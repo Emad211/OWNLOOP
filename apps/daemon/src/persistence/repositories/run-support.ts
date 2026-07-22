@@ -1,6 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 
-import { mapPersistenceWriteError } from "../errors.js";
+import { mapPersistenceWriteError, PersistenceError } from "../errors.js";
 import { nullableString, requiredNumber, requiredString } from "../row-mapping.js";
 
 export type EvidenceGapRecord = Readonly<{
@@ -99,6 +99,36 @@ export class RunSupportRepository {
         detailsJson: nullableString(row, "details_json"),
         createdAt: requiredString(row, "created_at"),
       }));
+  }
+
+  listEvidenceGapsBounded(runId: string, limit: number): EvidenceGapRecord[] {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 10_000) {
+      return [];
+    }
+    const gaps = this.#database
+      .prepare(
+        `SELECT gap_id, run_id, code, message, details_json, created_at
+         FROM evidence_gaps
+         WHERE run_id = ?
+         ORDER BY created_at ASC, gap_id ASC
+         LIMIT ?`,
+      )
+      .all(runId, limit + 1)
+      .map((row) => ({
+        gapId: requiredString(row, "gap_id"),
+        runId: requiredString(row, "run_id"),
+        code: requiredString(row, "code"),
+        message: requiredString(row, "message"),
+        detailsJson: nullableString(row, "details_json"),
+        createdAt: requiredString(row, "created_at"),
+      }));
+    if (gaps.length > limit) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The persisted Run exceeds the replay evidence-gap limit.",
+      );
+    }
+    return gaps;
   }
 
   countEvidenceGaps(runId: string): number {

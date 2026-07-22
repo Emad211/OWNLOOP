@@ -295,6 +295,35 @@ export class GitReconciliationRepository {
     return row === undefined ? null : this.#mapWithEntries(row);
   }
 
+  listForRun(runId: string): readonly GitReconciliation[] {
+    const ids = this.#database
+      .prepare(
+        `SELECT reconciliation_id
+         FROM git_reconciliations
+         WHERE run_id = ?
+         ORDER BY captured_at ASC, reconciliation_id ASC
+         LIMIT 1001`,
+      )
+      .all(runId)
+      .map((row) => requiredString(row, "reconciliation_id"));
+    if (ids.length > 1000) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The persisted Run contains too many replay reconciliations.",
+      );
+    }
+    return ids.map((reconciliationId) => {
+      const reconciliation = this.get(reconciliationId);
+      if (reconciliation === null) {
+        throw new PersistenceError(
+          "invalid_persisted_row",
+          "The persisted replay reconciliation disappeared during the read.",
+        );
+      }
+      return reconciliation;
+    });
+  }
+
   #mapWithEntries(row: SqliteRow): GitReconciliation {
     const reconciliationId = requiredString(row, "reconciliation_id");
     const entries = this.#database

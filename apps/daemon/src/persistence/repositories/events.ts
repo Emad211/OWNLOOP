@@ -1,7 +1,7 @@
-import { NormalizedEventEnvelopeSchema, type NormalizedEventEnvelope } from "@ownloop/event-model";
 import type { DatabaseSync } from "node:sqlite";
+import { type NormalizedEventEnvelope, NormalizedEventEnvelopeSchema } from "@ownloop/event-model";
 
-import { mapPersistenceWriteError } from "../errors.js";
+import { mapPersistenceWriteError, PersistenceError } from "../errors.js";
 import {
   nullableNumber,
   nullableString,
@@ -118,6 +118,23 @@ export class EventRepository {
       .prepare(`${EVENT_SELECT} WHERE run_id = ? ORDER BY sequence ASC`)
       .all(runId)
       .map(mapEvent);
+  }
+
+  listForRunBounded(runId: string, limit: number): readonly NormalizedEventEnvelope[] {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100_000) {
+      return [];
+    }
+    const events = this.#database
+      .prepare(`${EVENT_SELECT} WHERE run_id = ? ORDER BY sequence ASC LIMIT ?`)
+      .all(runId, limit + 1)
+      .map(mapEvent);
+    if (events.length > limit) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The persisted Run exceeds the replay Event limit.",
+      );
+    }
+    return events;
   }
 
   recordDeduplicationKey(record: EventDeduplicationRecord): void {

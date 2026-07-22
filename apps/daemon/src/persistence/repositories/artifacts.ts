@@ -1,5 +1,5 @@
-import type { EventSensitivity } from "@ownloop/event-model";
 import type { DatabaseSync } from "node:sqlite";
+import type { EventSensitivity } from "@ownloop/event-model";
 
 import { mapPersistenceWriteError, PersistenceError } from "../errors.js";
 import { nullableString, requiredNumber, requiredString, type SqliteRow } from "../row-mapping.js";
@@ -209,6 +209,18 @@ export class ArtifactRepository {
     }
   }
 
+  listReferencesForArtifact(artifactId: string): readonly RunArtifactReference[] {
+    return this.#database
+      .prepare(
+        `SELECT run_id, artifact_id, role, created_at AS reference_created_at
+         FROM run_artifacts
+         WHERE artifact_id = ?
+         ORDER BY run_id ASC, role ASC`,
+      )
+      .all(artifactId)
+      .map(mapReference);
+  }
+
   listForRun(runId: string): readonly RunArtifactReference[] {
     return this.#database
       .prepare(
@@ -247,6 +259,42 @@ export class ArtifactRepository {
         reference: mapReference(row),
         artifact: mapArtifact(row),
       }));
+  }
+
+  listRecordsForRunBounded(runId: string, limit: number): readonly RunArtifactRecord[] {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+      return [];
+    }
+    const records = this.#database
+      .prepare(
+        `SELECT
+           r.run_id,
+           r.artifact_id,
+           r.role,
+           r.created_at AS reference_created_at,
+           a.digest,
+           a.storage_path,
+           a.size_bytes,
+           a.kind,
+           a.sensitivity,
+           a.storage_version,
+           a.media_type,
+           a.created_at
+         FROM run_artifacts r
+         JOIN artifacts a ON a.artifact_id = r.artifact_id
+         WHERE r.run_id = ?
+         ORDER BY r.artifact_id, r.role
+         LIMIT ?`,
+      )
+      .all(runId, limit + 1)
+      .map((row) => ({ reference: mapReference(row), artifact: mapArtifact(row) }));
+    if (records.length > limit) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The persisted Run exceeds the replay artifact limit.",
+      );
+    }
+    return records;
   }
 
   countReferences(artifactId: string): number {
