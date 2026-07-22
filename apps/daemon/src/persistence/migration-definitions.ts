@@ -1171,6 +1171,130 @@ BEGIN
 END;
 `;
 
+const RUN_FINALIZATION_EVIDENCE_CONTINUITY_SQL = `
+CREATE TABLE run_finalization_v10_validation (
+  finalization_id TEXT PRIMARY KEY,
+  valid INTEGER NOT NULL CHECK (valid = 1)
+) STRICT;
+
+INSERT INTO run_finalization_v10_validation (finalization_id, valid)
+SELECT rf.finalization_id,
+       CASE WHEN
+         EXISTS (
+           SELECT 1 FROM events terminal
+           WHERE terminal.event_id = rf.terminal_event_id
+             AND terminal.sequence > 0
+             AND (
+               SELECT count(*) FROM events existing
+               WHERE existing.run_id = rf.run_id
+                 AND existing.sequence <= terminal.sequence
+             ) = terminal.sequence
+             AND (
+               SELECT min(existing.sequence) FROM events existing
+               WHERE existing.run_id = rf.run_id
+                 AND existing.sequence <= terminal.sequence
+             ) = 1
+             AND (
+               SELECT max(existing.sequence) FROM events existing
+               WHERE existing.run_id = rf.run_id
+                 AND existing.sequence <= terminal.sequence
+             ) = terminal.sequence
+         )
+         AND EXISTS (
+           SELECT 1 FROM task_runs tr
+           WHERE tr.run_id = rf.run_id
+             AND tr.evidence_gap_count = (
+               SELECT count(*) FROM evidence_gaps eg WHERE eg.run_id = rf.run_id
+             )
+             AND (
+               (rf.terminal_status = 'Completed' AND tr.evidence_gap_count = 0)
+               OR
+               (rf.terminal_status <> 'Completed' AND tr.evidence_gap_count > 0)
+             )
+         )
+         AND (
+           (rf.trigger_event_id IS NULL AND NOT EXISTS (
+             SELECT 1 FROM events stop
+             WHERE stop.run_id = rf.run_id
+               AND stop.event_type IN ('run.stop_observed', 'run.stop_failed')
+           ))
+           OR
+           (rf.trigger_event_id IS NOT NULL AND EXISTS (
+             SELECT 1 FROM events trigger
+             WHERE trigger.event_id = rf.trigger_event_id
+               AND trigger.run_id = rf.run_id
+               AND trigger.event_type IN ('run.stop_observed', 'run.stop_failed')
+               AND NOT EXISTS (
+                 SELECT 1 FROM events later
+                 WHERE later.run_id = rf.run_id
+                   AND later.event_type IN ('run.stop_observed', 'run.stop_failed')
+                   AND later.sequence > trigger.sequence
+               )
+           ))
+         )
+       THEN 1 ELSE 0 END
+FROM run_finalizations rf;
+
+DROP TABLE run_finalization_v10_validation;
+
+CREATE TRIGGER run_finalizations_validate_evidence_continuity_v10
+BEFORE INSERT ON run_finalizations
+BEGIN
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1 FROM events terminal
+    WHERE terminal.event_id = NEW.terminal_event_id
+      AND terminal.sequence > 0
+      AND (
+        SELECT count(*) FROM events existing
+        WHERE existing.run_id = NEW.run_id
+          AND existing.sequence <= terminal.sequence
+      ) = terminal.sequence
+      AND (
+        SELECT min(existing.sequence) FROM events existing
+        WHERE existing.run_id = NEW.run_id
+          AND existing.sequence <= terminal.sequence
+      ) = 1
+      AND (
+        SELECT max(existing.sequence) FROM events existing
+        WHERE existing.run_id = NEW.run_id
+          AND existing.sequence <= terminal.sequence
+      ) = terminal.sequence
+  ) THEN RAISE(ABORT, 'non-contiguous Run finalization Event history') END;
+
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1 FROM task_runs tr
+    WHERE tr.run_id = NEW.run_id
+      AND tr.evidence_gap_count = (
+        SELECT count(*) FROM evidence_gaps eg WHERE eg.run_id = NEW.run_id
+      )
+      AND (
+        (NEW.terminal_status = 'Completed' AND tr.evidence_gap_count = 0)
+        OR
+        (NEW.terminal_status <> 'Completed' AND tr.evidence_gap_count > 0)
+      )
+  ) THEN RAISE(ABORT, 'invalid Run finalization evidence state') END;
+
+  SELECT CASE WHEN NEW.trigger_event_id IS NULL AND EXISTS (
+    SELECT 1 FROM events stop
+    WHERE stop.run_id = NEW.run_id
+      AND stop.event_type IN ('run.stop_observed', 'run.stop_failed')
+  ) THEN RAISE(ABORT, 'Run finalization omitted an available Stop boundary') END;
+
+  SELECT CASE WHEN NEW.trigger_event_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM events trigger
+    WHERE trigger.event_id = NEW.trigger_event_id
+      AND trigger.run_id = NEW.run_id
+      AND trigger.event_type IN ('run.stop_observed', 'run.stop_failed')
+      AND NOT EXISTS (
+        SELECT 1 FROM events later
+        WHERE later.run_id = NEW.run_id
+          AND later.event_type IN ('run.stop_observed', 'run.stop_failed')
+          AND later.sequence > trigger.sequence
+      )
+  ) THEN RAISE(ABORT, 'Run finalization trigger is not the latest Stop boundary') END;
+END;
+`;
+
 export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   Object.freeze({
     version: 1,
@@ -1216,5 +1340,10 @@ export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
     version: 9,
     name: "strict_run_finalization_invariants",
     sql: RUN_FINALIZATION_INVARIANTS_SQL,
+  }),
+  Object.freeze({
+    version: 10,
+    name: "run_finalization_evidence_continuity",
+    sql: RUN_FINALIZATION_EVIDENCE_CONTINUITY_SQL,
   }),
 ]);

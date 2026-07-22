@@ -10,7 +10,11 @@ import {
 } from "@ownloop/event-model";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createLocalArtifactStore, type LocalArtifactStore } from "../artifact-store/index.js";
+import {
+  ArtifactStoreError,
+  createLocalArtifactStore,
+  type LocalArtifactStore,
+} from "../artifact-store/index.js";
 import {
   type OwnLoopPersistence,
   openPersistence,
@@ -382,6 +386,81 @@ describe("Run finalization", () => {
     }
   });
 
+  it("propagates artifact integrity corruption instead of downgrading it to Partial", async () => {
+    const context = await createContext();
+    const corruptedStore = new Proxy(context.artifactStore, {
+      get(target, property, receiver) {
+        if (property === "putPreparedBytes") {
+          return async (..._args: Parameters<LocalArtifactStore["putPreparedBytes"]>) => {
+            throw new ArtifactStoreError("artifact_content_corrupt");
+          };
+        }
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    try {
+      await expect(
+        finalizeRun({ ...context.dependencies, artifactStore: corruptedStore }, "run-1"),
+      ).rejects.toMatchObject({ code: "artifact_content_corrupt" });
+      expect(context.persistence.taskRuns.get("run-1")?.status).toBe("Finalizing");
+      expect(context.persistence.runFinalizations.getByRun("run-1")).toBeNull();
+      expect(context.persistence.events.listForRun("run-1")).toHaveLength(3);
+    } finally {
+      context.persistence.close();
+    }
+  });
+
+  it("uses Partial for a recoverable prepared-manifest write failure", async () => {
+    const context = await createContext();
+    const failingStore = new Proxy(context.artifactStore, {
+      get(target, property, receiver) {
+        if (property === "putPreparedBytes") {
+          return async (..._args: Parameters<LocalArtifactStore["putPreparedBytes"]>) => {
+            throw new ArtifactStoreError("artifact_write_failed");
+          };
+        }
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    try {
+      const result = await finalizeRun(
+        { ...context.dependencies, artifactStore: failingStore },
+        "run-1",
+      );
+      expect(result).toMatchObject({
+        terminalStatus: "Partial",
+        diagnosticCode: "manifest_unavailable",
+        manifestArtifactId: null,
+      });
+      expect(context.persistence.runSupport.listEvidenceGaps("run-1")).toEqual([
+        expect.objectContaining({ code: "manifest_unavailable" }),
+      ]);
+    } finally {
+      context.persistence.close();
+    }
+  });
+
+  it("rejects a non-contiguous Event history before finalization", async () => {
+    const directory = await temporaryDirectory("ownloop-finalization-preflight-gap-");
+    const databasePath = join(directory, "ownloop.sqlite");
+    const context = await createContext({}, databasePath);
+    const raw = new DatabaseSync(databasePath);
+    raw.exec("PRAGMA foreign_keys = OFF");
+    raw.prepare("DELETE FROM events WHERE event_id = ?").run("baseline-event");
+    raw.close();
+    try {
+      await expect(finalizeRun(context.dependencies, "run-1")).rejects.toMatchObject({
+        code: "invalid_persisted_row",
+      });
+      expect(context.persistence.taskRuns.get("run-1")?.status).toBe("Finalizing");
+      expect(context.persistence.runFinalizations.getByRun("run-1")).toBeNull();
+    } finally {
+      context.persistence.close();
+    }
+  });
+
   it("rolls back terminal state, Events, reference, evidence and sequence on transaction failure", async () => {
     const context = await createContext();
     const failingDependencies: RunFinalizationDependencies = {
@@ -454,6 +533,60 @@ describe("Run finalization", () => {
     }
   });
 
+  it("rejects stale Capturing recovery after a persisted Stop boundary", async () => {
+    const context = await createContext({
+      status: "Capturing",
+      lastObservedAt: "2026-07-22T09:00:00.000Z",
+    });
+    context.persistence.events.append(
+      event({
+        eventId: "unexpected-stop",
+        type: "run.stop_observed",
+        sequence: 1,
+        at: "2026-07-22T09:01:00.000Z",
+      }),
+    );
+    try {
+      await expect(
+        recoverStaleRuns(context.dependencies, "2026-07-22T09:30:00.000Z"),
+      ).rejects.toMatchObject({ code: "invalid_persisted_row" });
+      expect(context.persistence.taskRuns.get("run-1")?.status).toBe("Capturing");
+      expect(context.persistence.runFinalizations.getByRun("run-1")).toBeNull();
+    } finally {
+      context.persistence.close();
+    }
+  });
+
+  it("canonicalizes an offset recovery cutoff before SQLite ordering", async () => {
+    const context = await createContext({
+      status: "Capturing",
+      lastObservedAt: "2026-07-22T09:00:00.000Z",
+    });
+    try {
+      const results = await recoverStaleRuns(context.dependencies, "2026-07-22T08:30:00-01:00");
+      expect(results[0]?.terminalStatus).toBe("Abandoned");
+    } finally {
+      context.persistence.close();
+    }
+  });
+
+  it("rejects recovery cutoffs without an explicit timezone", async () => {
+    const context = await createContext({
+      status: "Capturing",
+      lastObservedAt: "2026-07-22T09:00:00.000Z",
+    });
+    try {
+      const results = await recoverStaleRuns(context.dependencies, "2026-07-22T09:30:00");
+      const invalidCalendar = await recoverStaleRuns(context.dependencies, "2026-02-30T09:30:00Z");
+      expect(results).toEqual([]);
+      expect(invalidCalendar).toEqual([]);
+      expect(context.persistence.taskRuns.get("run-1")?.status).toBe("Capturing");
+      expect(context.persistence.events.listForRun("run-1")).toEqual([]);
+    } finally {
+      context.persistence.close();
+    }
+  });
+
   it("recovers stale Finalizing as forced Partial", async () => {
     const context = await createContext({
       lastObservedAt: "2026-07-22T09:00:00.000Z",
@@ -517,6 +650,70 @@ describe("Run finalization", () => {
           .slice(-2)
           .map((entry) => entry.type),
       ).toEqual(["snapshot.final_captured", "run.completed"]);
+    } finally {
+      reopened.close();
+    }
+  });
+
+  it("detects an Event sequence gap earlier than the finalization predecessor", async () => {
+    const directory = await temporaryDirectory("ownloop-finalization-early-gap-");
+    const databasePath = join(directory, "ownloop.sqlite");
+    const context = await createContext({}, databasePath);
+    await finalizeRun(context.dependencies, "run-1");
+    context.persistence.close();
+
+    const raw = new DatabaseSync(databasePath);
+    raw.exec("PRAGMA foreign_keys = OFF");
+    raw.prepare("DELETE FROM events WHERE event_id = ?").run("baseline-event");
+    raw.close();
+
+    const reopened = openPersistence(databasePath);
+    try {
+      expect(() => getRunFinalization(reopened, "run-1")).toThrowError(
+        expect.objectContaining<Partial<PersistenceError>>({ code: "invalid_persisted_row" }),
+      );
+    } finally {
+      reopened.close();
+    }
+  });
+
+  it("detects a later Stop boundary after the persisted finalization trigger", async () => {
+    const context = await createContext();
+    try {
+      await finalizeRun(context.dependencies, "run-1");
+      context.persistence.events.append(
+        event({
+          eventId: "later-stop",
+          type: "run.stop_failed",
+          sequence: 6,
+          at: "2026-07-22T10:03:00.000Z",
+        }),
+      );
+      expect(() => getRunFinalization(context.persistence, "run-1")).toThrowError(
+        expect.objectContaining<Partial<PersistenceError>>({ code: "invalid_persisted_row" }),
+      );
+    } finally {
+      context.persistence.close();
+    }
+  });
+
+  it("detects non-Completed finalization evidence removed after restart", async () => {
+    const directory = await temporaryDirectory("ownloop-finalization-missing-evidence-");
+    const databasePath = join(directory, "ownloop.sqlite");
+    const context = await createContext({ reconciliationOutcome: "partial" }, databasePath);
+    await finalizeRun(context.dependencies, "run-1");
+    context.persistence.close();
+
+    const raw = new DatabaseSync(databasePath);
+    raw.prepare("DELETE FROM evidence_gaps WHERE run_id = ?").run("run-1");
+    raw.prepare("UPDATE task_runs SET evidence_gap_count = 0 WHERE run_id = ?").run("run-1");
+    raw.close();
+
+    const reopened = openPersistence(databasePath);
+    try {
+      expect(() => getRunFinalization(reopened, "run-1")).toThrowError(
+        expect.objectContaining<Partial<PersistenceError>>({ code: "invalid_persisted_row" }),
+      );
     } finally {
       reopened.close();
     }

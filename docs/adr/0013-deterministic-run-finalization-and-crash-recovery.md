@@ -10,7 +10,7 @@
 - `docs/adr/0009-transactional-event-normalization-and-sequencing.md`
 - `docs/adr/0010-privacy-bounded-deterministic-git-baseline.md`
 - `docs/adr/0011-evidence-bounded-git-reconciliation.md`
-- `docs/adr/0012-content-addressed-artifact-store.md`
+- `docs/adr/0012-local-content-addressed-artifact-store.md`
 - GitHub issue #29
 
 ---
@@ -74,7 +74,9 @@ A normal Stop may become `Completed` only when all of the following are true:
 
 Otherwise a retainable normal-Stop Run becomes `Partial`.
 
-A `run.stop_failed` boundary becomes terminal `Failed`. Missing or partial evidence remains explicitly represented through a diagnostic and evidence gap; failure is not silently labeled complete.
+A `run.stop_failed` boundary becomes terminal `Failed`. Missing or partial evidence remains explicitly represented through a diagnostic and retained evidence; failure is not silently labeled complete.
+
+Persisted reconciliation and artifact-integrity corruption propagates as a typed failure. Only explicitly recoverable manifest materialization failures become `manifest_unavailable`.
 
 ### Crash recovery
 
@@ -82,7 +84,8 @@ Recovery is explicit and bounded. No timer or background worker is introduced.
 
 For stale Runs selected by `conversation.lastObservedAt < cutoff`:
 
-- stale `Capturing` → `Abandoned`;
+- cutoff requires an explicit timezone and is canonicalized to UTC before selection and transactional re-check;
+- stale `Capturing` → `Abandoned` only when no Stop boundary is already persisted;
 - stale `Finalizing` → attempt normal final evidence resolution but force terminal `Partial`;
 - status and staleness are re-checked inside the write transaction;
 - a Run that became active/recent before the transaction is skipped;
@@ -153,7 +156,7 @@ Events are synthetic OwnLoop Events with normal sensitivity, null source identif
 
 ### Persistence
 
-Migration v8 adds `run_finalizations`, one immutable row per Run.
+Migration v8 adds `run_finalizations`, one immutable row per Run. Migration v9 restricts mode/diagnostic combinations. Migration v10 validates retained evidence, complete Event continuity through the terminal Event, and latest-Stop ownership without modifying migrations 1–9.
 
 The row stores:
 
