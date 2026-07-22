@@ -1,4 +1,4 @@
-name: Finalize OL-012 Artifact Visibility
+name: Export OL-012 Artifact Review Files
 
 on:
   pull_request:
@@ -6,10 +6,10 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  finalize:
+  export:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.head_ref == 'agent/ol-012-raw-replay'
@@ -21,290 +21,23 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 1
 
-      - name: Apply deterministic artifact visibility hardening
+      - name: Package exact review files
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-
-          p = Path('apps/daemon/src/persistence/repositories/artifacts.ts')
-          text = p.read_text()
-          needle = '''  listReferencesForArtifact(artifactId: string): readonly RunArtifactReference[] {
-            return this.#database
-              .prepare(
-                `SELECT run_id, artifact_id, role, created_at AS reference_created_at
-                 FROM run_artifacts
-                 WHERE artifact_id = ?
-                 ORDER BY run_id ASC, role ASC`,
-              )
-              .all(artifactId)
-              .map(mapReference);
-          }
-          '''
-          replacement = needle + '''
-            listReferencesForArtifactBounded(
-              artifactId: string,
-              limit: number,
-            ): readonly RunArtifactReference[] {
-              if (!Number.isInteger(limit) || limit < 1 || limit > 10_000) {
-                return [];
-              }
-              const references = this.#database
-                .prepare(
-                  `SELECT run_id, artifact_id, role, created_at AS reference_created_at
-                   FROM run_artifacts
-                   WHERE artifact_id = ?
-                   ORDER BY run_id ASC, role ASC
-                   LIMIT ?`,
-                )
-                .all(artifactId, limit + 1)
-                .map(mapReference);
-              if (references.length > limit) {
-                throw new PersistenceError(
-                  "invalid_persisted_row",
-                  "The persisted artifact exceeds the replay reference limit.",
-                );
-              }
-              return references;
-            }
-          '''
-          if needle not in text:
-              raise SystemExit('artifact repository anchor mismatch')
-          p.write_text(text.replace(needle, replacement))
-
-          p = Path('apps/daemon/src/persistence/repositories/git-reconciliations.ts')
-          text = p.read_text()
-          declaration = '''    const entries = this.#database
-              .prepare('''
-          if declaration not in text:
-              raise SystemExit('reconciliation declaration anchor mismatch')
-          text = text.replace(declaration, '''    const entryRows = this.#database
-              .prepare(''', 1)
-          block = '''         WHERE gre.reconciliation_id = ?
-                 ORDER BY gre.entry_index ASC`,
-              )
-              .all(reconciliationId)
-              .map((entryRow, index) => {'''
-          replacement = '''         WHERE gre.reconciliation_id = ?
-                 ORDER BY gre.entry_index ASC
-                 LIMIT 2001`,
-              )
-              .all(reconciliationId);
-            if (entryRows.length > 2000) {
-              throw new PersistenceError(
-                "invalid_persisted_row",
-                "The persisted Git reconciliation exceeds the replay entry limit.",
-              );
-            }
-            const entries = entryRows.map((entryRow, index) => {'''
-          if block not in text:
-              raise SystemExit('reconciliation query anchor mismatch')
-          p.write_text(text.replace(block, replacement))
-
-          p = Path('apps/daemon/src/replay/projection.ts')
-          text = p.read_text()
-          old = '''export function isReplayReadableArtifact(
-            persistence: OwnLoopPersistence,
-            artifactId: string,
-          ): boolean {
-            const metadata = persistence.artifacts.getMetadata(artifactId);
-            if (
-              metadata === null ||
-              metadata.storageVersion !== 1 ||
-              metadata.kind !== FINAL_DIFF_MANIFEST_KIND ||
-              metadata.mediaType !== FINAL_DIFF_MANIFEST_MEDIA_TYPE
-            ) {
-              return false;
-            }
-            return persistence.artifacts
-              .listReferencesForArtifact(artifactId)
-              .some(
-                (reference) =>
-                  reference.role === FINAL_DIFF_MANIFEST_ROLE &&
-                  persistence.taskRuns.get(reference.runId) !== null,
-              );
-          }
-          '''
-          new = '''export function isReplayReadableArtifact(
-            persistence: OwnLoopPersistence,
-            artifactId: string,
-          ): boolean {
-            const metadata = persistence.artifacts.getMetadata(artifactId);
-            if (
-              metadata === null ||
-              metadata.storageVersion !== 1 ||
-              metadata.kind !== FINAL_DIFF_MANIFEST_KIND ||
-              metadata.mediaType !== FINAL_DIFF_MANIFEST_MEDIA_TYPE
-            ) {
-              return false;
-            }
-            let corruptedReference = false;
-            for (const reference of persistence.artifacts.listReferencesForArtifactBounded(artifactId, 1000)) {
-              if (reference.role !== FINAL_DIFF_MANIFEST_ROLE) {
-                continue;
-              }
-              const run = persistence.taskRuns.get(reference.runId);
-              if (run === null) {
-                corruptedReference = true;
-                continue;
-              }
-              try {
-                const context = getContext(persistence, run);
-                completeness(run, context.finalization);
-                assertEventContinuity(
-                  persistence.events.listForRunBounded(reference.runId, 10_000),
-                  reference.runId,
-                );
-                return true;
-              } catch (error) {
-                if (error instanceof PersistenceError) {
-                  corruptedReference = true;
-                  continue;
-                }
-                throw error;
-              }
-            }
-            if (corruptedReference) {
-              throw new PersistenceError(
-                "invalid_persisted_row",
-                "The replay artifact is linked only to an invalid Run projection.",
-              );
-            }
-            return false;
-          }
-          '''
-          if old not in text:
-              raise SystemExit('artifact visibility anchor mismatch')
-          p.write_text(text.replace(old, new))
-
-          p = Path('apps/daemon/src/replay/routes.ts')
-          text = p.read_text()
-          old = '''.header("X-Content-Type-Options", "nosniff")
-                    .type(content.mediaType)'''
-          new = '''.header("X-Content-Type-Options", "nosniff")
-                    .header("Content-Length", String(content.sizeBytes))
-                    .type(content.mediaType)'''
-          if old not in text:
-              raise SystemExit('content length anchor mismatch')
-          p.write_text(text.replace(old, new))
-
-          p = Path('apps/daemon/src/replay/replay.test.ts')
-          text = p.read_text()
-          text = text.replace(
-              'import { createSecretKey } from "node:crypto";',
-              'import { createSecretKey } from "node:crypto";\nimport { DatabaseSync } from "node:sqlite";',
-          )
-          old = '''      expect(artifact.headers.get("content-disposition")).toContain("artifact-1");
-                expect(FinalDiffManifestV1Schema.parse(await artifact.json()).version).toBe(1);'''
-          new = '''      expect(artifact.headers.get("content-disposition")).toContain("artifact-1");
-                expect(artifact.headers.get("content-length")).toBe(
-                  String(fixture.persistence.artifacts.getMetadata("artifact-1")?.sizeBytes),
-                );
-                expect(FinalDiffManifestV1Schema.parse(await artifact.json()).version).toBe(1);'''
-          if old not in text:
-              raise SystemExit('artifact header test anchor mismatch')
-          text = text.replace(old, new)
-          marker = '''  it("checks authorization before touching replay persistence", async () => {'''
-          addition = '''  it("rejects artifacts whose only Run reference is not a valid replay projection", async () => {
-            const directory = await temporaryDirectory("ownloop-replay-artifact-run-corruption-");
-            const databasePath = join(directory, "ownloop.sqlite");
-            const fixture = await completeFixture(databasePath);
-            const raw = new DatabaseSync(databasePath);
-            raw.exec("PRAGMA foreign_keys = OFF");
-            raw.prepare("DELETE FROM events WHERE event_id = ?").run("baseline-event");
-            raw.close();
-            const token = generateInstallationToken();
-            let artifactRead = false;
-            const server = createLoopbackIngressServer({
-              persistence: fixture.persistence,
-              installationToken: token,
-              hmacKey: hmacKey(),
-              replay: {
-                persistence: fixture.persistence,
-                artifactStore: {
-                  async readPreparedBytes() {
-                    artifactRead = true;
-                    throw new Error("artifact bytes must not be read for an invalid replay Run");
-                  },
-                },
-              },
-            });
-            const address = await startLoopbackIngressServer(server, 0);
-            try {
-              const response = await fetch(`${address.url}/v1/replay/artifacts/artifact-1`, {
-                headers: { authorization: `Bearer ${token}` },
-              });
-              expect(response.status).toBe(503);
-              expect(ReplayErrorResponseSchema.parse(await response.json()).error.code).toBe(
-                "projection_failed",
-              );
-              expect(artifactRead).toBe(false);
-            } finally {
-              await server.close();
-              fixture.persistence.close();
-            }
-          });
-
-          '''
-          if marker not in text:
-              raise SystemExit('artifact corruption test anchor mismatch')
-          p.write_text(text.replace(marker, addition + marker))
-          PY
-
-      - name: Format and verify exact file hashes
-        shell: bash
-        run: |
-          set -euo pipefail
-          corepack enable
-          pnpm install --frozen-lockfile
-          pnpm exec biome format --write \
+          mkdir -p /tmp/ol012-review
+          tar -czf /tmp/ol012-review/current-files.tar.gz \
             apps/daemon/src/persistence/repositories/artifacts.ts \
             apps/daemon/src/persistence/repositories/git-reconciliations.ts \
             apps/daemon/src/replay/projection.ts \
             apps/daemon/src/replay/routes.ts \
             apps/daemon/src/replay/replay.test.ts
-          cat > /tmp/expected-hashes <<'HASHES'
-          26067ab992e5dddbbcaf035e765e8af9ba99e36b918f1faadad03c53f0e17e65  apps/daemon/src/persistence/repositories/artifacts.ts
-          98e286e04e13e17ae5a7352d638c96ad20e35bf9d2d48ae04d1efbb869f02e70  apps/daemon/src/persistence/repositories/git-reconciliations.ts
-          17e46b946f562d74e02e5f641e4ec658d8bd6ce68dc351a7bf06ecf02eafaaa5  apps/daemon/src/replay/projection.ts
-          8e182ab312ea7af7026be29c669a96fe52747e4d1a934bcebbba4379108c220d  apps/daemon/src/replay/routes.ts
-          7b07127bfd2cd677a003dc62c3ffe71646a1038a75762ed24cf35f5daa7a8ff1  apps/daemon/src/replay/replay.test.ts
-          HASHES
-          sha256sum --check /tmp/expected-hashes
-          cat > /tmp/expected-files <<'FILES'
-          apps/daemon/src/persistence/repositories/artifacts.ts
-          apps/daemon/src/persistence/repositories/git-reconciliations.ts
-          apps/daemon/src/replay/projection.ts
-          apps/daemon/src/replay/replay.test.ts
-          apps/daemon/src/replay/routes.ts
-          FILES
-          git diff --name-only | grep -v '^\.github/workflows/finalize-ol012-artifact-visibility.yml$' | sort > /tmp/actual-files
-          diff -u /tmp/expected-files /tmp/actual-files
-          git rm .github/workflows/finalize-ol012-artifact-visibility.yml
-          git diff --check
+          sha256sum /tmp/ol012-review/current-files.tar.gz > /tmp/ol012-review/current-files.sha256
 
-      - name: Set up exact Node.js
-        uses: actions/setup-node@v6
+      - name: Upload exact review files
+        uses: actions/upload-artifact@v6
         with:
-          node-version: 24.18.0
-
-      - name: Validate complete repository
-        shell: bash
-        run: |
-          set -euo pipefail
-          pnpm format:check
-          pnpm lint
-          pnpm typecheck
-          pnpm test
-          pnpm build
-
-      - name: Publish clean artifact visibility hardening
-        shell: bash
-        run: |
-          set -euo pipefail
-          git add -A
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Harden OL-012 artifact visibility"
-          git push origin "HEAD:${{ github.head_ref }}"
+          name: ownloop-ol012-artifact-review-files
+          path: /tmp/ol012-review
+          compression-level: 0
+          retention-days: 1
