@@ -1295,6 +1295,80 @@ BEGIN
 END;
 `;
 
+const DETERMINISTIC_CHANGE_CLASSIFICATION_ARTIFACT_SQL = `
+CREATE TABLE deterministic_change_classification_v11_validation (
+  valid INTEGER NOT NULL CHECK (valid = 1)
+) STRICT;
+
+INSERT INTO deterministic_change_classification_v11_validation (valid)
+SELECT CASE WHEN
+  NOT EXISTS (
+    SELECT 1
+    FROM run_artifacts ra
+    LEFT JOIN artifacts a ON a.artifact_id = ra.artifact_id
+    LEFT JOIN run_finalizations rf ON rf.run_id = ra.run_id
+    LEFT JOIN task_runs tr ON tr.run_id = ra.run_id
+    WHERE ra.role = 'deterministic-change-classification-v1'
+      AND (
+        a.artifact_id IS NULL
+        OR a.storage_version <> 1
+        OR a.kind <> 'deterministic-change-classification-v1'
+        OR a.media_type <> 'application/vnd.ownloop.change-classification+json'
+        OR a.sensitivity <> 'sensitive'
+        OR a.size_bytes > 2097152
+        OR rf.run_id IS NULL
+        OR tr.status NOT IN ('Completed', 'Partial', 'Abandoned', 'Failed')
+      )
+  )
+  AND NOT EXISTS (
+    SELECT ra.run_id
+    FROM run_artifacts ra
+    WHERE ra.role = 'deterministic-change-classification-v1'
+    GROUP BY ra.run_id
+    HAVING count(*) > 1
+  )
+THEN 1 ELSE 0 END;
+
+DROP TABLE deterministic_change_classification_v11_validation;
+
+CREATE UNIQUE INDEX run_artifacts_deterministic_change_classification_v1_unique
+ON run_artifacts (run_id)
+WHERE role = 'deterministic-change-classification-v1';
+
+CREATE TRIGGER run_artifacts_validate_deterministic_change_classification_v1
+BEFORE INSERT ON run_artifacts
+WHEN NEW.role = 'deterministic-change-classification-v1'
+BEGIN
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1 FROM artifacts a
+    WHERE a.artifact_id = NEW.artifact_id
+      AND a.storage_version = 1
+      AND a.kind = 'deterministic-change-classification-v1'
+      AND a.media_type = 'application/vnd.ownloop.change-classification+json'
+      AND a.sensitivity = 'sensitive'
+      AND a.size_bytes <= 2097152
+  ) THEN RAISE(ABORT, 'invalid deterministic change classification artifact metadata') END;
+
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1
+    FROM run_finalizations rf
+    JOIN task_runs tr ON tr.run_id = rf.run_id
+    WHERE rf.run_id = NEW.run_id
+      AND tr.status IN ('Completed', 'Partial', 'Abandoned', 'Failed')
+  ) THEN RAISE(ABORT, 'deterministic change classification requires a finalized Run') END;
+END;
+
+CREATE TRIGGER artifacts_preserve_deterministic_change_classification_sensitivity_v1
+BEFORE UPDATE OF sensitivity ON artifacts
+WHEN OLD.storage_version = 1
+  AND OLD.kind = 'deterministic-change-classification-v1'
+  AND OLD.media_type = 'application/vnd.ownloop.change-classification+json'
+  AND NEW.sensitivity <> 'sensitive'
+BEGIN
+  SELECT RAISE(ABORT, 'deterministic change classification sensitivity is immutable');
+END;
+`;
+
 export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   Object.freeze({
     version: 1,
@@ -1345,5 +1419,10 @@ export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
     version: 10,
     name: "run_finalization_evidence_continuity",
     sql: RUN_FINALIZATION_EVIDENCE_CONTINUITY_SQL,
+  }),
+  Object.freeze({
+    version: 11,
+    name: "deterministic_change_classification_artifact",
+    sql: DETERMINISTIC_CHANGE_CLASSIFICATION_ARTIFACT_SQL,
   }),
 ]);

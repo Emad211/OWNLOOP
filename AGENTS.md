@@ -4,7 +4,7 @@ These instructions apply to the entire repository.
 
 ## Product boundary
 
-OwnLoop is a local-first Human Ownership Layer for AI-generated software. The accepted direction is defined by the product scope, C4 architecture, backlog amendments, and ADR-0001 through ADR-0014.
+OwnLoop is a local-first Human Ownership Layer for AI-generated software. The accepted direction is defined by the product scope, C4 architecture, backlog amendments, and ADR-0001 through ADR-0015.
 
 Read the relevant documents before changing code. Do not silently reinterpret an accepted decision. Architectural changes require a new ADR.
 
@@ -13,14 +13,15 @@ Read the relevant documents before changing code. Do not silently reinterpret an
 - Work on exactly one issue at a time and keep the Pull Request independently reviewable.
 - Do not modify unrelated files or add speculative behavior.
 - Never commit secrets, credentials, installation tokens, `.env` contents, database files, raw Git output, prepared artifact bytes, source-file content, machine-specific roots, or exception stacks.
-- Do not weaken strict contracts, runtime validation, authentication, type checking, linting, tests, database constraints, append-only Events, sequence integrity, artifact verification, transactionality, idempotency, evidence gating, or recovery safety.
-- Do not use `any`, `z.any()`, `@ts-ignore`, disabled lint rules, skipped tests, arbitrary HTML injection, or external browser assets without an issue-specific accepted decision.
-- Raw Replay is a read-only projection. It must not mutate lifecycle, Events, evidence, Git, artifacts, finalizations, or receipts.
-- Causality may be displayed only from persisted relationships. Do not infer edges from time, text, filenames, or similarity.
-- Missing verification is not success. Missing or inconsistent terminal evidence is not silently repaired.
-- Browser contracts and output must not contain repository roots, commit IDs, Git hashes/fingerprints, source-session IDs, artifact digests/storage paths, sensitive filenames, raw source, or tokens.
-- Browser installation tokens are memory-only and may be sent only to `window.location.origin` as a Bearer header.
-- Do not add localStorage, sessionStorage, IndexedDB, cookies, URL token transport, CORS, or a second network listener.
+- Do not weaken strict contracts, runtime validation, type checking, linting, tests, database constraints, append-only evidence, artifact verification, transactionality, idempotency, or version discipline.
+- Do not use `any`, `z.any()`, `@ts-ignore`, disabled lint rules, skipped tests, content inference, or hidden I/O without an issue-specific accepted decision.
+- OL-013 classification consumes only the immutable finalization-linked OL-009 reconciliation. It must not read repository files, run Git, inspect Event payload text, prompts, commands, or source artifacts.
+- Hidden, secret, unsupported, or unmatched entries remain `unknown`; never guess a semantic label.
+- Confidence is a fixed deterministic rule strength in basis points, not a probability or correctness claim.
+- Every non-unknown label requires stable rule evidence; rule and label ordering must be canonical and reproducible.
+- Classification artifacts must omit relative paths, path identity hashes, roots, commits, Git hashes/fingerprints, prompts, commands, source sessions, source content, exceptions, and artifact storage metadata.
+- The same accepted input and classifier/rule-set versions must produce byte-identical canonical output.
+- Do not use the generic `analysis_jobs` table in OL-013 or introduce a scheduler/background worker.
 
 ## Technical baseline
 
@@ -28,25 +29,22 @@ Read the relevant documents before changing code. Do not silently reinterpret an
 - Language: TypeScript 6.0.3 strict mode
 - Package manager: pnpm 11.4.0
 - Runtime validation: Zod 4.4.3
-- HTTP: Fastify 5.10.0 on authenticated IPv4 loopback
 - Persistence: built-in `node:sqlite`
-- UI: React 19.2.7 and Vite 8.1.5
 - Artifact store: local SHA-256 content-addressed storage
 - Tests: Vitest
 - CI: GitHub Actions
 - Formatting/linting: Biome
 
-No new runtime dependency is authorized for OL-012.
+No new runtime dependency is authorized for OL-013.
 
 ## Repository placement
 
-- shared replay contracts belong in `packages/contracts/`;
-- read-only projection, routes, cursor handling, and contained static delivery belong in `apps/daemon/src/replay/`;
-- SQL remains inside persistence repositories;
-- browser viewer and same-origin client belong in `apps/web/`;
-- architectural policy belongs in ADR-0014.
+- strict classification contracts belong in `packages/contracts/`;
+- deterministic rules, canonical artifact preparation, and explicit processors belong in `apps/daemon/src/change-classification/`;
+- SQL remains inside existing persistence repositories and migration definitions;
+- architectural policy belongs in ADR-0015.
 
-Do not create a new service, listener, database table, replay cache, or package.
+Do not create a new package, service, listener, classifier table, replay cache, or scheduler.
 
 ## Quality gates
 
@@ -60,27 +58,28 @@ pnpm test
 pnpm build
 ```
 
-Focused OL-012 tests must prove:
+Focused OL-013 tests must prove:
 
-- strict Raw Replay v1 list, detail, error, causal-link, changed-file, evidence, finalization, artifact, and manifest contracts;
-- deterministic list ordering, code-point prompt preview, cursor pagination, and malformed cursor rejection;
-- `Capturing`, `Finalizing`, `Completed`, `Partial`, `Failed`, and `Abandoned` display semantics;
-- contiguous bounded Event reads and persisted causal relationships only;
-- absence of paths, roots, commits, hashes, fingerprints, source-session identifiers, artifact digest/storage paths, sensitive filenames, raw payloads, and tokens;
-- authentication before every replay read;
-- real loopback list/detail/artifact routes and content-free errors;
-- OL-010 verified and bounded artifact delivery;
-- static root containment, traversal/encoded traversal/symlink rejection, SPA fallback, and security headers;
-- missing/invalid web root does not break API routes;
-- browser token is memory-only, API origin is same-origin, and UI uses no dangerous HTML or external assets;
-- functional accessible loading, empty, error, in-progress, complete, partial, failed, abandoned, evidence-gap, no-verification, and artifact states;
-- no persistence mutation or new migration.
+- strict versioned contracts and rejection of forbidden fields;
+- canonical byte identity and stable input fingerprint;
+- deterministic multi-label ordering, rule evidence, and fixed confidence;
+- every taxonomy category and explicit `unknown` fallback;
+- common Node.js/TypeScript, React, API, auth, test, dependency, database, infrastructure, and documentation layouts;
+- unsafe/absolute/traversal/secret path corruption rejection;
+- 2000-entry and two-MiB bounds;
+- no filesystem, Git, network, source-content, prompt, command, or Event-payload reads in the pure classifier;
+- migration 10→11, immutable migration history, unique role, metadata, terminal/finalization constraints, and sensitivity preservation;
+- OL-010 content-addressed persistence, idempotency, concurrency, rollback, and restart durability;
+- tampered content, wrong source linkage/version/fingerprint/metadata, and duplicate-role rejection;
+- bounded deterministic batch eligibility;
+- five Milestone A fixture outcomes classify or explicitly report unavailable;
+- no lifecycle, Event, evidence-gap, Git, finalization, or source-artifact mutation.
 
 Never claim a check passed unless it completed successfully.
 
 ## Git and Pull Request discipline
 
-- Base implementation on `agent/ol-012-raw-replay` from current `main`.
+- Base implementation on `agent/ol-013-deterministic-change-classification` from current `main`.
 - Make focused commits and leave the worktree clean.
 - Do not push directly to `main`.
 - Keep the PR draft until clean-checkout CI and final review pass.
@@ -89,19 +88,19 @@ Never claim a check passed unless it completed successfully.
 
 ## Current phase restriction
 
-The active issue is `OL-012: Implement the deterministic Raw Replay API and local browser viewer` (#37). Issue #32 and PR #34 are superseded and must not be reused.
+The active issue is `OL-013: Build deterministic evidence-backed file and change classifiers` (#40).
 
-Before implementing, read issue #37, ADR-0003, ADR-0006, ADR-0009 through ADR-0014, and the current ingress auth/server, persistence repositories, artifact store, finalization, contracts, and web code.
+Before implementing, read issue #40, ADR-0011 through ADR-0015, the finalization/reconciliation/artifact repositories, migration history, strict contracts, and OL-010 verified artifact API.
 
 Explicitly forbidden:
 
-- replay database/cache or projection migration;
-- inferred causality or success;
-- raw receipt/Git/source/artifact metadata exposure;
-- direct artifact filesystem reads;
-- lifecycle, Event, evidence, Git, artifact, or finalization mutation;
-- token persistence or arbitrary browser API host;
-- CORS, second listener, remote binding, HTTPS termination, or multi-user auth;
-- AI summaries, classification, Moments, Evidence Graph, cloud, analytics, telemetry, or billing.
+- source, AST, package-content, prompt, transcript, command, or arbitrary Event-payload analysis;
+- repository or Git reads/mutation beyond accepted OL-009 facts;
+- probabilistic or AI-generated classification;
+- silent classification of hidden or unsupported paths;
+- mutable classification tables or generic analysis-job scheduling;
+- verification extraction, Evidence Graph, replay UI classification display, or Moment generation;
+- lifecycle, Event, evidence-gap, Git, finalization, artifact-source, or replay mutation;
+- cloud, analytics, telemetry, billing, or multi-user authentication.
 
-OL-012 is complete only when accepted persisted facts can be viewed through a deterministic, bounded, privacy-safe, authenticated Raw Replay contract and same-origin local viewer without creating a second truth model or widening the local security boundary.
+OL-013 is complete only when final-reconciliation entries can be classified reproducibly into the controlled taxonomy with stable evidence and fixed confidence, immutable OL-010 artifacts, explicit partial/unavailable/unknown outcomes, restart-safe validation, and no new observation or AI boundary.

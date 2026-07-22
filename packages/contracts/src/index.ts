@@ -156,3 +156,35 @@ export {
 } from "./replay.js";
 export type { ClaudeSourceMetadata } from "./source-metadata.js";
 export { ClaudeSourceMetadataSchema } from "./source-metadata.js";
+export type {
+  ChangeClassificationAggregateLabelV1,
+  ChangeClassificationAssignedLabelV1,
+  ChangeClassificationDiagnosticCode,
+  ChangeClassificationEntryV1,
+  ChangeClassificationEvidenceKind,
+  ChangeClassificationLabel,
+  ChangeClassificationOutcome,
+  ChangeClassificationRuleEvidenceV1,
+  DeterministicChangeClassificationV1,
+} from "./change-classification.js";
+export {
+  CHANGE_CLASSIFICATION_DIAGNOSTIC_CODES,
+  CHANGE_CLASSIFICATION_EVIDENCE_KINDS,
+  CHANGE_CLASSIFICATION_LABELS,
+  CHANGE_CLASSIFICATION_MAX_ARTIFACT_BYTES,
+  CHANGE_CLASSIFICATION_MAX_ENTRIES,
+  CHANGE_CLASSIFICATION_OUTCOMES,
+  CHANGE_CLASSIFICATION_RULE_SET_VERSION,
+  CHANGE_CLASSIFICATION_SCHEMA_VERSION,
+  CHANGE_CLASSIFICATION_TAXONOMY_VERSION,
+  CHANGE_CLASSIFIER_VERSION,
+  ChangeClassificationAggregateLabelV1Schema,
+  ChangeClassificationAssignedLabelV1Schema,
+  ChangeClassificationDiagnosticCodeSchema,
+  ChangeClassificationEntryV1Schema,
+  ChangeClassificationEvidenceKindSchema,
+  ChangeClassificationLabelSchema,
+  ChangeClassificationOutcomeSchema,
+  ChangeClassificationRuleEvidenceV1Schema,
+  DeterministicChangeClassificationV1Schema,
+} from "./change-classification.js";

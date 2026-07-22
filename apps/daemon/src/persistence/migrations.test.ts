@@ -354,7 +354,7 @@ describe("SQLite migrations", () => {
         "stale_finalizing_recovered",
       );
 
-      runMigrations(opened.database);
+      runMigrations(opened.database, MIGRATIONS.slice(0, 10));
 
       expect(readAppliedMigrations(opened.database)).toHaveLength(10);
       expect(
@@ -364,6 +364,224 @@ describe("SQLite migrations", () => {
           )
           .get(),
       ).toBeDefined();
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("upgrades version 10 and installs deterministic classification artifact invariants", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 10));
+      expect(readAppliedMigrations(opened.database)).toHaveLength(10);
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'run_artifacts_deterministic_change_classification_v1_unique'",
+          )
+          .get(),
+      ).toBeUndefined();
+
+      runMigrations(opened.database);
+
+      expect(readAppliedMigrations(opened.database)).toHaveLength(11);
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'run_artifacts_deterministic_change_classification_v1_unique'",
+          )
+          .get(),
+      ).toBeDefined();
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'run_artifacts_validate_deterministic_change_classification_v1'",
+          )
+          .get(),
+      ).toBeDefined();
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("rejects a pre-existing v1 classification role without a finalized Run during migration 11", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 10));
+      opened.database
+        .prepare(
+          `INSERT INTO workspaces (
+             workspace_id, canonical_path, repository_root, git_remote,
+             initial_repository_fingerprint, created_at, last_observed_at, identity_basis
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "workspace-v11",
+          "/workspace-v11",
+          "/workspace-v11",
+          null,
+          "fingerprint",
+          "2026-07-22T00:00:00.000Z",
+          "2026-07-22T00:00:00.000Z",
+          "legacy",
+        );
+      opened.database
+        .prepare(
+          `INSERT INTO agent_conversations (
+             conversation_id, workspace_id, source, source_session_id, start_mode,
+             started_at, last_observed_at, ended_at, status
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "conversation-v11",
+          "workspace-v11",
+          "claude_code",
+          "session-v11",
+          null,
+          "2026-07-22T00:00:00.000Z",
+          "2026-07-22T00:00:00.000Z",
+          null,
+          "Active",
+        );
+      opened.database
+        .prepare(
+          `INSERT INTO task_runs (
+             run_id, conversation_id, run_number, redacted_prompt, started_at, status
+           ) VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run("run-v11", "conversation-v11", 1, "prompt", "2026-07-22T00:00:00.000Z", "Capturing");
+      const digest = `sha256:${"d".repeat(64)}`;
+      opened.database
+        .prepare(
+          `INSERT INTO artifacts (
+             artifact_id, digest, storage_path, size_bytes, kind, sensitivity,
+             storage_version, media_type, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "classification-v11",
+          digest,
+          `objects/sha256/dd/${"d".repeat(62)}`,
+          10,
+          "deterministic-change-classification-v1",
+          "sensitive",
+          1,
+          "application/vnd.ownloop.change-classification+json",
+          "2026-07-22T00:00:00.000Z",
+        );
+      opened.database
+        .prepare(
+          `INSERT INTO run_artifacts (run_id, artifact_id, role, created_at)
+           VALUES (?, ?, ?, ?)`,
+        )
+        .run(
+          "run-v11",
+          "classification-v11",
+          "deterministic-change-classification-v1",
+          "2026-07-22T00:00:00.000Z",
+        );
+
+      expect(() => runMigrations(opened.database)).toThrow();
+      expect(readAppliedMigrations(opened.database)).toHaveLength(10);
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("rejects pre-existing v1 classification metadata that is not fixed sensitive", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 10));
+      seedVersion8PartialFinalization(
+        opened.database,
+        "invalid-v11-metadata",
+        "normal",
+        "baseline_missing",
+      );
+      opened.database
+        .prepare(
+          `INSERT INTO artifacts (
+             artifact_id, digest, storage_path, size_bytes, kind, sensitivity,
+             storage_version, media_type, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "classification-invalid-metadata",
+          `sha256:${"e".repeat(64)}`,
+          `objects/sha256/ee/${"e".repeat(62)}`,
+          10,
+          "deterministic-change-classification-v1",
+          "normal",
+          1,
+          "application/vnd.ownloop.change-classification+json",
+          "2026-07-22T12:00:00.000Z",
+        );
+      opened.database
+        .prepare(
+          `INSERT INTO run_artifacts (run_id, artifact_id, role, created_at)
+           VALUES (?, ?, ?, ?)`,
+        )
+        .run(
+          "run-invalid-v11-metadata",
+          "classification-invalid-metadata",
+          "deterministic-change-classification-v1",
+          "2026-07-22T12:00:00.000Z",
+        );
+
+      expect(() => runMigrations(opened.database)).toThrow();
+      expect(readAppliedMigrations(opened.database)).toHaveLength(10);
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("rejects duplicate pre-existing v1 classification roles during migration 11", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 10));
+      seedVersion8PartialFinalization(
+        opened.database,
+        "duplicate-v11-role",
+        "normal",
+        "baseline_missing",
+      );
+      for (const [artifactId, character] of [
+        ["classification-duplicate-a", "e"],
+        ["classification-duplicate-b", "f"],
+      ] as const) {
+        opened.database
+          .prepare(
+            `INSERT INTO artifacts (
+               artifact_id, digest, storage_path, size_bytes, kind, sensitivity,
+               storage_version, media_type, created_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            artifactId,
+            `sha256:${character.repeat(64)}`,
+            `objects/sha256/${character.repeat(2)}/${character.repeat(62)}`,
+            10,
+            "deterministic-change-classification-v1",
+            "sensitive",
+            1,
+            "application/vnd.ownloop.change-classification+json",
+            "2026-07-22T12:00:00.000Z",
+          );
+        opened.database
+          .prepare(
+            `INSERT INTO run_artifacts (run_id, artifact_id, role, created_at)
+             VALUES (?, ?, ?, ?)`,
+          )
+          .run(
+            "run-duplicate-v11-role",
+            artifactId,
+            "deterministic-change-classification-v1",
+            "2026-07-22T12:00:00.000Z",
+          );
+      }
+
+      expect(() => runMigrations(opened.database)).toThrow();
+      expect(readAppliedMigrations(opened.database)).toHaveLength(10);
     } finally {
       opened.database.close();
     }
