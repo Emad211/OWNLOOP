@@ -74,9 +74,16 @@ function seedVersion8PartialFinalization(
          baseline_git_commit, baseline_working_tree_fingerprint,
          started_at, ended_at, status, final_git_fingerprint,
          source_stop_reason, evidence_gap_count
-       ) VALUES (?, ?, 1, '[REDACTED]', NULL, NULL, ?, ?, 'Partial', NULL, 'stop', 0)`,
+       ) VALUES (?, ?, 1, '[REDACTED]', NULL, NULL, ?, ?, 'Partial', NULL, 'stop', 1)`,
     )
     .run(runId, conversationId, at, at);
+  database
+    .prepare(
+      `INSERT INTO evidence_gaps (
+         gap_id, run_id, code, message, details_json, created_at
+       ) VALUES (?, ?, 'existing_gap', 'Existing controlled evidence gap.', NULL, ?)`,
+    )
+    .run(`gap-${suffix}`, runId, at);
   database
     .prepare(
       `INSERT INTO events (
@@ -282,9 +289,9 @@ describe("SQLite migrations", () => {
         "stale_finalizing_recovered",
       );
 
-      runMigrations(opened.database);
+      runMigrations(opened.database, MIGRATIONS.slice(0, 9));
 
-      expect(readAppliedMigrations(opened.database)).toHaveLength(MIGRATIONS.length);
+      expect(readAppliedMigrations(opened.database)).toHaveLength(9);
       expect(
         opened.database
           .prepare(
@@ -331,6 +338,56 @@ describe("SQLite migrations", () => {
           )
           .get(),
       ).toBeUndefined();
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("upgrades valid version-9 finalizations and installs version-10 evidence continuity", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 9));
+      seedVersion8PartialFinalization(
+        opened.database,
+        "valid-v10",
+        "recovery",
+        "stale_finalizing_recovered",
+      );
+
+      runMigrations(opened.database);
+
+      expect(readAppliedMigrations(opened.database)).toHaveLength(10);
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'run_finalizations_validate_evidence_continuity_v10'",
+          )
+          .get(),
+      ).toBeDefined();
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("rejects version-9 finalizations without retained evidence during migration 10", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 9));
+      seedVersion8PartialFinalization(
+        opened.database,
+        "invalid-v10-evidence",
+        "recovery",
+        "stale_finalizing_recovered",
+      );
+      opened.database
+        .prepare("DELETE FROM evidence_gaps WHERE run_id = ?")
+        .run("run-invalid-v10-evidence");
+      opened.database
+        .prepare("UPDATE task_runs SET evidence_gap_count = 0 WHERE run_id = ?")
+        .run("run-invalid-v10-evidence");
+
+      expect(() => runMigrations(opened.database)).toThrow();
+      expect(readAppliedMigrations(opened.database)).toHaveLength(9);
     } finally {
       opened.database.close();
     }

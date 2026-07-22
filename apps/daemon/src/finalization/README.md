@@ -20,6 +20,8 @@ Inside that transaction OwnLoop:
 
 `Completed` is intentionally strict. It requires a normal Stop, captured baseline, captured reconciliation, reliable final fingerprint, stored final manifest, zero evidence gaps, and consistent Event continuity. Missing or incomplete retainable evidence produces `Partial`; `StopFailure` produces `Failed`.
 
+Persisted reconciliation or artifact-integrity corruption is propagated as a typed failure. Only explicitly recoverable manifest materialization failures become `manifest_unavailable` evidence.
+
 An existing OL-008, OL-009, or earlier controlled evidence gap still prevents `Completed`, but finalization does not duplicate it. The terminal diagnostic remains specific to the finalization classification even when no additional evidence row is inserted.
 
 ## Crash recovery
@@ -38,9 +40,9 @@ Manifest bytes are prepared outside SQLite because the OL-010 object store is fi
 
 ## Database invariants
 
-Migration v8 introduced immutable Run finalization records. Migration v9 validates every existing v8 row and installs stricter insert-time validation for terminal-status, mode, and diagnostic combinations.
+Migration v8 introduced immutable Run finalization records. Migration v9 validates terminal-status, mode, and diagnostic combinations. Migration v10 adds retained-evidence, complete Event-continuity, and latest-Stop validation while preserving migrations 1–9.
 
-Migration v8/v9 and repository reads validate:
+Migrations v8–v10 and repository reads validate:
 
 - one finalization per Run;
 - Workspace, Conversation, Run, trigger Event, reconciliation, artifact, snapshot Event, and terminal Event ownership;
