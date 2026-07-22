@@ -909,6 +909,197 @@ BEGIN
 END;
 `;
 
+const RUN_FINALIZATION_SQL = `
+CREATE TABLE run_finalizations (
+  finalization_id TEXT PRIMARY KEY CHECK (length(trim(finalization_id)) > 0),
+  run_id TEXT NOT NULL UNIQUE,
+  conversation_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL,
+  terminal_status TEXT NOT NULL CHECK (terminal_status IN ('Completed', 'Partial', 'Abandoned', 'Failed')),
+  mode TEXT NOT NULL CHECK (mode IN ('normal', 'recovery')),
+  trigger_event_id TEXT REFERENCES events (event_id),
+  reconciliation_id TEXT REFERENCES git_reconciliations (reconciliation_id),
+  manifest_artifact_id TEXT REFERENCES artifacts (artifact_id),
+  final_fingerprint TEXT CHECK (
+    final_fingerprint IS NULL OR (
+      length(final_fingerprint) = 64
+      AND final_fingerprint = lower(final_fingerprint)
+      AND final_fingerprint NOT GLOB '*[^0-9a-f]*'
+    )
+  ),
+  final_snapshot_event_id TEXT UNIQUE REFERENCES events (event_id),
+  terminal_event_id TEXT NOT NULL UNIQUE REFERENCES events (event_id),
+  diagnostic_code TEXT CHECK (diagnostic_code IS NULL OR diagnostic_code IN (
+    'baseline_missing',
+    'baseline_partial',
+    'final_reconciliation_missing',
+    'final_reconciliation_partial',
+    'final_fingerprint_missing',
+    'manifest_unavailable',
+    'existing_evidence_gaps',
+    'source_stop_failure',
+    'stale_capturing_recovered',
+    'stale_finalizing_recovered',
+    'finalization_processing_failed'
+  )),
+  finalized_at TEXT NOT NULL CHECK (length(trim(finalized_at)) > 0),
+  generator_version TEXT NOT NULL CHECK (length(trim(generator_version)) > 0),
+  CHECK ((reconciliation_id IS NULL) = (final_snapshot_event_id IS NULL)),
+  CHECK (manifest_artifact_id IS NULL OR reconciliation_id IS NOT NULL),
+  CHECK (final_fingerprint IS NULL OR reconciliation_id IS NOT NULL),
+  CHECK (
+    (terminal_status = 'Completed' AND mode = 'normal' AND diagnostic_code IS NULL
+      AND trigger_event_id IS NOT NULL AND reconciliation_id IS NOT NULL
+      AND manifest_artifact_id IS NOT NULL AND final_fingerprint IS NOT NULL
+      AND final_snapshot_event_id IS NOT NULL)
+    OR
+    (terminal_status = 'Partial' AND diagnostic_code IS NOT NULL)
+    OR
+    (terminal_status = 'Failed' AND mode = 'normal'
+      AND diagnostic_code = 'source_stop_failure' AND trigger_event_id IS NOT NULL)
+    OR
+    (terminal_status = 'Abandoned' AND mode = 'recovery'
+      AND diagnostic_code = 'stale_capturing_recovered'
+      AND trigger_event_id IS NULL AND reconciliation_id IS NULL
+      AND manifest_artifact_id IS NULL AND final_fingerprint IS NULL
+      AND final_snapshot_event_id IS NULL)
+  ),
+  FOREIGN KEY (run_id, conversation_id)
+    REFERENCES task_runs (run_id, conversation_id) ON DELETE CASCADE,
+  FOREIGN KEY (conversation_id, workspace_id)
+    REFERENCES agent_conversations (conversation_id, workspace_id) ON DELETE CASCADE
+) STRICT;
+
+CREATE INDEX run_finalizations_finalized_idx
+  ON run_finalizations (finalized_at, run_id);
+
+CREATE TRIGGER run_finalizations_validate_insert
+BEFORE INSERT ON run_finalizations
+BEGIN
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1 FROM events e
+    WHERE e.event_id = NEW.terminal_event_id
+      AND e.source = 'ownloop'
+      AND e.run_id = NEW.run_id
+      AND e.conversation_id = NEW.conversation_id
+      AND e.workspace_id = NEW.workspace_id
+      AND e.event_type = CASE NEW.terminal_status
+        WHEN 'Completed' THEN 'run.completed'
+        WHEN 'Partial' THEN 'run.partial'
+        WHEN 'Failed' THEN 'run.failed'
+        WHEN 'Abandoned' THEN 'run.abandoned'
+      END
+  ) THEN RAISE(ABORT, 'invalid finalization terminal Event') END;
+
+  SELECT CASE WHEN NEW.final_snapshot_event_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM events e
+    WHERE e.event_id = NEW.final_snapshot_event_id
+      AND e.event_type = 'snapshot.final_captured'
+      AND e.source = 'ownloop'
+      AND e.run_id = NEW.run_id
+      AND e.conversation_id = NEW.conversation_id
+      AND e.workspace_id = NEW.workspace_id
+  ) THEN RAISE(ABORT, 'invalid finalization snapshot Event') END;
+
+  SELECT CASE WHEN NEW.final_snapshot_event_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM events snapshot, events terminal
+    WHERE snapshot.event_id = NEW.final_snapshot_event_id
+      AND terminal.event_id = NEW.terminal_event_id
+      AND terminal.sequence = snapshot.sequence + 1
+      AND (snapshot.sequence = 1 OR EXISTS (
+        SELECT 1 FROM events previous
+        WHERE previous.run_id = NEW.run_id AND previous.sequence = snapshot.sequence - 1
+      ))
+  ) THEN RAISE(ABORT, 'invalid finalization Event order') END;
+
+  SELECT CASE WHEN NEW.final_snapshot_event_id IS NULL AND NOT EXISTS (
+    SELECT 1 FROM events terminal
+    WHERE terminal.event_id = NEW.terminal_event_id
+      AND (terminal.sequence = 1 OR EXISTS (
+        SELECT 1 FROM events previous
+        WHERE previous.run_id = NEW.run_id AND previous.sequence = terminal.sequence - 1
+      ))
+  ) THEN RAISE(ABORT, 'invalid finalization terminal sequence') END;
+
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1 FROM event_deduplication ed
+    WHERE ed.event_id = NEW.terminal_event_id
+      AND ed.source = 'ownloop'
+      AND ed.source_session_id = NEW.conversation_id
+      AND ed.deduplication_key = ('v1:run-finalization:' || NEW.run_id || ':terminal')
+  ) THEN RAISE(ABORT, 'missing finalization terminal deduplication') END;
+
+  SELECT CASE WHEN NEW.final_snapshot_event_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM event_deduplication ed
+    WHERE ed.event_id = NEW.final_snapshot_event_id
+      AND ed.source = 'ownloop'
+      AND ed.source_session_id = NEW.conversation_id
+      AND ed.deduplication_key = ('v1:run-finalization:' || NEW.run_id || ':snapshot')
+  ) THEN RAISE(ABORT, 'missing finalization snapshot deduplication') END;
+
+  SELECT CASE WHEN NEW.trigger_event_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM events e
+    WHERE e.event_id = NEW.trigger_event_id
+      AND e.run_id = NEW.run_id
+      AND e.event_type IN ('run.stop_observed', 'run.stop_failed')
+  ) THEN RAISE(ABORT, 'invalid finalization trigger Event') END;
+
+  SELECT CASE WHEN NEW.terminal_status = 'Completed' AND NOT EXISTS (
+    SELECT 1 FROM git_baselines gb
+    WHERE gb.run_id = NEW.run_id AND gb.outcome = 'captured'
+  ) THEN RAISE(ABORT, 'Completed finalization requires captured baseline') END;
+
+  SELECT CASE WHEN NEW.terminal_status = 'Completed' AND NOT EXISTS (
+    SELECT 1 FROM task_runs tr
+    WHERE tr.run_id = NEW.run_id AND tr.evidence_gap_count = 0
+  ) THEN RAISE(ABORT, 'Completed finalization requires zero evidence gaps') END;
+
+  SELECT CASE WHEN NEW.terminal_status = 'Completed' AND NOT EXISTS (
+    SELECT 1 FROM events e
+    WHERE e.event_id = NEW.trigger_event_id AND e.event_type = 'run.stop_observed'
+  ) THEN RAISE(ABORT, 'Completed finalization requires normal Stop') END;
+
+  SELECT CASE WHEN NEW.terminal_status = 'Failed' AND NOT EXISTS (
+    SELECT 1 FROM events e
+    WHERE e.event_id = NEW.trigger_event_id AND e.event_type = 'run.stop_failed'
+  ) THEN RAISE(ABORT, 'Failed finalization requires StopFailure') END;
+
+  SELECT CASE WHEN NEW.reconciliation_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM git_reconciliations gr
+    WHERE gr.reconciliation_id = NEW.reconciliation_id
+      AND gr.run_id = NEW.run_id
+      AND gr.trigger_event_id IS NEW.trigger_event_id
+      AND (NEW.final_fingerprint IS NULL OR gr.working_tree_fingerprint = NEW.final_fingerprint)
+      AND (NEW.terminal_status <> 'Completed' OR gr.outcome = 'captured')
+  ) THEN RAISE(ABORT, 'invalid finalization reconciliation') END;
+
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1 FROM task_runs tr
+    WHERE tr.run_id = NEW.run_id
+      AND tr.status = NEW.terminal_status
+      AND tr.ended_at = NEW.finalized_at
+      AND tr.final_git_fingerprint IS NEW.final_fingerprint
+  ) THEN RAISE(ABORT, 'invalid finalization Run state') END;
+
+  SELECT CASE WHEN NEW.manifest_artifact_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM artifacts a
+    JOIN run_artifacts ra ON ra.artifact_id = a.artifact_id
+    WHERE a.artifact_id = NEW.manifest_artifact_id
+      AND a.kind = 'final-diff-manifest-v1'
+      AND a.storage_version = 1
+      AND a.media_type = 'application/vnd.ownloop.final-diff+json'
+      AND ra.run_id = NEW.run_id
+      AND ra.role = 'final-diff-manifest-v1'
+  ) THEN RAISE(ABORT, 'invalid finalization manifest artifact') END;
+END;
+
+CREATE TRIGGER run_finalizations_reject_update
+BEFORE UPDATE ON run_finalizations
+BEGIN
+  SELECT RAISE(ABORT, 'Run finalizations are immutable');
+END;
+`;
+
 export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   Object.freeze({
     version: 1,
@@ -944,5 +1135,10 @@ export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
     version: 7,
     name: "local_content_addressed_artifact_store",
     sql: CONTENT_ADDRESSED_ARTIFACT_STORE_SQL,
+  }),
+  Object.freeze({
+    version: 8,
+    name: "deterministic_run_finalization",
+    sql: RUN_FINALIZATION_SQL,
   }),
 ]);

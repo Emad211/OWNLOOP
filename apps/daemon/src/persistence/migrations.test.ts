@@ -24,6 +24,7 @@ const REQUIRED_TABLES = [
   "receipt_lifecycle_resolutions",
   "receipt_normalized_events",
   "run_artifacts",
+  "run_finalizations",
   "schema_migrations",
   "task_runs",
   "workspaces",
@@ -149,7 +150,7 @@ describe("SQLite migrations", () => {
 
       runMigrations(opened.database);
 
-      expect(readAppliedMigrations(opened.database)).toHaveLength(7);
+      expect(readAppliedMigrations(opened.database)).toHaveLength(8);
       expect(
         opened.database
           .prepare(
@@ -163,6 +164,39 @@ describe("SQLite migrations", () => {
         opened.database
           .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = ?")
           .get("run_artifacts_reject_update"),
+      ).toBeDefined();
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("upgrades a version-7 database to immutable Run finalization migration version 8", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 7));
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'run_finalizations'",
+          )
+          .get(),
+      ).toBeUndefined();
+
+      runMigrations(opened.database);
+      expect(readAppliedMigrations(opened.database)).toHaveLength(8);
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'run_finalizations'",
+          )
+          .get(),
+      ).toBeDefined();
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'run_finalizations_reject_update'",
+          )
+          .get(),
       ).toBeDefined();
     } finally {
       opened.database.close();

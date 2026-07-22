@@ -8,12 +8,12 @@ export {
   MAX_RECOVERY_BATCH,
   RUN_FINALIZATION_GENERATOR_VERSION,
 } from "./constants.js";
-export { prepareFinalDiffManifest, type PreparedFinalDiffManifest } from "./manifest.js";
+export { type PreparedFinalDiffManifest, prepareFinalDiffManifest } from "./manifest.js";
 export {
   finalizeEligibleRuns,
   finalizeRun,
   getRunFinalization,
-  recoverStaleRuns,
   type RunFinalizationDependencies,
   type RunFinalizationResult,
+  recoverStaleRuns,
 } from "./processor.js";
