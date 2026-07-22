@@ -8,12 +8,12 @@ The project observes a coding-agent Task Run, captures verifiable changes and ev
 
 ## Current status
 
-- Stage: v0.1 local Raw Replay implementation
+- Stage: v0.1 deterministic evidence foundation
 - Product scope: proposed v0.1
 - First coding-agent adapter: Claude Code
 - First project languages: JavaScript and TypeScript
 - Runtime model: local single-user prototype
-- Repository state: local ingestion, evidence capture, finalization, and authenticated Raw Replay viewer
+- Repository state: trustworthy capture/replay plus deterministic file/change classification in development
 
 ## Local setup
 
@@ -55,9 +55,7 @@ pnpm build
 
 Use `pnpm format` to apply formatting.
 
-The shared packages provide strict ingress, Event, and Raw Replay contracts. The daemon modules expose
-authenticated ingress, evidence capture, finalization, replay projection, and contained same-origin
-static delivery. The Claude Code hook adapter remains fail-open and outside the agent critical path.
+The shared packages provide strict ingress, Event, Raw Replay, and deterministic change-classification contracts. The daemon modules expose authenticated ingress, evidence capture, finalization, replay projection, contained same-origin static delivery, and explicit evidence-classification APIs. The Claude Code hook adapter remains fail-open and outside the agent critical path.
 
 ## Design principles
 
@@ -81,6 +79,7 @@ static delivery. The Claude Code hook adapter remains fail-open and outside the 
 - [ADR-0002: Local-First Claude-Code-First MVP](docs/adr/0002-local-first-claude-code-first-mvp.md)
 - [ADR-0003: Event Schema and Task-Run Lifecycle](docs/adr/0003-event-schema-and-session-lifecycle.md)
 - [ADR-0014: Deterministic Raw Replay and Local Viewer](docs/adr/0014-deterministic-raw-replay-projection-and-local-viewer.md)
+- [ADR-0015: Deterministic Evidence-Backed Change Classification](docs/adr/0015-deterministic-evidence-backed-change-classification.md)
 
 ### Architecture
 
@@ -95,9 +94,10 @@ Claude Code hook
 → Task Run lifecycle
 → Git baseline and final reconciliation
 → deterministic raw replay
+→ deterministic file/change evidence
 ```
 
-Ownership Moment generation begins only after the capture-and-replay foundation is trustworthy.
+Ownership Moment generation begins only after deterministic classification, verification extraction, and evidence graph validation are trustworthy.
 
 ## Contribution state
 

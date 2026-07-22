@@ -65,6 +65,9 @@ function mapReference(row: SqliteRow): RunArtifactReference {
   };
 }
 
+const SAFE_RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
+const SAFE_ARTIFACT_ROLE_PATTERN = /^[a-z0-9][a-z0-9._-]{0,127}$/u;
+
 const ARTIFACT_COLUMNS = `
   artifact_id,
   digest,
@@ -287,6 +290,42 @@ export class ArtifactRepository {
       }));
   }
 
+  getRecordForRunRole(runId: string, role: string): RunArtifactRecord | null {
+    if (!SAFE_RUN_ID_PATTERN.test(runId) || !SAFE_ARTIFACT_ROLE_PATTERN.test(role)) {
+      return null;
+    }
+    const records = this.#database
+      .prepare(
+        `SELECT
+           r.run_id,
+           r.artifact_id,
+           r.role,
+           r.created_at AS reference_created_at,
+           a.digest,
+           a.storage_path,
+           a.size_bytes,
+           a.kind,
+           a.sensitivity,
+           a.storage_version,
+           a.media_type,
+           a.created_at
+         FROM run_artifacts r
+         LEFT JOIN artifacts a ON a.artifact_id = r.artifact_id
+         WHERE r.run_id = ? AND r.role = ?
+         ORDER BY r.artifact_id
+         LIMIT 2`,
+      )
+      .all(runId, role)
+      .map((row) => ({ reference: mapReference(row), artifact: mapArtifact(row) }));
+    if (records.length > 1) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The persisted Run contains duplicate artifact references for one role.",
+      );
+    }
+    return records[0] ?? null;
+  }
+
   listRecordsForRunBounded(runId: string, limit: number): readonly RunArtifactRecord[] {
     if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
       return [];
@@ -321,6 +360,32 @@ export class ArtifactRepository {
       );
     }
     return records;
+  }
+
+  listFinalizedRunIdsWithoutRole(role: string, limit: number): string[] {
+    if (
+      !/^[a-z0-9][a-z0-9._-]{0,127}$/u.test(role) ||
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 25
+    ) {
+      return [];
+    }
+    return this.#database
+      .prepare(
+        `SELECT rf.run_id
+         FROM run_finalizations rf
+         JOIN task_runs tr ON tr.run_id = rf.run_id
+         WHERE tr.status IN ('Completed', 'Partial', 'Abandoned', 'Failed')
+           AND NOT EXISTS (
+             SELECT 1 FROM run_artifacts ra
+             WHERE ra.run_id = rf.run_id AND ra.role = ?
+           )
+         ORDER BY rf.finalized_at ASC, rf.run_id ASC
+         LIMIT ?`,
+      )
+      .all(role, limit)
+      .map((row) => requiredString(row, "run_id"));
   }
 
   countReferences(artifactId: string): number {
