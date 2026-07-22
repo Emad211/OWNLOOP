@@ -27,6 +27,12 @@ Run finalization
 - At most one `deterministic-change-classification-v1` reference exists per Run.
 - Batches are explicit, sequential, and bounded to 25. No scheduler is introduced.
 
+## Canonical and lookup bounds
+
+The classifier uses its own canonical budgets: up to eight MiB for deterministic input fingerprint preparation and two MiB for the persisted classification artifact. These bounds are intentionally independent of the smaller generic ingress canonical limit.
+
+Read-back resolves the classification by the exact Run ID and immutable role rather than scanning unrelated Run artifacts. Duplicate roles, a missing metadata row, an invalid source/version tuple, or byte divergence is treated as persisted-state corruption.
+
 ## Public APIs
 
 - `classifyFinalizedRunChanges`
