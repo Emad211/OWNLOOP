@@ -21,71 +21,58 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 1
 
-      - name: Verify compressed payload parts
+      - name: Assemble and verify validated patch
         shell: bash
         run: |
           set -euo pipefail
-          expected_sizes=(1800 1800 1800 1800 256)
+          expected_sizes=(1800 1800 1800 1800 1800 312)
           expected_hashes=(
-            fd2fbc7a1369e859133301d7dfe0aaf14fac16a40f643c4797582074ca4361e4
-            2c9e2a9ffa56762284a368ad73d377c9c2330757b0c190391f8fda657c1fa9d2
-            aaaa70e41bb0f872cda2c5c45bddf2d4ce8efdd647f28c94f909515745262fe2
-            31cb233937662d1a8c51e18a3831cfe8b6004c92f405316270ad1225b845022e
-            d9d5a61ee2fce3231fa5e83bdf821b384034bafe4b4d4860fc58afe7f39e7a34
+            c05c4f66569dcba7e2e86d450c1967f45d31f41ddae9b6a413ffd43de0f8f230
+            fd967b425bf1d1fc7b56e866792090bdd4de1d79b9786afec729dc2a770ae5d4
+            c00a7c75916bf70339fbd815664052d3bd4318ce61bf1651d37f71eb5ca80a5c
+            d39af7112c239480ce6599b09d245a64c8f02b898bca108ad85e9d1cd625afce
+            0f01485f07ab347f4bee96aab6106c12e9922962cbf860054cc7cb704940aa68
+            37084531289754f80f512fdf70ea470e6ab5432cb150ba136d64a6f272a1e8bc
           )
-          for index in $(seq 0 4); do
+          for index in $(seq 0 5); do
             suffix=$(printf '%02d' "$index")
-            path=".github/ol011a-hardening-gz/part-${suffix}"
+            path=".github/ol011a-final-v2/part-${suffix}"
             test "$(wc -c < "$path")" -eq "${expected_sizes[$index]}"
             echo "${expected_hashes[$index]}  $path" | sha256sum --check
           done
-
-      - name: Decode compressed payload
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat .github/ol011a-hardening-gz/part-* > /tmp/ol011a-hardening.patch.gz.b64
-          test "$(wc -c < /tmp/ol011a-hardening.patch.gz.b64)" -eq 7456
-          base64 --decode /tmp/ol011a-hardening.patch.gz.b64 > /tmp/ol011a-hardening.patch.gz
-
-      - name: Verify compressed archive
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(wc -c < /tmp/ol011a-hardening.patch.gz)" -eq 5591
-          echo "1ca129c1e8c7910f6e6fb42503dc67407f3d25626da6cc30a5a476c78e59c153  /tmp/ol011a-hardening.patch.gz" | sha256sum --check
-          gzip --test /tmp/ol011a-hardening.patch.gz
-
-      - name: Verify decoded patch
-        shell: bash
-        run: |
-          set -euo pipefail
-          gzip --decompress --stdout /tmp/ol011a-hardening.patch.gz > /tmp/ol011a-hardening.patch
-          test "$(wc -c < /tmp/ol011a-hardening.patch)" -eq 22820
-          echo "8b3b0dc3816c306fd58ead4ee0921545335526873107dbf2d07b34c92bd4d70e  /tmp/ol011a-hardening.patch" | sha256sum --check
-
-      - name: Check patch applicability
-        shell: bash
-        run: |
-          set -euo pipefail
-          git apply --check /tmp/ol011a-hardening.patch
+          cat .github/ol011a-final-v2/part-* > /tmp/ol011a-final-v2.patch.gz.b64
+          test "$(wc -c < /tmp/ol011a-final-v2.patch.gz.b64)" -eq 9312
+          base64 --decode /tmp/ol011a-final-v2.patch.gz.b64 > /tmp/ol011a-final-v2.patch.gz
+          test "$(wc -c < /tmp/ol011a-final-v2.patch.gz)" -eq 6983
+          echo "a8bcc5629c37c6ae4baa731d896e0fa703ddefa0a857e41dc209b19720a68f3a  /tmp/ol011a-final-v2.patch.gz" | sha256sum --check
+          gzip --test /tmp/ol011a-final-v2.patch.gz
+          gzip --decompress --stdout /tmp/ol011a-final-v2.patch.gz > /tmp/ol011a-final-v2.patch
+          test "$(wc -c < /tmp/ol011a-final-v2.patch)" -eq 30026
+          echo "973b3fe3dfd2927def128c05fc2964e250f9e36e4d304dd1839ec21037a23be5  /tmp/ol011a-final-v2.patch" | sha256sum --check
+          git apply --check /tmp/ol011a-final-v2.patch
 
       - name: Apply patch and verify exact scope
         shell: bash
         run: |
           set -euo pipefail
-          git apply /tmp/ol011a-hardening.patch
+          git apply /tmp/ol011a-final-v2.patch
           cat > /tmp/expected-production-files <<'FILES'
           apps/daemon/src/finalization/processor.test.ts
           apps/daemon/src/finalization/processor.ts
           apps/daemon/src/persistence/migration-definitions.ts
+          apps/daemon/src/persistence/migrations.test.ts
           apps/daemon/src/persistence/repositories/run-finalizations.ts
           docs/adr/0013-deterministic-run-finalization-and-crash-recovery.md
           FILES
           git diff --name-only | grep -v '^\.github/' | sort > /tmp/actual-production-files
           diff -u /tmp/expected-production-files /tmp/actual-production-files
-          git rm -r .github/ol011a-hardening .github/ol011a-hardening-gz
-          git rm .github/workflows/finalize-ol011a-hardening.yml
+          git rm -r \
+            .github/ol011a-hardening \
+            .github/ol011a-hardening-gz \
+            .github/ol011a-final-v2
+          git rm \
+            .github/workflows/finalize-ol011a-hardening.yml \
+            .github/workflows/export-ol011a-source.yml
 
       - name: Set up exact Node.js
         uses: actions/setup-node@v6
@@ -109,6 +96,7 @@ jobs:
           apps/daemon/src/finalization/processor.test.ts
           apps/daemon/src/finalization/processor.ts
           apps/daemon/src/persistence/migration-definitions.ts
+          apps/daemon/src/persistence/migrations.test.ts
           apps/daemon/src/persistence/repositories/run-finalizations.ts
           docs/adr/0013-deterministic-run-finalization-and-crash-recovery.md
           FILES
@@ -128,6 +116,7 @@ jobs:
             apps/daemon/src/finalization/processor.test.ts \
             apps/daemon/src/finalization/processor.ts \
             apps/daemon/src/persistence/migration-definitions.ts \
+            apps/daemon/src/persistence/migrations.test.ts \
             apps/daemon/src/persistence/repositories/run-finalizations.ts \
             docs/adr/0013-deterministic-run-finalization-and-crash-recovery.md
           git add -u .github
