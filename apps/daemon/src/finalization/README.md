@@ -42,11 +42,14 @@ Migration v8 and repository reads validate:
 - Workspace, Conversation, Run, trigger Event, reconciliation, artifact, snapshot Event, and terminal Event ownership;
 - correct source and type for snapshot and terminal Events;
 - adjacent final snapshot and terminal sequences with predecessor continuity;
-- deterministic Event deduplication keys;
+- deterministic Event deduplication keys for both final snapshot and terminal Events;
 - final-manifest artifact kind, media type, storage version, and Run role;
-- terminal Run status, timestamp, fingerprint, and evidence count consistency;
+- terminal Run status, timestamp, fingerprint, evidence counter, and actual evidence-row count consistency;
+- controlled terminal-status, mode, diagnostic, reconciliation, snapshot, manifest, and fingerprint combinations;
 - strict evidence requirements for `Completed`;
 - immutable finalization rows.
+
+Repository reads intentionally repeat critical cross-table checks after insertion. Regression tests corrupt terminal deduplication, predecessor continuity, and the evidence counter in file-backed databases and verify that restart-time reads reject each case as `invalid_persisted_row`.
 
 Persisted corruption is surfaced as a content-free persistence error rather than silently accepted.
 
