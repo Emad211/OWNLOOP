@@ -153,11 +153,12 @@ No CORS middleware or second listener is introduced.
 The artifact endpoint is limited to a version-1 final-diff manifest that:
 
 - is referenced by a persisted Run with the controlled final-manifest role;
+- has at least one bounded reference whose Run still produces an internally valid replay projection;
 - has the accepted kind and media type;
 - is below the replay response bound;
-- is read and verified through OL-010.
+- is read and verified through OL-010 only after reference and projection validation.
 
-The response is an attachment with `no-store` and `nosniff`. The browser parses it through the shared manifest contract before rendering.
+A corrupt-only Run reference produces a content-free projection failure before artifact bytes are read. A successful response is an attachment with explicit `Content-Length`, `no-store`, and `nosniff`. The browser parses it through the shared manifest contract before rendering.
 
 ### Same-origin browser viewer
 
