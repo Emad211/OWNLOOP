@@ -189,7 +189,7 @@ The token is never written to:
 - DOM text or attributes;
 - logs or displayed errors.
 
-Disconnect clears the in-memory credential and replay state.
+Disconnect clears the in-memory credential and replay state. Any authenticated replay or artifact request that receives a 401 response performs the same immediate credential and state reset before returning to the connection screen.
 
 ### UI behavior
 
