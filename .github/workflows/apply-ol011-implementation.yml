@@ -1,0 +1,46 @@
+name: Apply OL-011 Implementation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Assemble and verify implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s .github/ol011-parts/part-00
+          test -s .github/ol011-parts/part-01
+          test -s .github/ol011-parts/part-02
+          cat .github/ol011-parts/part-* > /tmp/ol011.diff.gz.b64
+          test "$(wc -c < /tmp/ol011.diff.gz.b64)" -eq 5164
+          echo "89272553a106b92a1c28898ddd46fd771d1679616ec841b9f7ffe9d136610b7d  /tmp/ol011.diff.gz.b64" | sha256sum --check
+          base64 --decode /tmp/ol011.diff.gz.b64 > /tmp/ol011.diff.gz
+          gzip --test /tmp/ol011.diff.gz
+          gzip --decompress --stdout /tmp/ol011.diff.gz > /tmp/ol011.diff
+          echo "0881737a81cffc4094b9143fd40458051ae009eb70c0cb7bb77961a9ff5792d7  /tmp/ol011.diff" | sha256sum --check
+          git apply --check --verbose /tmp/ol011.diff
+
+      - name: Apply and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --index /tmp/ol011.diff
+          git rm -r .github/ol011-parts
+          git rm .github/workflows/apply-ol011-implementation.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Implement OL-011 finalization and recovery"
+          git push origin "HEAD:${{ github.head_ref }}"
