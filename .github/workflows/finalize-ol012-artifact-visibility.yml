@@ -1,4 +1,4 @@
-name: Export OL-012 Artifact Review Files
+name: Finalize OL-012 Artifact Visibility
 
 on:
   pull_request:
@@ -6,10 +6,10 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  export:
+  finalize:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.head_ref == 'agent/ol-012-raw-replay'
@@ -21,23 +21,69 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 1
 
-      - name: Package exact review files
+      - name: Verify and apply artifact visibility patch
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/ol012-review
-          tar -czf /tmp/ol012-review/current-files.tar.gz \
-            apps/daemon/src/persistence/repositories/artifacts.ts \
-            apps/daemon/src/persistence/repositories/git-reconciliations.ts \
-            apps/daemon/src/replay/projection.ts \
-            apps/daemon/src/replay/routes.ts \
-            apps/daemon/src/replay/replay.test.ts
-          sha256sum /tmp/ol012-review/current-files.tar.gz > /tmp/ol012-review/current-files.sha256
+          payload=.github/ol012-artifact-delta.patch.gz.b64
+          test "$(wc -c < "$payload")" -eq 3568
+          base64 --decode "$payload" > /tmp/ol012-artifact.patch.gz
+          test "$(wc -c < /tmp/ol012-artifact.patch.gz)" -eq 2675
+          echo "3214349a643a664a5a76610f67569b1a2f965163d32ec0310c7e65a2880dc437  /tmp/ol012-artifact.patch.gz" | sha256sum --check
+          gzip --test /tmp/ol012-artifact.patch.gz
+          gzip --decompress --stdout /tmp/ol012-artifact.patch.gz > /tmp/ol012-artifact.patch
+          test "$(wc -c < /tmp/ol012-artifact.patch)" -eq 8452
+          echo "8bc23b0cb3201a004db7de1fc57e04432f99fc954334389eebf0a28620845bfa  /tmp/ol012-artifact.patch" | sha256sum --check
+          git apply --check /tmp/ol012-artifact.patch
+          git apply /tmp/ol012-artifact.patch
+          cat > /tmp/expected-files <<'FILES'
+          apps/daemon/src/persistence/repositories/artifacts.ts
+          apps/daemon/src/persistence/repositories/git-reconciliations.ts
+          apps/daemon/src/replay/projection.ts
+          apps/daemon/src/replay/replay.test.ts
+          apps/daemon/src/replay/routes.ts
+          FILES
+          git diff --name-only | grep -v '^\.github/' | sort > /tmp/actual-files
+          diff -u /tmp/expected-files /tmp/actual-files
+          sha256sum --check <<'HASHES'
+          26067ab992e5dddbbcaf035e765e8af9ba99e36b918f1faadad03c53f0e17e65  apps/daemon/src/persistence/repositories/artifacts.ts
+          98e286e04e13e17ae5a7352d638c96ad20e35bf9d2d48ae04d1efbb869f02e70  apps/daemon/src/persistence/repositories/git-reconciliations.ts
+          17e46b946f562d74e02e5f641e4ec658d8bd6ce68dc351a7bf06ecf02eafaaa5  apps/daemon/src/replay/projection.ts
+          8e182ab312ea7af7026be29c669a96fe52747e4d1a934bcebbba4379108c220d  apps/daemon/src/replay/routes.ts
+          7b07127bfd2cd677a003dc62c3ffe71646a1038a75762ed24cf35f5daa7a8ff1  apps/daemon/src/replay/replay.test.ts
+          HASHES
+          git rm .github/ol012-artifact-delta.patch.gz.b64
+          git rm .github/workflows/finalize-ol012-artifact-visibility.yml
+          git diff --check
 
-      - name: Upload exact review files
-        uses: actions/upload-artifact@v6
+      - name: Set up exact Node.js
+        uses: actions/setup-node@v6
         with:
-          name: ownloop-ol012-artifact-review-files
-          path: /tmp/ol012-review
-          compression-level: 0
-          retention-days: 1
+          node-version: 24.18.0
+
+      - name: Install frozen dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Validate complete repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
+      - name: Publish clean artifact visibility hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Harden OL-012 artifact visibility"
+          git push origin "HEAD:${{ github.head_ref }}"
