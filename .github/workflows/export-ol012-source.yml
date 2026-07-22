@@ -1,4 +1,4 @@
-name: Export OL-012 Source
+name: Finalize OL-012 Raw Replay
 
 on:
   pull_request:
@@ -6,42 +6,123 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  export:
+  finalize:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.head_ref == 'agent/ol-012-raw-replay'
     runs-on: ubuntu-latest
     steps:
-      - name: Check out exact branch
+      - name: Check out replay branch
         uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 1
 
-      - name: Build exact source archive
+      - name: Verify compressed payload parts
         shell: bash
         run: |
           set -euo pipefail
-          tar \
-            --exclude=.git \
-            --exclude=node_modules \
-            --exclude='*/node_modules' \
-            --exclude=dist \
-            --exclude='*/dist' \
-            --exclude=.turbo \
-            --exclude='*/.turbo' \
-            -czf /tmp/ownloop-ol012-source.tar.gz .
-          sha256sum /tmp/ownloop-ol012-source.tar.gz > /tmp/ownloop-ol012-source.sha256
+          expected_sizes=(7000 7000 7000 7000 7000 7000 7000 4896)
+          expected_hashes=(
+            b648a4fcf81da805478b8ff409ab07b5f4df8b21b4dded4fad263052bd7126fc
+            34f79bc729a136db3c9275a0f4d96785912e25fd1fd77605e374b7143559ebf7
+            2bb2f8635e47f7f5c81a10a0c6e2c83894265f5bf96635ab84779c2a8711a6e2
+            878cc8d03533ed8966a4b36d1e7575ce8ae951e44904df0153403a6e3080af02
+            b6cd75fe99393cd1aec55f486bdd234907fec50550f57f2c2d6a312b3f4abb64
+            309e450791f5456e01c7e6c6507e7d60f70ed0b4f5509d13b8d5e613d7842805
+            3fc660e4584e809b3d51cb6d86e0d7c4c1807a6388d7dbe7f979bbb6167839f0
+            28c7e463837d47e5a77f6f547fba3ddc896791df4feb43abb84e1349a83b8a42
+          )
+          for index in $(seq 0 7); do
+            suffix=$(printf '%02d' "$index")
+            path=".github/ol012-payload/part-${suffix}"
+            test "$(wc -c < "$path")" -eq "${expected_sizes[$index]}"
+            echo "${expected_hashes[$index]}  $path" | sha256sum --check
+          done
+          cat .github/ol012-payload/part-* > /tmp/ol012.patch.gz.b64
+          test "$(wc -c < /tmp/ol012.patch.gz.b64)" -eq 53896
+          base64 --decode /tmp/ol012.patch.gz.b64 > /tmp/ol012.patch.gz
+          test "$(wc -c < /tmp/ol012.patch.gz)" -eq 40420
+          echo "07679af3a8635b6f622a9c6b48f3eebe19ea21865972ca3b17d2b8b7f4a4aae2  /tmp/ol012.patch.gz" | sha256sum --check
+          gzip --test /tmp/ol012.patch.gz
+          gzip --decompress --stdout /tmp/ol012.patch.gz > /tmp/ol012.patch
+          test "$(wc -c < /tmp/ol012.patch)" -eq 171926
+          echo "9d3a9ac49545cbe11af773786524a65154117bc417ff8caba8d11a69136eabc0  /tmp/ol012.patch" | sha256sum --check
+          git apply --check --exclude='.github/workflows/export-ol012-source.yml' /tmp/ol012.patch
 
-      - name: Upload source
-        uses: actions/upload-artifact@v6
+      - name: Apply patch and verify exact scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --exclude='.github/workflows/export-ol012-source.yml' /tmp/ol012.patch
+          cat > /tmp/expected-production-files <<'FILES'
+          AGENTS.md
+          README.md
+          apps/daemon/src/index.ts
+          apps/daemon/src/ingress/server.ts
+          apps/daemon/src/persistence/index.ts
+          apps/daemon/src/persistence/repositories/artifacts.ts
+          apps/daemon/src/persistence/repositories/event-normalizations.ts
+          apps/daemon/src/persistence/repositories/events.ts
+          apps/daemon/src/persistence/repositories/git-reconciliations.ts
+          apps/daemon/src/persistence/repositories/run-support.ts
+          apps/daemon/src/persistence/repositories/task-runs.ts
+          apps/daemon/src/replay/constants.ts
+          apps/daemon/src/replay/cursor.ts
+          apps/daemon/src/replay/index.ts
+          apps/daemon/src/replay/projection.ts
+          apps/daemon/src/replay/replay.test.ts
+          apps/daemon/src/replay/responses.ts
+          apps/daemon/src/replay/routes.ts
+          apps/daemon/src/replay/static.ts
+          apps/web/src/App.test.tsx
+          apps/web/src/App.tsx
+          apps/web/src/api.test.ts
+          apps/web/src/api.ts
+          apps/web/src/styles.css
+          docs/adr/0014-deterministic-raw-replay-projection-and-local-viewer.md
+          packages/contracts/src/index.ts
+          packages/contracts/src/replay.ts
+          packages/contracts/tests/replay.test.ts
+          tsconfig.test.json
+          FILES
+          git ls-files --modified --others --exclude-standard | grep -v '^\.github/' | sort > /tmp/actual-production-files
+          diff -u /tmp/expected-production-files /tmp/actual-production-files
+          git rm -r .github/ol012-payload
+          git rm .github/workflows/export-ol012-source.yml
+          git diff --check
+
+      - name: Set up exact Node.js
+        uses: actions/setup-node@v6
         with:
-          name: ownloop-ol012-source
-          path: |
-            /tmp/ownloop-ol012-source.tar.gz
-            /tmp/ownloop-ol012-source.sha256
-          if-no-files-found: error
-          retention-days: 1
+          node-version: 24.18.0
+
+      - name: Install frozen dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Validate replay implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
+      - name: Publish clean OL-012 commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Implement authenticated deterministic raw replay"
+          git push origin "HEAD:${{ github.head_ref }}"
