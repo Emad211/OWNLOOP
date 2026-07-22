@@ -4,47 +4,24 @@ These instructions apply to the entire repository.
 
 ## Product boundary
 
-OwnLoop is a local-first Human Ownership Layer for AI-generated software. The current product direction and architecture are defined in:
+OwnLoop is a local-first Human Ownership Layer for AI-generated software. The accepted direction is defined by the product scope, C4 architecture, backlog amendments, and ADR-0001 through ADR-0013.
 
-1. `docs/product/PROJECT_SCOPE.md`
-2. `docs/adr/0001-human-ownership-layer.md`
-3. `docs/adr/0002-local-first-claude-code-first-mvp.md`
-4. `docs/adr/0003-event-schema-and-session-lifecycle.md`
-5. `docs/adr/0004-durable-redacted-ingress-journal-and-sqlite.md`
-6. `docs/adr/0005-canonical-ingress-reduction-redaction-and-fingerprinting.md`
-7. `docs/adr/0006-authenticated-loopback-ingestion.md`
-8. `docs/adr/0007-fail-open-command-hook-adapter.md`
-9. `docs/adr/0008-transactional-receipt-lifecycle-resolution.md`
-10. `docs/adr/0009-transactional-event-normalization-and-sequencing.md`
-11. `docs/adr/0010-privacy-bounded-deterministic-git-baseline.md`
-12. `docs/adr/0011-evidence-bounded-git-reconciliation.md`
-13. `docs/adr/0012-local-content-addressed-artifact-store.md`
-14. `docs/architecture/C4.md`
-15. `docs/product/BACKLOG_v0.1.0.md`
-16. `docs/product/BACKLOG_AMENDMENT_0001_INGRESS_SECURITY_ORDER.md`
-
-Read the relevant documents before changing code. Do not silently reinterpret, expand, or supersede an accepted architectural decision. When a task conflicts with an ADR or product scope, stop and report the conflict instead of improvising.
-
-For Milestone A dependency order, accepted ADRs and the backlog amendment take precedence over historical backlog order.
+Read the relevant documents before changing code. Do not silently reinterpret an accepted decision. Architectural changes require a new ADR.
 
 ## Development policy
 
-- Work on exactly one issue at a time.
-- Keep each pull request independently reviewable.
+- Work on exactly one issue at a time and keep the Pull Request independently reviewable.
 - Do not modify unrelated files or add speculative behavior.
-- Prefer the smallest maintainable solution.
-- Never commit secrets, tokens, credentials, `.env` contents, generated private data, database files, machine-specific roots, raw Git data, prepared artifact bytes, or source-file content.
-- Do not weaken type checking, linting, tests, database constraints, content integrity, root containment, transactionality, idempotency, immutable object identity, reference safety, or garbage-collection protections to make a task pass.
-- Do not use `any`, `z.any()`, `@ts-ignore`, disabled lint rules, or skipped tests without a documented issue-specific reason.
-- Accepted ADRs are immutable implementation inputs. Architectural changes require a new ADR.
-- The artifact store accepts only caller-declared prepared content. It does not redact or infer whether raw content is safe.
-- Artifact paths are internally derived from validated SHA-256 digests; caller-selected storage paths are forbidden.
-- The canonical artifact root must not overlap an analyzed repository root and must never be persisted in ordinary metadata or exposed in safe results/errors.
-- Artifact objects are immutable and must never be replaced in place. Existing objects are verified by type, size, and digest.
-- Sensitivity may escalate but never downgrade.
-- Shared artifact content must survive deletion or unlinking of any one Run reference while another reference exists.
-- Garbage collection and orphan sweeping are explicit, bounded, reference-aware, and never background-driven in OL-010.
-- Safe errors must not contain prepared bytes, roots, analyzed paths, arbitrary filesystem paths, exception text, or stacks.
+- Never commit secrets, credentials, `.env` contents, database files, raw Git output, prepared artifact bytes, source-file content, machine-specific roots, or exception stacks.
+- Do not weaken type checking, linting, tests, database constraints, append-only Events, sequence integrity, artifact integrity, transactionality, idempotency, evidence gating, or recovery safety.
+- Do not use `any`, `z.any()`, `@ts-ignore`, disabled lint rules, or skipped tests without an issue-specific documented reason.
+- Completion is evidence-gated. Missing evidence is represented as `Partial`, `Failed`, or `Abandoned`; it is never inferred away.
+- Finalization may consume only accepted lifecycle, baseline, reconciliation, Event, evidence-gap, and artifact-store boundaries.
+- Raw Git status, patch/diff bytes, commit hashes, repository roots, prompts, source/session IDs, and file contents must not enter final manifests, synthetic Events, safe results, or evidence messages.
+- Artifact bytes may be materialized before the SQLite transaction, but the Run reference must be created inside the finalization transaction. A failed transaction may leave only an unreferenced GC-eligible object.
+- A terminal Run, immutable finalization row, terminal Event, final snapshot Event when applicable, artifact reference, final fingerprint, evidence gaps, and sequence allocation must be transactionally consistent.
+- Crash recovery must never invoke, contact, or resume Claude Code.
+- Repeated and concurrent finalization/recovery must not duplicate Events, sequences, artifact references, or evidence gaps.
 
 ## Technical baseline
 
@@ -52,37 +29,23 @@ For Milestone A dependency order, accepted ADRs and the backlog amendment take p
 - Language: TypeScript 6.0.3 strict mode
 - Package manager: pnpm 11.4.0
 - Runtime validation: Zod 4.4.3
-- HTTP server: Fastify 5.10.0 behind daemon ingress
-- Persistence: built-in `node:sqlite` behind daemon repositories
-- Canonical redacted JSON: OwnLoop Canonical JSON v1
-- Normalized Event schema: `@ownloop/event-model` v1
-- Git integration: system Git through Node.js built-ins only
+- HTTP: Fastify 5.10.0 behind daemon ingress
+- Persistence: built-in `node:sqlite`
+- Artifact store: local SHA-256 content-addressed storage
+- Git integration: read-only system Git through Node.js built-ins
 - Tests: Vitest
 - CI: GitHub Actions
 - Formatting/linting: Biome
 
-No external runtime dependency is authorized for OL-010. Use Node.js built-ins and existing workspace packages only.
+No external runtime dependency is authorized for OL-011.
 
-## Repository structure
+## Repository placement
 
-```text
-apps/
-├── daemon/
-└── web/
-packages/
-├── contracts/
-├── event-model/
-├── ingress-security/
-└── test-fixtures/
-tools/
-└── hook-adapter/
-```
-
-Artifact-store behavior belongs under `apps/daemon/src/artifact-store/`. Persistence changes remain under the existing daemon persistence boundary. Do not create a new package or service.
+Finalization behavior belongs under `apps/daemon/src/finalization/`. Persistence changes stay inside the existing daemon persistence boundary. Do not create a new package or service.
 
 ## Quality gates
 
-Before declaring completion, run:
+Before completion run:
 
 ```bash
 pnpm format:check
@@ -92,55 +55,51 @@ pnpm test
 pnpm build
 ```
 
-Focused OL-010 tests must prove:
+Focused OL-011 tests must prove:
 
-- migration 6→7, fresh migration, reopen, immutable checksum history, constraints, and legacy-row preservation;
-- atomic bounded prepared-byte and prepared-stream writes;
-- concurrent identical-content deduplication;
-- digest/path derivation, root overlap rejection, containment, symlink rejection, and corruption detection;
-- immutable content identity, metadata conflict detection, and sensitivity escalation without downgrade;
-- idempotent transactional Run references and shared-content survival;
-- verified reads and rejection of unsupported legacy rows;
-- explicit bounded reference-aware GC and controlled missing-object handling;
-- orphan sweeping restricted to the exact digest layout without following symlinks;
-- file-backed close/reopen durability and private permissions where supported;
-- safe result/error surfaces;
-- no Git reconciliation, redaction, finalization, background scheduler, cloud, AI, or UI behavior.
+- migration 7→8, fresh migration, reopen, checksum history, SQL constraints, aggregate linkage, and immutability;
+- normal complete Stop → Completed;
+- incomplete normal Stop → Partial;
+- StopFailure → Failed;
+- deterministic privacy-bounded manifest creation and artifact deduplication;
+- contiguous final snapshot/terminal Event sequences and deterministic deduplication;
+- terminal Run/finalization/Event/artifact/evidence writes are atomic;
+- rollback leaves no terminal state, reference, Event, evidence increment, or sequence gap;
+- idempotent and concurrent finalization;
+- stale Capturing → Abandoned and stale Finalizing → forced Partial;
+- stale status/time re-check inside the write transaction;
+- bounded deterministic recovery after file-backed restart;
+- corruption detection for aggregate, trigger Event, reconciliation, artifact, snapshot Event, and terminal Event linkage;
+- safe results/errors and manifest/Event/evidence surfaces contain no sensitive values;
+- no agent resume, Git mutation, raw patch persistence, background scheduler, replay UI, AI, cloud, analytics, telemetry, billing, or authentication behavior.
 
-Never claim a check passed unless it was executed successfully.
+Never claim a check passed unless it completed successfully.
 
-## Git and pull-request discipline
+## Git and Pull Request discipline
 
-- Base work on the active task branch.
-- Make focused commits.
-- Leave the worktree clean.
+- Base implementation on `agent/ol-011-finalization-recovery`.
+- Make focused commits and leave the worktree clean.
 - Do not push directly to `main`.
-- Keep PRs draft until CI and review complete.
-- Report files, commands, decisions, checks, limitations, and review findings.
+- Keep the PR draft until clean-checkout CI and final review pass.
+- Merge only with the exact reviewed head SHA.
 
 ## Current phase restriction
 
-The active issue is `OL-010: Implement local content-addressed artifact store` (#25).
+The active issue is `OL-011: Implement deterministic run finalization and crash recovery` (#29).
 
-Before implementing, read:
+Before implementing, read issue #29, ADR-0003, ADR-0008 through ADR-0013, and the current Task Run, Event, Git baseline, Git reconciliation, evidence-gap, artifact-store, transaction, migration, and persistence error code.
 
-- issue #25 and its execution-correction comment;
-- ADR-0004, ADR-0010, ADR-0011, and ADR-0012;
-- current artifact/run-reference schema, transaction boundary, migration history, Task Run repository, and persistence errors.
+Explicitly forbidden:
 
-Explicitly forbidden in OL-010:
+- raw Git status/patch/content capture;
+- a parallel repository-analysis model;
+- agent/session probing or resume;
+- automatic timers/background scheduling;
+- arbitrary terminal-status inference;
+- terminal Run mutation without an immutable finalization row;
+- artifact content or paths in safe results/errors;
+- replay API/UI projection;
+- AI summaries or Ownership Moments;
+- cloud replication, analytics, telemetry, billing, or user authentication.
 
-- Git reconciliation or diff generation;
-- content redaction or reduction;
-- arbitrary caller-selected storage paths;
-- writes inside analyzed repositories;
-- replacing existing digest objects;
-- sensitivity downgrade;
-- deleting referenced or shared artifacts;
-- automatic/background GC;
-- compression, encryption, or cloud replication;
-- finalization/recovery;
-- artifact UI rendering;
-- AI, analytics, telemetry, billing, or user authentication.
-
-OL-010 is complete only when prepared local content can be stored once by SHA-256, verified on read, linked safely to multiple Task Runs, and explicitly garbage-collected only when unreferenced, with no storage-root overlap, content leakage, external runtime dependency, or reconciliation scope.
+OL-011 is complete only when every eligible Run can be finalized or recovered deterministically into exactly one terminal state with immutable evidence-backed finalization metadata, contiguous append-only terminal Events, an optional prepared final-manifest artifact, explicit evidence gaps, idempotency, crash durability, and no agent resumption.

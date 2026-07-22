@@ -206,6 +206,41 @@ export class TaskRunRepository {
     );
   }
 
+  transitionToTerminal(
+    runId: string,
+    expectedStatus: "Capturing" | "Finalizing",
+    terminalStatus: "Completed" | "Partial" | "Abandoned" | "Failed",
+    endedAt: string,
+    finalGitFingerprint: string | null,
+  ): boolean {
+    return (
+      this.#database
+        .prepare(
+          `UPDATE task_runs
+           SET status = ?, ended_at = ?, final_git_fingerprint = ?
+           WHERE run_id = ? AND status = ?`,
+        )
+        .run(terminalStatus, endedAt, finalGitFingerprint, runId, expectedStatus).changes === 1
+    );
+  }
+
+  listFinalizingWithoutFinalization(limit: number): string[] {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 25) {
+      return [];
+    }
+    return this.#database
+      .prepare(
+        `SELECT tr.run_id
+         FROM task_runs tr
+         LEFT JOIN run_finalizations rf ON rf.run_id = tr.run_id
+         WHERE tr.status = 'Finalizing' AND rf.run_id IS NULL
+         ORDER BY tr.started_at ASC, tr.conversation_id ASC, tr.run_number ASC, tr.run_id ASC
+         LIMIT ?`,
+      )
+      .all(limit)
+      .map((row) => requiredString(row, "run_id"));
+  }
+
   listStaleActive(cutoff: string, limit: number): StaleTaskRun[] {
     if (!Number.isInteger(limit) || limit < 1 || limit > 1_000) {
       return [];

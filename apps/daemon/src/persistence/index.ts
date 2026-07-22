@@ -8,6 +8,7 @@ import { GitBaselineRepository } from "./repositories/git-baselines.js";
 import { GitReconciliationRepository } from "./repositories/git-reconciliations.js";
 import { IngressReceiptRepository } from "./repositories/ingress-receipts.js";
 import { LifecycleResolutionRepository } from "./repositories/lifecycle-resolutions.js";
+import { RunFinalizationRepository } from "./repositories/run-finalizations.js";
 import { RunSupportRepository } from "./repositories/run-support.js";
 import { TaskRunRepository } from "./repositories/task-runs.js";
 import { WorkspaceRepository } from "./repositories/workspaces.js";
@@ -23,6 +24,7 @@ export type PersistenceRepositories = Readonly<{
   gitBaselines: GitBaselineRepository;
   gitReconciliations: GitReconciliationRepository;
   eventNormalizations: EventNormalizationRepository;
+  runFinalizations: RunFinalizationRepository;
   runSupport: RunSupportRepository;
   artifacts: ArtifactRepository;
 }>;
@@ -63,6 +65,7 @@ export function openPersistence(databasePath: string): OwnLoopPersistence {
     gitBaselines: new GitBaselineRepository(database),
     gitReconciliations: new GitReconciliationRepository(database),
     eventNormalizations: new EventNormalizationRepository(database),
+    runFinalizations: new RunFinalizationRepository(database),
     runSupport: new RunSupportRepository(database),
     artifacts: new ArtifactRepository(database),
   };
@@ -184,6 +187,18 @@ export {
   LIFECYCLE_RESOLUTION_ACTIONS,
   LIFECYCLE_RESOLUTION_OUTCOMES,
 } from "./repositories/lifecycle-resolutions.js";
+export type {
+  NewRunFinalization,
+  RunFinalization,
+  RunFinalizationDiagnosticCode,
+  RunFinalizationMode,
+  RunFinalizationTerminalStatus,
+} from "./repositories/run-finalizations.js";
+export {
+  RUN_FINALIZATION_DIAGNOSTIC_CODES,
+  RUN_FINALIZATION_MODES,
+  RUN_FINALIZATION_TERMINAL_STATUSES,
+} from "./repositories/run-finalizations.js";
 export type {
   AnalysisJobRecord,
   EvidenceGapRecord,
