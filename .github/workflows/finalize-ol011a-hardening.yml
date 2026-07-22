@@ -21,19 +21,34 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 1
 
-      - name: Assemble and verify reviewed patch
+      - name: Assemble and verify compressed patch
         shell: bash
         run: |
           set -euo pipefail
 
-          for index in $(seq 0 6); do
+          expected_sizes=(1800 1800 1800 1800 256)
+          expected_hashes=(
+            fd2fbc7a1369e859133301d7dfe0aaf14fac16a40f643c4797582074ca4361e4
+            2c9e2a9ffa56762284a368ad73d377c9c2330757b0c190391f8fda657c1fa9d2
+            aaaa70e41bb0f872cda2c5c45bddf2d4ce8efdd647f28c94f909515745262fe2
+            31cb233937662d1a8c51e18a3831cfe8b6004c92f405316270ad1225b845022e
+            d9d5a61ee2fce3231fa5e83bdf821b384034bafe4b4d4860fc58afe7f39e7a34
+          )
+
+          for index in $(seq 0 4); do
             suffix=$(printf '%02d' "$index")
-            path=".github/ol011a-hardening/part-${suffix}"
-            test -s "$path"
+            path=".github/ol011a-hardening-gz/part-${suffix}"
+            test "$(wc -c < "$path")" -eq "${expected_sizes[$index]}"
+            echo "${expected_hashes[$index]}  $path" | sha256sum --check
           done
 
-          cat .github/ol011a-hardening/part-* > /tmp/ol011a-hardening.patch.b64
-          base64 --decode /tmp/ol011a-hardening.patch.b64 > /tmp/ol011a-hardening.patch
+          cat .github/ol011a-hardening-gz/part-* > /tmp/ol011a-hardening.patch.gz.b64
+          test "$(wc -c < /tmp/ol011a-hardening.patch.gz.b64)" -eq 7456
+          base64 --decode /tmp/ol011a-hardening.patch.gz.b64 > /tmp/ol011a-hardening.patch.gz
+          test "$(wc -c < /tmp/ol011a-hardening.patch.gz)" -eq 5591
+          echo "1ca129c1e8c7910f6e6fb42503dc67407f3d25626da6cc30a5a476c78e59c153  /tmp/ol011a-hardening.patch.gz" | sha256sum --check
+          gzip --test /tmp/ol011a-hardening.patch.gz
+          gzip --decompress --stdout /tmp/ol011a-hardening.patch.gz > /tmp/ol011a-hardening.patch
           test "$(wc -c < /tmp/ol011a-hardening.patch)" -eq 22820
           echo "8b3b0dc3816c306fd58ead4ee0921545335526873107dbf2d07b34c92bd4d70e  /tmp/ol011a-hardening.patch" | sha256sum --check
           git apply --check /tmp/ol011a-hardening.patch
@@ -54,7 +69,7 @@ jobs:
 
           git diff --name-only | grep -v '^\.github/' | sort > /tmp/actual-production-files
           diff -u /tmp/expected-production-files /tmp/actual-production-files
-          git rm -r .github/ol011a-hardening
+          git rm -r .github/ol011a-hardening .github/ol011a-hardening-gz
           git rm .github/workflows/finalize-ol011a-hardening.yml
 
       - name: Set up exact Node.js
