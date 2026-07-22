@@ -21,20 +21,18 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 1
 
-      - name: Retrieve and verify reviewed patch
+      - name: Assemble and verify reviewed patch
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 origin agent/ol-011-finalization-recovery
 
           for index in $(seq 0 6); do
             suffix=$(printf '%02d' "$index")
-            path="/tmp/ol011a-part-${suffix}"
-            git show "FETCH_HEAD:.github/ol011-hardening/part-${suffix}" > "$path"
+            path=".github/ol011a-hardening/part-${suffix}"
             test -s "$path"
           done
 
-          cat /tmp/ol011a-part-* > /tmp/ol011a-hardening.patch.b64
+          cat .github/ol011a-hardening/part-* > /tmp/ol011a-hardening.patch.b64
           base64 --decode /tmp/ol011a-hardening.patch.b64 > /tmp/ol011a-hardening.patch
           test "$(wc -c < /tmp/ol011a-hardening.patch)" -eq 22820
           echo "8b3b0dc3816c306fd58ead4ee0921545335526873107dbf2d07b34c92bd4d70e  /tmp/ol011a-hardening.patch" | sha256sum --check
@@ -56,6 +54,7 @@ jobs:
 
           git diff --name-only | grep -v '^\.github/' | sort > /tmp/actual-production-files
           diff -u /tmp/expected-production-files /tmp/actual-production-files
+          git rm -r .github/ol011a-hardening
           git rm .github/workflows/finalize-ol011a-hardening.yml
 
       - name: Set up exact Node.js
