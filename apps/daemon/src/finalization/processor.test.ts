@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import {
   NORMALIZED_EVENT_SCHEMA_VERSION,
@@ -478,6 +479,70 @@ describe("Run finalization", () => {
           .slice(-2)
           .map((entry) => entry.type),
       ).toEqual(["snapshot.final_captured", "run.completed"]);
+    } finally {
+      reopened.close();
+    }
+  });
+
+  it("detects corrupted terminal Event deduplication after restart", async () => {
+    const directory = await temporaryDirectory("ownloop-finalization-dedup-corruption-");
+    const databasePath = join(directory, "ownloop.sqlite");
+    const context = await createContext({}, databasePath);
+    await finalizeRun(context.dependencies, "run-1");
+    context.persistence.close();
+
+    const raw = new DatabaseSync(databasePath);
+    raw.prepare("DELETE FROM event_deduplication WHERE event_id = ?").run("terminal-event");
+    raw.close();
+
+    const reopened = openPersistence(databasePath);
+    try {
+      expect(() => getRunFinalization(reopened, "run-1")).toThrowError(
+        expect.objectContaining<Partial<PersistenceError>>({ code: "invalid_persisted_row" }),
+      );
+    } finally {
+      reopened.close();
+    }
+  });
+
+  it("detects corrupted predecessor continuity after restart", async () => {
+    const directory = await temporaryDirectory("ownloop-finalization-sequence-corruption-");
+    const databasePath = join(directory, "ownloop.sqlite");
+    const context = await createContext({}, databasePath);
+    await finalizeRun(context.dependencies, "run-1");
+    context.persistence.close();
+
+    const raw = new DatabaseSync(databasePath);
+    raw.exec("PRAGMA foreign_keys = OFF");
+    raw.prepare("DELETE FROM events WHERE event_id = ?").run("summary-event");
+    raw.close();
+
+    const reopened = openPersistence(databasePath);
+    try {
+      expect(() => getRunFinalization(reopened, "run-1")).toThrowError(
+        expect.objectContaining<Partial<PersistenceError>>({ code: "invalid_persisted_row" }),
+      );
+    } finally {
+      reopened.close();
+    }
+  });
+
+  it("detects a corrupted evidence-gap counter after restart", async () => {
+    const directory = await temporaryDirectory("ownloop-finalization-evidence-corruption-");
+    const databasePath = join(directory, "ownloop.sqlite");
+    const context = await createContext({}, databasePath);
+    await finalizeRun(context.dependencies, "run-1");
+    context.persistence.close();
+
+    const raw = new DatabaseSync(databasePath);
+    raw.prepare("UPDATE task_runs SET evidence_gap_count = 1 WHERE run_id = ?").run("run-1");
+    raw.close();
+
+    const reopened = openPersistence(databasePath);
+    try {
+      expect(() => getRunFinalization(reopened, "run-1")).toThrowError(
+        expect.objectContaining<Partial<PersistenceError>>({ code: "invalid_persisted_row" }),
+      );
     } finally {
       reopened.close();
     }

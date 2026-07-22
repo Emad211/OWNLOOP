@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 
 import { mapPersistenceWriteError, PersistenceError } from "../errors.js";
-import { nullableString, requiredString, type SqliteRow } from "../row-mapping.js";
+import { nullableString, requiredNumber, requiredString, type SqliteRow } from "../row-mapping.js";
 
 export const RUN_FINALIZATION_MODES = ["normal", "recovery"] as const;
 export type RunFinalizationMode = (typeof RUN_FINALIZATION_MODES)[number];
@@ -180,7 +180,7 @@ export class RunFinalizationRepository {
   #validate(finalization: RunFinalization): void {
     const run = this.#database
       .prepare(
-        `SELECT tr.status, tr.ended_at, tr.final_git_fingerprint,
+        `SELECT tr.status, tr.ended_at, tr.final_git_fingerprint, tr.evidence_gap_count,
                 tr.conversation_id, ac.workspace_id
          FROM task_runs tr
          JOIN agent_conversations ac ON ac.conversation_id = tr.conversation_id
@@ -198,6 +198,57 @@ export class RunFinalizationRepository {
       throw new PersistenceError(
         "invalid_persisted_row",
         "The persisted Run finalization aggregate state is inconsistent.",
+      );
+    }
+
+    const evidenceGapCount = requiredNumber(run, "evidence_gap_count");
+    const actualEvidenceGapCount = requiredNumber(
+      this.#database
+        .prepare("SELECT count(*) AS count FROM evidence_gaps WHERE run_id = ?")
+        .get(finalization.runId) ?? {},
+      "count",
+    );
+    if (
+      evidenceGapCount !== actualEvidenceGapCount ||
+      (finalization.terminalStatus === "Completed" && evidenceGapCount !== 0)
+    ) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The persisted Run finalization evidence state is inconsistent.",
+      );
+    }
+
+    const validCombination =
+      (finalization.terminalStatus === "Completed" &&
+        finalization.mode === "normal" &&
+        finalization.diagnosticCode === null &&
+        finalization.triggerEventId !== null &&
+        finalization.reconciliationId !== null &&
+        finalization.manifestArtifactId !== null &&
+        finalization.finalFingerprint !== null &&
+        finalization.finalSnapshotEventId !== null) ||
+      (finalization.terminalStatus === "Partial" && finalization.diagnosticCode !== null) ||
+      (finalization.terminalStatus === "Failed" &&
+        finalization.mode === "normal" &&
+        finalization.diagnosticCode === "source_stop_failure" &&
+        finalization.triggerEventId !== null) ||
+      (finalization.terminalStatus === "Abandoned" &&
+        finalization.mode === "recovery" &&
+        finalization.diagnosticCode === "stale_capturing_recovered" &&
+        finalization.triggerEventId === null &&
+        finalization.reconciliationId === null &&
+        finalization.manifestArtifactId === null &&
+        finalization.finalFingerprint === null &&
+        finalization.finalSnapshotEventId === null);
+    if (
+      !validCombination ||
+      (finalization.reconciliationId === null) !== (finalization.finalSnapshotEventId === null) ||
+      ((finalization.manifestArtifactId !== null || finalization.finalFingerprint !== null) &&
+        finalization.reconciliationId === null)
+    ) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The persisted Run finalization outcome is inconsistent.",
       );
     }
 
@@ -229,6 +280,28 @@ export class RunFinalizationRepository {
       );
     }
 
+    const terminalSequence = requiredNumber(terminal, "sequence");
+    const terminalDeduplication = this.#database
+      .prepare(
+        `SELECT count(*) AS count FROM event_deduplication
+         WHERE event_id = ? AND source = 'ownloop' AND source_session_id = ?
+           AND deduplication_key = ?`,
+      )
+      .get(
+        finalization.terminalEventId,
+        finalization.conversationId,
+        `v1:run-finalization:${finalization.runId}:terminal`,
+      );
+    if (
+      terminalDeduplication === undefined ||
+      requiredNumber(terminalDeduplication, "count") !== 1
+    ) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The persisted Run finalization terminal deduplication is inconsistent.",
+      );
+    }
+
     let snapshotSequence: number | null = null;
     if (finalization.finalSnapshotEventId !== null) {
       const snapshot = this.#database
@@ -250,9 +323,38 @@ export class RunFinalizationRepository {
           "The persisted Run finalization snapshot Event is inconsistent.",
         );
       }
-      snapshotSequence = Number(snapshot.sequence);
+      snapshotSequence = requiredNumber(snapshot, "sequence");
+      const snapshotDeduplication = this.#database
+        .prepare(
+          `SELECT count(*) AS count FROM event_deduplication
+           WHERE event_id = ? AND source = 'ownloop' AND source_session_id = ?
+             AND deduplication_key = ?`,
+        )
+        .get(
+          finalization.finalSnapshotEventId,
+          finalization.conversationId,
+          `v1:run-finalization:${finalization.runId}:snapshot`,
+        );
+      if (
+        snapshotDeduplication === undefined ||
+        requiredNumber(snapshotDeduplication, "count") !== 1
+      ) {
+        throw new PersistenceError(
+          "invalid_persisted_row",
+          "The persisted Run finalization snapshot deduplication is inconsistent.",
+        );
+      }
     }
-    if (snapshotSequence !== null && Number(terminal.sequence) !== snapshotSequence + 1) {
+    const firstFinalizationSequence = snapshotSequence ?? terminalSequence;
+    const hasPredecessor =
+      firstFinalizationSequence === 1 ||
+      this.#database
+        .prepare("SELECT 1 FROM events WHERE run_id = ? AND sequence = ?")
+        .get(finalization.runId, firstFinalizationSequence - 1) !== undefined;
+    if (
+      (snapshotSequence !== null && terminalSequence !== snapshotSequence + 1) ||
+      !hasPredecessor
+    ) {
       throw new PersistenceError(
         "invalid_persisted_row",
         "The persisted Run finalization Event order is inconsistent.",
