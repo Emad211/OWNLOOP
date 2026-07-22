@@ -56,14 +56,15 @@ function mapErrorStatus(status: number): ReplayApiError {
 
 export function createReplayApiClient(
   installationToken: string,
-  options: Readonly<{
-    origin?: string;
-    fetcher?: typeof fetch;
-  }> = {},
+  options: Readonly<{ fetcher?: typeof fetch }> = {},
 ): ReplayApiClient {
-  const origin = options.origin ?? window.location.origin;
+  const origin = window.location.origin;
   const parsedOrigin = new URL(origin);
-  if (parsedOrigin.origin !== origin || parsedOrigin.protocol !== "http:") {
+  if (
+    parsedOrigin.origin !== origin ||
+    parsedOrigin.protocol !== "http:" ||
+    parsedOrigin.hostname !== "127.0.0.1"
+  ) {
     throw new ReplayApiError("unavailable");
   }
   const fetcher = options.fetcher ?? fetch;
