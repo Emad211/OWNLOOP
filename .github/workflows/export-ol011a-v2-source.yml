@@ -1,0 +1,55 @@
+name: Export OL-011A v2 Source
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'agent/ol-011a-finalization-hardening-v2'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Set up exact Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.18.0
+
+      - name: Install frozen dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Build exact review archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/ownloop-ol011a-v2
+          mkdir -p /tmp/ownloop-ol011a-v2/repo /tmp/ownloop-ol011a-v2/node
+          rsync -a --exclude='.git' ./ /tmp/ownloop-ol011a-v2/repo/
+          node_root="$(dirname "$(dirname "$(readlink -f "$(command -v node)")")")"
+          cp -a "$node_root"/. /tmp/ownloop-ol011a-v2/node/
+          tar -czf /tmp/ownloop-ol011a-v2-toolchain.tar.gz -C /tmp/ownloop-ol011a-v2 repo node
+          sha256sum /tmp/ownloop-ol011a-v2-toolchain.tar.gz > /tmp/ownloop-ol011a-v2-toolchain.sha256
+
+      - name: Upload source and runtime
+        uses: actions/upload-artifact@v6
+        with:
+          name: ownloop-ol011a-v2-toolchain
+          path: |
+            /tmp/ownloop-ol011a-v2-toolchain.tar.gz
+            /tmp/ownloop-ol011a-v2-toolchain.sha256
+          compression-level: 0
+          retention-days: 1
