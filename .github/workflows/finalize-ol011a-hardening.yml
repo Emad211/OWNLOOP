@@ -21,11 +21,10 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 1
 
-      - name: Assemble and verify compressed patch
+      - name: Verify compressed payload parts
         shell: bash
         run: |
           set -euo pipefail
-
           expected_sizes=(1800 1800 1800 1800 256)
           expected_hashes=(
             fd2fbc7a1369e859133301d7dfe0aaf14fac16a40f643c4797582074ca4361e4
@@ -34,7 +33,6 @@ jobs:
             31cb233937662d1a8c51e18a3831cfe8b6004c92f405316270ad1225b845022e
             d9d5a61ee2fce3231fa5e83bdf821b384034bafe4b4d4860fc58afe7f39e7a34
           )
-
           for index in $(seq 0 4); do
             suffix=$(printf '%02d' "$index")
             path=".github/ol011a-hardening-gz/part-${suffix}"
@@ -42,15 +40,34 @@ jobs:
             echo "${expected_hashes[$index]}  $path" | sha256sum --check
           done
 
+      - name: Decode compressed payload
+        shell: bash
+        run: |
+          set -euo pipefail
           cat .github/ol011a-hardening-gz/part-* > /tmp/ol011a-hardening.patch.gz.b64
           test "$(wc -c < /tmp/ol011a-hardening.patch.gz.b64)" -eq 7456
           base64 --decode /tmp/ol011a-hardening.patch.gz.b64 > /tmp/ol011a-hardening.patch.gz
+
+      - name: Verify compressed archive
+        shell: bash
+        run: |
+          set -euo pipefail
           test "$(wc -c < /tmp/ol011a-hardening.patch.gz)" -eq 5591
           echo "1ca129c1e8c7910f6e6fb42503dc67407f3d25626da6cc30a5a476c78e59c153  /tmp/ol011a-hardening.patch.gz" | sha256sum --check
           gzip --test /tmp/ol011a-hardening.patch.gz
+
+      - name: Verify decoded patch
+        shell: bash
+        run: |
+          set -euo pipefail
           gzip --decompress --stdout /tmp/ol011a-hardening.patch.gz > /tmp/ol011a-hardening.patch
           test "$(wc -c < /tmp/ol011a-hardening.patch)" -eq 22820
           echo "8b3b0dc3816c306fd58ead4ee0921545335526873107dbf2d07b34c92bd4d70e  /tmp/ol011a-hardening.patch" | sha256sum --check
+
+      - name: Check patch applicability
+        shell: bash
+        run: |
+          set -euo pipefail
           git apply --check /tmp/ol011a-hardening.patch
 
       - name: Apply patch and verify exact scope
@@ -58,7 +75,6 @@ jobs:
         run: |
           set -euo pipefail
           git apply /tmp/ol011a-hardening.patch
-
           cat > /tmp/expected-production-files <<'FILES'
           apps/daemon/src/finalization/processor.test.ts
           apps/daemon/src/finalization/processor.ts
@@ -66,7 +82,6 @@ jobs:
           apps/daemon/src/persistence/repositories/run-finalizations.ts
           docs/adr/0013-deterministic-run-finalization-and-crash-recovery.md
           FILES
-
           git diff --name-only | grep -v '^\.github/' | sort > /tmp/actual-production-files
           diff -u /tmp/expected-production-files /tmp/actual-production-files
           git rm -r .github/ol011a-hardening .github/ol011a-hardening-gz
@@ -90,7 +105,6 @@ jobs:
           set -euo pipefail
           pnpm format
           git diff --check
-
           cat > /tmp/expected-production-files <<'FILES'
           apps/daemon/src/finalization/processor.test.ts
           apps/daemon/src/finalization/processor.ts
@@ -98,10 +112,8 @@ jobs:
           apps/daemon/src/persistence/repositories/run-finalizations.ts
           docs/adr/0013-deterministic-run-finalization-and-crash-recovery.md
           FILES
-
           git diff --name-only | grep -v '^\.github/' | sort > /tmp/actual-production-files
           diff -u /tmp/expected-production-files /tmp/actual-production-files
-
           pnpm format:check
           pnpm lint
           pnpm typecheck
