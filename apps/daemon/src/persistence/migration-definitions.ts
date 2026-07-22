@@ -1100,6 +1100,77 @@ BEGIN
 END;
 `;
 
+const RUN_FINALIZATION_INVARIANTS_SQL = `
+CREATE TABLE run_finalization_v9_validation (
+  finalization_id TEXT PRIMARY KEY,
+  terminal_status TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  diagnostic_code TEXT,
+  CHECK (COALESCE(
+    (terminal_status = 'Completed' AND mode = 'normal' AND diagnostic_code IS NULL)
+    OR
+    (terminal_status = 'Partial' AND mode = 'normal' AND diagnostic_code IN (
+      'baseline_missing',
+      'baseline_partial',
+      'final_reconciliation_missing',
+      'final_reconciliation_partial',
+      'final_fingerprint_missing',
+      'manifest_unavailable',
+      'existing_evidence_gaps',
+      'finalization_processing_failed'
+    ))
+    OR
+    (terminal_status = 'Partial' AND mode = 'recovery'
+      AND diagnostic_code = 'stale_finalizing_recovered')
+    OR
+    (terminal_status = 'Failed' AND mode = 'normal'
+      AND diagnostic_code = 'source_stop_failure')
+    OR
+    (terminal_status = 'Abandoned' AND mode = 'recovery'
+      AND diagnostic_code = 'stale_capturing_recovered'),
+    0
+  ) = 1)
+) STRICT;
+
+INSERT INTO run_finalization_v9_validation (
+  finalization_id, terminal_status, mode, diagnostic_code
+)
+SELECT finalization_id, terminal_status, mode, diagnostic_code
+FROM run_finalizations;
+
+DROP TABLE run_finalization_v9_validation;
+
+CREATE TRIGGER run_finalizations_validate_mode_diagnostic_v9
+BEFORE INSERT ON run_finalizations
+WHEN COALESCE(
+  (NEW.terminal_status = 'Completed' AND NEW.mode = 'normal' AND NEW.diagnostic_code IS NULL)
+  OR
+  (NEW.terminal_status = 'Partial' AND NEW.mode = 'normal' AND NEW.diagnostic_code IN (
+    'baseline_missing',
+    'baseline_partial',
+    'final_reconciliation_missing',
+    'final_reconciliation_partial',
+    'final_fingerprint_missing',
+    'manifest_unavailable',
+    'existing_evidence_gaps',
+    'finalization_processing_failed'
+  ))
+  OR
+  (NEW.terminal_status = 'Partial' AND NEW.mode = 'recovery'
+    AND NEW.diagnostic_code = 'stale_finalizing_recovered')
+  OR
+  (NEW.terminal_status = 'Failed' AND NEW.mode = 'normal'
+    AND NEW.diagnostic_code = 'source_stop_failure')
+  OR
+  (NEW.terminal_status = 'Abandoned' AND NEW.mode = 'recovery'
+    AND NEW.diagnostic_code = 'stale_capturing_recovered'),
+  0
+) = 0
+BEGIN
+  SELECT RAISE(ABORT, 'invalid Run finalization mode/diagnostic combination');
+END;
+`;
+
 export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   Object.freeze({
     version: 1,
@@ -1140,5 +1211,10 @@ export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
     version: 8,
     name: "deterministic_run_finalization",
     sql: RUN_FINALIZATION_SQL,
+  }),
+  Object.freeze({
+    version: 9,
+    name: "strict_run_finalization_invariants",
+    sql: RUN_FINALIZATION_INVARIANTS_SQL,
   }),
 ]);

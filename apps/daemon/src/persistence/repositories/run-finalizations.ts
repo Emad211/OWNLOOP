@@ -227,7 +227,20 @@ export class RunFinalizationRepository {
         finalization.manifestArtifactId !== null &&
         finalization.finalFingerprint !== null &&
         finalization.finalSnapshotEventId !== null) ||
-      (finalization.terminalStatus === "Partial" && finalization.diagnosticCode !== null) ||
+      (finalization.terminalStatus === "Partial" &&
+        ((finalization.mode === "normal" &&
+          [
+            "baseline_missing",
+            "baseline_partial",
+            "final_reconciliation_missing",
+            "final_reconciliation_partial",
+            "final_fingerprint_missing",
+            "manifest_unavailable",
+            "existing_evidence_gaps",
+            "finalization_processing_failed",
+          ].includes(finalization.diagnosticCode ?? "")) ||
+          (finalization.mode === "recovery" &&
+            finalization.diagnosticCode === "stale_finalizing_recovered"))) ||
       (finalization.terminalStatus === "Failed" &&
         finalization.mode === "normal" &&
         finalization.diagnosticCode === "source_stop_failure" &&

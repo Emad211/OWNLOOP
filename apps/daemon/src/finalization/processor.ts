@@ -214,7 +214,7 @@ function classify(
       terminalStatus: "Partial",
       diagnosticCode: "stale_finalizing_recovered",
       finalFingerprint: reliableFingerprint,
-      addEvidenceGap: true,
+      addEvidenceGap: input.existingGapCount === 0,
     };
   }
   if (input.trigger?.type === "run.stop_failed") {
@@ -222,7 +222,7 @@ function classify(
       terminalStatus: "Failed",
       diagnosticCode: "source_stop_failure",
       finalFingerprint: reliableFingerprint,
-      addEvidenceGap: true,
+      addEvidenceGap: input.existingGapCount === 0,
     };
   }
   let diagnosticCode: RunFinalizationDiagnosticCode | null = null;
@@ -245,7 +245,7 @@ function classify(
     terminalStatus: diagnosticCode === null ? "Completed" : "Partial",
     diagnosticCode,
     finalFingerprint: reliableFingerprint,
-    addEvidenceGap: diagnosticCode !== null && diagnosticCode !== "existing_evidence_gaps",
+    addEvidenceGap: diagnosticCode !== null && input.existingGapCount === 0,
   };
 }
 
@@ -572,16 +572,30 @@ function recoverCapturing(
       eventId: terminalEventId,
       createdAt: finalizedAt,
     });
-    repositories.runSupport.insertEvidenceGap({
-      gapId: safeGeneratedId(dependencies.evidenceGapIdGenerator ?? randomUUID),
-      runId: run.runId,
-      code: "stale_capturing_recovered",
-      message: evidenceMessage("stale_capturing_recovered"),
-      detailsJson: null,
-      createdAt: finalizedAt,
-    });
+    const existingGapCount = repositories.runSupport.countEvidenceGaps(run.runId);
+    if (existingGapCount !== run.evidenceGapCount) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The stale capturing Run evidence-gap counter is inconsistent.",
+      );
+    }
+    if (existingGapCount === 0) {
+      repositories.runSupport.insertEvidenceGap({
+        gapId: safeGeneratedId(dependencies.evidenceGapIdGenerator ?? randomUUID),
+        runId: run.runId,
+        code: "stale_capturing_recovered",
+        message: evidenceMessage("stale_capturing_recovered"),
+        detailsJson: null,
+        createdAt: finalizedAt,
+      });
+      if (!repositories.taskRuns.incrementEvidenceGapCount(run.runId)) {
+        throw new PersistenceError(
+          "invalid_persisted_row",
+          "The stale capturing Run evidence counter could not be updated.",
+        );
+      }
+    }
     if (
-      !repositories.taskRuns.incrementEvidenceGapCount(run.runId) ||
       !repositories.taskRuns.transitionToTerminal(
         run.runId,
         "Capturing",
