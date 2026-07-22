@@ -1,0 +1,53 @@
+name: Apply OL-011 New Files
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Assemble and verify archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          for part in .github/ol011-new-parts/part-{00..04}; do
+            test -s "$part"
+          done
+          cat .github/ol011-new-parts/part-* > /tmp/ol011-new.tar.gz.b64
+          test "$(wc -c < /tmp/ol011-new.tar.gz.b64)" -eq 13764
+          echo "c750eee1a11d2020feee01aa0658b934216c59aad0633f97610f1d7d7a6f03ae  /tmp/ol011-new.tar.gz.b64" | sha256sum --check
+          base64 --decode /tmp/ol011-new.tar.gz.b64 > /tmp/ol011-new.tar.gz
+          gzip --test /tmp/ol011-new.tar.gz
+          echo "cca25c9f5d7e63006d286d0cfb9d90e7ab61e0f4d8c16a75a0b40373936d5d3f  /tmp/ol011-new.tar.gz" | sha256sum --check
+          test "$(tar -tzf /tmp/ol011-new.tar.gz | wc -l)" -eq 3
+          tar -tzf /tmp/ol011-new.tar.gz | diff -u - <(printf '%s\n' \
+            apps/daemon/src/finalization/processor.ts \
+            apps/daemon/src/finalization/processor.test.ts \
+            apps/daemon/src/persistence/repositories/run-finalizations.ts)
+
+      - name: Extract and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -xzf /tmp/ol011-new.tar.gz
+          git add \
+            apps/daemon/src/finalization/processor.ts \
+            apps/daemon/src/finalization/processor.test.ts \
+            apps/daemon/src/persistence/repositories/run-finalizations.ts
+          git rm -r .github/ol011-new-parts
+          git rm .github/workflows/apply-ol011-new-files.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Add OL-011 finalization processor"
+          git push origin "HEAD:${{ github.head_ref }}"
