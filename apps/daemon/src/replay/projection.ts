@@ -521,11 +521,40 @@ export function isReplayReadableArtifact(
   ) {
     return false;
   }
-  return persistence.artifacts
-    .listReferencesForArtifact(artifactId)
-    .some(
-      (reference) =>
-        reference.role === FINAL_DIFF_MANIFEST_ROLE &&
-        persistence.taskRuns.get(reference.runId) !== null,
+  let corruptedReference = false;
+  for (const reference of persistence.artifacts.listReferencesForArtifactBounded(
+    artifactId,
+    1000,
+  )) {
+    if (reference.role !== FINAL_DIFF_MANIFEST_ROLE) {
+      continue;
+    }
+    const run = persistence.taskRuns.get(reference.runId);
+    if (run === null) {
+      corruptedReference = true;
+      continue;
+    }
+    try {
+      const context = getContext(persistence, run);
+      completeness(run, context.finalization);
+      assertEventContinuity(
+        persistence.events.listForRunBounded(reference.runId, 10_000),
+        reference.runId,
+      );
+      return true;
+    } catch (error) {
+      if (error instanceof PersistenceError) {
+        corruptedReference = true;
+        continue;
+      }
+      throw error;
+    }
+  }
+  if (corruptedReference) {
+    throw new PersistenceError(
+      "invalid_persisted_row",
+      "The replay artifact is linked only to an invalid Run projection.",
     );
+  }
+  return false;
 }

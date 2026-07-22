@@ -172,6 +172,7 @@ export function registerReplayRoutes(
             `attachment; filename="ownloop-final-diff-${artifactId}.json"`,
           )
           .header("X-Content-Type-Options", "nosniff")
+          .header("Content-Length", String(content.sizeBytes))
           .type(content.mediaType)
           .send(Buffer.from(content.bytes));
       } catch (error) {

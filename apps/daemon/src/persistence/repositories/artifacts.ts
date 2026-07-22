@@ -221,6 +221,32 @@ export class ArtifactRepository {
       .map(mapReference);
   }
 
+  listReferencesForArtifactBounded(
+    artifactId: string,
+    limit: number,
+  ): readonly RunArtifactReference[] {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 10_000) {
+      return [];
+    }
+    const references = this.#database
+      .prepare(
+        `SELECT run_id, artifact_id, role, created_at AS reference_created_at
+         FROM run_artifacts
+         WHERE artifact_id = ?
+         ORDER BY run_id ASC, role ASC
+         LIMIT ?`,
+      )
+      .all(artifactId, limit + 1)
+      .map(mapReference);
+    if (references.length > limit) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The persisted artifact exceeds the replay reference limit.",
+      );
+    }
+    return references;
+  }
+
   listForRun(runId: string): readonly RunArtifactReference[] {
     return this.#database
       .prepare(

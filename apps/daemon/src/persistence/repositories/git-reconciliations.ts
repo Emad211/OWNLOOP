@@ -326,7 +326,7 @@ export class GitReconciliationRepository {
 
   #mapWithEntries(row: SqliteRow): GitReconciliation {
     const reconciliationId = requiredString(row, "reconciliation_id");
-    const entries = this.#database
+    const entryRows = this.#database
       .prepare(
         `SELECT
            gre.reconciliation_id,
@@ -347,19 +347,26 @@ export class GitReconciliationRepository {
          FROM git_reconciliation_entries gre
          JOIN events e ON e.event_id = gre.file_event_id
          WHERE gre.reconciliation_id = ?
-         ORDER BY gre.entry_index ASC`,
+         ORDER BY gre.entry_index ASC
+         LIMIT 2001`,
       )
-      .all(reconciliationId)
-      .map((entryRow, index) => {
-        const entry = mapEntry(entryRow);
-        if (entry.entryIndex !== index) {
-          throw new PersistenceError(
-            "invalid_persisted_row",
-            "The persisted Git reconciliation entry indices are not contiguous.",
-          );
-        }
-        return { entry, row: entryRow };
-      });
+      .all(reconciliationId);
+    if (entryRows.length > 2000) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The persisted Git reconciliation exceeds the replay entry limit.",
+      );
+    }
+    const entries = entryRows.map((entryRow, index) => {
+      const entry = mapEntry(entryRow);
+      if (entry.entryIndex !== index) {
+        throw new PersistenceError(
+          "invalid_persisted_row",
+          "The persisted Git reconciliation entry indices are not contiguous.",
+        );
+      }
+      return { entry, row: entryRow };
+    });
     const mappedEntries = entries.map(({ entry }) => entry);
     const reconciliation = mapReconciliation(row, mappedEntries);
     const countSum =

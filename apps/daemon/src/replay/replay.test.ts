@@ -1,4 +1,5 @@
 import { createSecretKey } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -620,6 +621,9 @@ describe("authenticated replay routes and contained static delivery", () => {
       expect(artifact.headers.get("cache-control")).toBe("no-store");
       expect(artifact.headers.get("x-content-type-options")).toBe("nosniff");
       expect(artifact.headers.get("content-disposition")).toContain("artifact-1");
+      expect(artifact.headers.get("content-length")).toBe(
+        String(fixture.persistence.artifacts.getMetadata("artifact-1")?.sizeBytes),
+      );
       expect(FinalDiffManifestV1Schema.parse(await artifact.json()).version).toBe(1);
 
       const invalidCursor = await fetch(`${address.url}/v1/replay/runs?cursor=***`, { headers });
@@ -680,6 +684,46 @@ describe("authenticated replay routes and contained static delivery", () => {
       expect(serialized).not.toContain(fixture.artifactRoot);
       expect(serialized).not.toContain(metadata.storagePath);
       expect(serialized).not.toContain("corrupted-content");
+    } finally {
+      await server.close();
+      fixture.persistence.close();
+    }
+  });
+
+  it("rejects artifacts whose only Run reference is not a valid replay projection", async () => {
+    const directory = await temporaryDirectory("ownloop-replay-artifact-run-corruption-");
+    const databasePath = join(directory, "ownloop.sqlite");
+    const fixture = await completeFixture(databasePath);
+    const raw = new DatabaseSync(databasePath);
+    raw.exec("PRAGMA foreign_keys = OFF");
+    raw.prepare("DELETE FROM events WHERE event_id = ?").run("baseline-event");
+    raw.close();
+    const token = generateInstallationToken();
+    let artifactRead = false;
+    const server = createLoopbackIngressServer({
+      persistence: fixture.persistence,
+      installationToken: token,
+      hmacKey: hmacKey(),
+      replay: {
+        persistence: fixture.persistence,
+        artifactStore: {
+          async readPreparedBytes() {
+            artifactRead = true;
+            throw new Error("artifact bytes must not be read for an invalid replay Run");
+          },
+        },
+      },
+    });
+    const address = await startLoopbackIngressServer(server, 0);
+    try {
+      const response = await fetch(`${address.url}/v1/replay/artifacts/artifact-1`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(response.status).toBe(503);
+      expect(ReplayErrorResponseSchema.parse(await response.json()).error.code).toBe(
+        "projection_failed",
+      );
+      expect(artifactRead).toBe(false);
     } finally {
       await server.close();
       fixture.persistence.close();
