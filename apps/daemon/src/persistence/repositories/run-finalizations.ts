@@ -210,14 +210,42 @@ export class RunFinalizationRepository {
     );
     if (
       evidenceGapCount !== actualEvidenceGapCount ||
-      (finalization.terminalStatus === "Completed" && evidenceGapCount !== 0)
+      (finalization.terminalStatus === "Completed" ? evidenceGapCount !== 0 : evidenceGapCount < 1)
     ) {
       throw new PersistenceError(
         "invalid_persisted_row",
         "The persisted Run finalization evidence state is inconsistent.",
       );
     }
+    if (
+      finalization.diagnosticCode !== null &&
+      finalization.diagnosticCode !== "existing_evidence_gaps"
+    ) {
+      const diagnosticGap = this.#database
+        .prepare(
+          `SELECT 1 FROM evidence_gaps
+           WHERE run_id = ? AND code = ?
+           LIMIT 1`,
+        )
+        .get(finalization.runId, finalization.diagnosticCode);
+      if (diagnosticGap === undefined) {
+        throw new PersistenceError(
+          "invalid_persisted_row",
+          "The persisted Run finalization diagnostic evidence is inconsistent.",
+        );
+      }
+    }
 
+    const normalPartialDiagnostics: readonly RunFinalizationDiagnosticCode[] = [
+      "baseline_missing",
+      "baseline_partial",
+      "final_reconciliation_missing",
+      "final_reconciliation_partial",
+      "final_fingerprint_missing",
+      "manifest_unavailable",
+      "existing_evidence_gaps",
+      "finalization_processing_failed",
+    ];
     const validCombination =
       (finalization.terminalStatus === "Completed" &&
         finalization.mode === "normal" &&
@@ -227,7 +255,12 @@ export class RunFinalizationRepository {
         finalization.manifestArtifactId !== null &&
         finalization.finalFingerprint !== null &&
         finalization.finalSnapshotEventId !== null) ||
-      (finalization.terminalStatus === "Partial" && finalization.diagnosticCode !== null) ||
+      (finalization.terminalStatus === "Partial" &&
+        ((finalization.mode === "normal" &&
+          finalization.diagnosticCode !== null &&
+          normalPartialDiagnostics.includes(finalization.diagnosticCode)) ||
+          (finalization.mode === "recovery" &&
+            finalization.diagnosticCode === "stale_finalizing_recovered"))) ||
       (finalization.terminalStatus === "Failed" &&
         finalization.mode === "normal" &&
         finalization.diagnosticCode === "source_stop_failure" &&
@@ -345,15 +378,19 @@ export class RunFinalizationRepository {
         );
       }
     }
-    const firstFinalizationSequence = snapshotSequence ?? terminalSequence;
-    const hasPredecessor =
-      firstFinalizationSequence === 1 ||
-      this.#database
-        .prepare("SELECT 1 FROM events WHERE run_id = ? AND sequence = ?")
-        .get(finalization.runId, firstFinalizationSequence - 1) !== undefined;
+    const continuity = this.#database
+      .prepare(
+        `SELECT count(*) AS count, min(sequence) AS minimum, max(sequence) AS maximum
+         FROM events
+         WHERE run_id = ? AND sequence <= ?`,
+      )
+      .get(finalization.runId, terminalSequence);
     if (
       (snapshotSequence !== null && terminalSequence !== snapshotSequence + 1) ||
-      !hasPredecessor
+      continuity === undefined ||
+      requiredNumber(continuity, "count") !== terminalSequence ||
+      requiredNumber(continuity, "minimum") !== 1 ||
+      requiredNumber(continuity, "maximum") !== terminalSequence
     ) {
       throw new PersistenceError(
         "invalid_persisted_row",
@@ -363,12 +400,20 @@ export class RunFinalizationRepository {
 
     if (finalization.triggerEventId !== null) {
       const trigger = this.#database
-        .prepare("SELECT event_type, run_id FROM events WHERE event_id = ?")
+        .prepare("SELECT event_type, run_id, sequence FROM events WHERE event_id = ?")
         .get(finalization.triggerEventId);
       if (
         trigger === undefined ||
         !["run.stop_observed", "run.stop_failed"].includes(requiredString(trigger, "event_type")) ||
-        nullableString(trigger, "run_id") !== finalization.runId
+        nullableString(trigger, "run_id") !== finalization.runId ||
+        this.#database
+          .prepare(
+            `SELECT 1 FROM events
+             WHERE run_id = ? AND event_type IN ('run.stop_observed', 'run.stop_failed')
+               AND sequence > ?
+             LIMIT 1`,
+          )
+          .get(finalization.runId, requiredNumber(trigger, "sequence")) !== undefined
       ) {
         throw new PersistenceError(
           "invalid_persisted_row",

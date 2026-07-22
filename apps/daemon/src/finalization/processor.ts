@@ -7,7 +7,11 @@ import {
   NormalizedEventEnvelopeSchema,
 } from "@ownloop/event-model";
 
-import type { LocalArtifactStore, PutPreparedArtifactResult } from "../artifact-store/index.js";
+import {
+  isArtifactStoreError,
+  type LocalArtifactStore,
+  type PutPreparedArtifactResult,
+} from "../artifact-store/index.js";
 import {
   type GitReconciliationDependencies,
   reconcileGitAtTrigger,
@@ -35,6 +39,8 @@ import {
 import { prepareFinalDiffManifest } from "./manifest.js";
 
 const SAFE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
+const OFFSET_DATETIME_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/u;
 
 export type RunFinalizationDependencies = Readonly<{
   persistence: OwnLoopPersistence;
@@ -92,6 +98,17 @@ function canonicalTimestamp(clock: () => Date): string {
   return value.toISOString();
 }
 
+function canonicalRecoveryCutoff(value: string): string | null {
+  if (!OFFSET_DATETIME_PATTERN.test(value)) {
+    return null;
+  }
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)) {
+    return null;
+  }
+  return new Date(milliseconds).toISOString();
+}
+
 function safeResult(finalization: RunFinalization): RunFinalizationResult {
   return {
     finalizationId: finalization.finalizationId,
@@ -128,6 +145,17 @@ function latestStopEvent(
     }
   }
   return null;
+}
+
+function assertContiguousRunEvents(events: readonly NormalizedEventEnvelope[]): void {
+  for (let index = 0; index < events.length; index += 1) {
+    if (events[index]?.sequence !== index + 1) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The Run Event sequence is not contiguous before finalization.",
+      );
+    }
+  }
 }
 
 function makeEvent(
@@ -253,25 +281,23 @@ async function preparePreflight(
   dependencies: RunFinalizationDependencies,
   run: TaskRun,
 ): Promise<Preflight> {
-  const trigger = latestStopEvent(dependencies.persistence.events.listForRun(run.runId));
+  const events = dependencies.persistence.events.listForRun(run.runId);
+  assertContiguousRunEvents(events);
+  const trigger = latestStopEvent(events);
   let reconciliation: GitReconciliation | null = null;
   if (trigger !== null) {
     reconciliation = dependencies.persistence.gitReconciliations.getByTriggerEvent(trigger.eventId);
     if (reconciliation === null) {
-      try {
-        await reconcileGitAtTrigger(
-          {
-            persistence: dependencies.persistence,
-            ...(dependencies.reconciliationDependencies ?? {}),
-          },
-          trigger.eventId,
-        );
-        reconciliation = dependencies.persistence.gitReconciliations.getByTriggerEvent(
-          trigger.eventId,
-        );
-      } catch {
-        reconciliation = null;
-      }
+      await reconcileGitAtTrigger(
+        {
+          persistence: dependencies.persistence,
+          ...(dependencies.reconciliationDependencies ?? {}),
+        },
+        trigger.eventId,
+      );
+      reconciliation = dependencies.persistence.gitReconciliations.getByTriggerEvent(
+        trigger.eventId,
+      );
     }
   }
 
@@ -285,8 +311,15 @@ async function preparePreflight(
         mediaType: FINAL_DIFF_MANIFEST_MEDIA_TYPE,
         sensitivity: "sensitive",
       });
-    } catch {
-      artifact = null;
+    } catch (error) {
+      if (
+        isArtifactStoreError(error) &&
+        (error.code === "artifact_write_failed" || error.code === "size_limit_exceeded")
+      ) {
+        artifact = null;
+      } else {
+        throw error;
+      }
     }
   }
   return { trigger, reconciliation, artifact };
@@ -335,7 +368,9 @@ function persistFinalization(
       return null;
     }
 
-    const currentTrigger = latestStopEvent(repositories.events.listForRun(run.runId));
+    const currentEvents = repositories.events.listForRun(run.runId);
+    assertContiguousRunEvents(currentEvents);
+    const currentTrigger = latestStopEvent(currentEvents);
     if (currentTrigger?.eventId !== input.preflight.trigger?.eventId) {
       throw new PersistenceError(
         "invalid_persisted_row",
@@ -545,6 +580,14 @@ function recoverCapturing(
     if (workspace === null) {
       throw new PersistenceError("invalid_persisted_row", "The stale Run has no Workspace.");
     }
+    const currentEvents = repositories.events.listForRun(run.runId);
+    assertContiguousRunEvents(currentEvents);
+    if (latestStopEvent(currentEvents) !== null) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "A capturing Run cannot be recovered after a persisted Stop boundary.",
+      );
+    }
     const finalizationId = safeGeneratedId(dependencies.finalizationIdGenerator ?? randomUUID);
     const terminalEventId = safeGeneratedId(dependencies.eventIdGenerator ?? randomUUID);
     const terminalEvent = makeEvent({
@@ -613,7 +656,13 @@ function recoverCapturing(
       generatorVersion: RUN_FINALIZATION_GENERATOR_VERSION,
     });
     const persisted = repositories.runFinalizations.getByRun(run.runId);
-    return persisted === null ? null : safeResult(persisted);
+    if (persisted === null) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The recovered Run finalization could not be read after insertion.",
+      );
+    }
+    return safeResult(persisted);
   });
 }
 
@@ -679,20 +728,26 @@ export async function recoverStaleRuns(
   cutoff: string,
   limit = MAX_RECOVERY_BATCH,
 ): Promise<RunFinalizationResult[]> {
+  const canonicalCutoff = canonicalRecoveryCutoff(cutoff);
   if (
     !Number.isInteger(limit) ||
     limit < 1 ||
     limit > MAX_RECOVERY_BATCH ||
-    !Number.isFinite(Date.parse(cutoff))
+    canonicalCutoff === null
   ) {
     return [];
   }
-  const stale = dependencies.persistence.taskRuns.listStaleActive(cutoff, limit);
+  const stale = dependencies.persistence.taskRuns.listStaleActive(canonicalCutoff, limit);
   const results: RunFinalizationResult[] = [];
   for (const candidate of stale) {
     const finalizedAt = canonicalTimestamp(dependencies.clock ?? (() => new Date()));
     if (candidate.run.status === "Capturing") {
-      const result = recoverCapturing(dependencies, candidate.run.runId, cutoff, finalizedAt);
+      const result = recoverCapturing(
+        dependencies,
+        candidate.run.runId,
+        canonicalCutoff,
+        finalizedAt,
+      );
       if (result !== null) {
         results.push(result);
       }
@@ -704,7 +759,7 @@ export async function recoverStaleRuns(
       mode: "recovery",
       preflight,
       finalizedAt,
-      staleCutoff: cutoff,
+      staleCutoff: canonicalCutoff,
     });
     if (result !== null) {
       results.push(result);

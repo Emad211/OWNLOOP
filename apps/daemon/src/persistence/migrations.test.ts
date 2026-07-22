@@ -150,7 +150,7 @@ describe("SQLite migrations", () => {
 
       runMigrations(opened.database);
 
-      expect(readAppliedMigrations(opened.database)).toHaveLength(8);
+      expect(readAppliedMigrations(opened.database)).toHaveLength(9);
       expect(
         opened.database
           .prepare(
@@ -182,7 +182,7 @@ describe("SQLite migrations", () => {
           .get(),
       ).toBeUndefined();
 
-      runMigrations(opened.database);
+      runMigrations(opened.database, MIGRATIONS.slice(0, 8));
       expect(readAppliedMigrations(opened.database)).toHaveLength(8);
       expect(
         opened.database
@@ -195,6 +195,33 @@ describe("SQLite migrations", () => {
         opened.database
           .prepare(
             "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'run_finalizations_reject_update'",
+          )
+          .get(),
+      ).toBeDefined();
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("upgrades a version-8 database to Run finalization hardening migration version 9", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 8));
+      expect(readAppliedMigrations(opened.database)).toHaveLength(8);
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'run_finalizations_validate_hardening_insert'",
+          )
+          .get(),
+      ).toBeUndefined();
+
+      runMigrations(opened.database);
+      expect(readAppliedMigrations(opened.database)).toHaveLength(9);
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'run_finalizations_validate_hardening_insert'",
           )
           .get(),
       ).toBeDefined();

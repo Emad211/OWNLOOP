@@ -1100,6 +1100,87 @@ BEGIN
 END;
 `;
 
+const RUN_FINALIZATION_HARDENING_SQL = `
+CREATE TRIGGER run_finalizations_validate_hardening_insert
+BEFORE INSERT ON run_finalizations
+BEGIN
+  SELECT CASE WHEN NEW.terminal_status = 'Partial' AND NOT (
+    (NEW.mode = 'normal' AND NEW.diagnostic_code IN (
+      'baseline_missing',
+      'baseline_partial',
+      'final_reconciliation_missing',
+      'final_reconciliation_partial',
+      'final_fingerprint_missing',
+      'manifest_unavailable',
+      'existing_evidence_gaps',
+      'finalization_processing_failed'
+    ))
+    OR
+    (NEW.mode = 'recovery' AND NEW.diagnostic_code = 'stale_finalizing_recovered')
+  ) THEN RAISE(ABORT, 'invalid Partial finalization mode or diagnostic') END;
+
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1 FROM task_runs tr
+    WHERE tr.run_id = NEW.run_id
+      AND tr.evidence_gap_count = (
+        SELECT count(*) FROM evidence_gaps eg WHERE eg.run_id = NEW.run_id
+      )
+  ) THEN RAISE(ABORT, 'finalization evidence-gap counter is inconsistent') END;
+
+  SELECT CASE WHEN NEW.terminal_status <> 'Completed' AND NOT EXISTS (
+    SELECT 1 FROM task_runs tr
+    WHERE tr.run_id = NEW.run_id AND tr.evidence_gap_count > 0
+  ) THEN RAISE(ABORT, 'non-Completed finalization requires evidence gaps') END;
+
+  SELECT CASE WHEN NEW.diagnostic_code IS NOT NULL
+    AND NEW.diagnostic_code <> 'existing_evidence_gaps'
+    AND NOT EXISTS (
+      SELECT 1 FROM evidence_gaps eg
+      WHERE eg.run_id = NEW.run_id AND eg.code = NEW.diagnostic_code
+    )
+  THEN RAISE(ABORT, 'finalization diagnostic requires matching evidence gap') END;
+
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1 FROM events terminal
+    WHERE terminal.event_id = NEW.terminal_event_id
+      AND terminal.run_id = NEW.run_id
+      AND terminal.sequence IS NOT NULL
+      AND (
+        SELECT count(*) FROM events existing
+        WHERE existing.run_id = NEW.run_id
+          AND existing.sequence IS NOT NULL
+          AND existing.sequence <= terminal.sequence
+      ) = terminal.sequence
+      AND (
+        SELECT min(existing.sequence) FROM events existing
+        WHERE existing.run_id = NEW.run_id
+          AND existing.sequence IS NOT NULL
+          AND existing.sequence <= terminal.sequence
+      ) = 1
+      AND (
+        SELECT max(existing.sequence) FROM events existing
+        WHERE existing.run_id = NEW.run_id
+          AND existing.sequence IS NOT NULL
+          AND existing.sequence <= terminal.sequence
+      ) = terminal.sequence
+  ) THEN RAISE(ABORT, 'non-contiguous finalization Event history') END;
+
+  SELECT CASE WHEN NEW.trigger_event_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM events trigger
+    WHERE trigger.event_id = NEW.trigger_event_id
+      AND trigger.run_id = NEW.run_id
+      AND trigger.event_type IN ('run.stop_observed', 'run.stop_failed')
+      AND trigger.sequence IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM events later
+        WHERE later.run_id = NEW.run_id
+          AND later.event_type IN ('run.stop_observed', 'run.stop_failed')
+          AND later.sequence > trigger.sequence
+      )
+  ) THEN RAISE(ABORT, 'finalization trigger is not the latest Stop boundary') END;
+END;
+`;
+
 export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   Object.freeze({
     version: 1,
@@ -1140,5 +1221,10 @@ export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
     version: 8,
     name: "deterministic_run_finalization",
     sql: RUN_FINALIZATION_SQL,
+  }),
+  Object.freeze({
+    version: 9,
+    name: "run_finalization_evidence_hardening",
+    sql: RUN_FINALIZATION_HARDENING_SQL,
   }),
 ]);

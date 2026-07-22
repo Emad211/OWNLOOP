@@ -10,7 +10,7 @@
 - `docs/adr/0009-transactional-event-normalization-and-sequencing.md`
 - `docs/adr/0010-privacy-bounded-deterministic-git-baseline.md`
 - `docs/adr/0011-evidence-bounded-git-reconciliation.md`
-- `docs/adr/0012-content-addressed-artifact-store.md`
+- `docs/adr/0012-local-content-addressed-artifact-store.md`
 - GitHub issue #29
 
 ---
@@ -76,12 +76,15 @@ Otherwise a retainable normal-Stop Run becomes `Partial`.
 
 A `run.stop_failed` boundary becomes terminal `Failed`. Missing or partial evidence remains explicitly represented through a diagnostic and evidence gap; failure is not silently labeled complete.
 
+Persisted metadata, integrity, reconciliation, or artifact corruption propagates as a typed failure and is never hidden as ordinary incomplete evidence.
+
 ### Crash recovery
 
 Recovery is explicit and bounded. No timer or background worker is introduced.
 
 For stale Runs selected by `conversation.lastObservedAt < cutoff`:
 
+- the cutoff must be an ISO datetime with an explicit UTC offset and is canonicalized to UTC before SQLite selection and transactional re-check;
 - stale `Capturing` → `Abandoned`;
 - stale `Finalizing` → attempt normal final evidence resolution but force terminal `Partial`;
 - status and staleness are re-checked inside the write transaction;
