@@ -38,6 +38,74 @@ function temporaryDatabasePath(): string {
   return join(directory, "ownloop.sqlite");
 }
 
+function seedVersion8PartialFinalization(
+  database: ReturnType<typeof openConfiguredDatabase>["database"],
+  suffix: string,
+  mode: "normal" | "recovery",
+  diagnosticCode: string,
+): void {
+  const workspaceId = `workspace-${suffix}`;
+  const conversationId = `conversation-${suffix}`;
+  const runId = `run-${suffix}`;
+  const eventId = `terminal-${suffix}`;
+  const finalizationId = `finalization-${suffix}`;
+  const at = "2026-07-22T12:00:00.000Z";
+
+  database
+    .prepare(
+      `INSERT INTO workspaces (
+         workspace_id, canonical_path, repository_root, git_remote,
+         initial_repository_fingerprint, identity_basis, created_at, last_observed_at
+       ) VALUES (?, ?, ?, NULL, ?, 'git_resolved_v1', ?, ?)`,
+    )
+    .run(workspaceId, `/workspace/${suffix}`, `/workspace/${suffix}`, "a".repeat(64), at, at);
+  database
+    .prepare(
+      `INSERT INTO agent_conversations (
+         conversation_id, workspace_id, source, source_session_id, start_mode,
+         started_at, last_observed_at, ended_at, status
+       ) VALUES (?, ?, 'claude_code', ?, 'startup', ?, ?, NULL, 'Active')`,
+    )
+    .run(conversationId, workspaceId, `session-${suffix}`, at, at);
+  database
+    .prepare(
+      `INSERT INTO task_runs (
+         run_id, conversation_id, run_number, redacted_prompt,
+         baseline_git_commit, baseline_working_tree_fingerprint,
+         started_at, ended_at, status, final_git_fingerprint,
+         source_stop_reason, evidence_gap_count
+       ) VALUES (?, ?, 1, '[REDACTED]', NULL, NULL, ?, ?, 'Partial', NULL, 'stop', 0)`,
+    )
+    .run(runId, conversationId, at, at);
+  database
+    .prepare(
+      `INSERT INTO events (
+         event_id, schema_version, workspace_id, conversation_id, run_id, sequence,
+         event_type, source, source_event_name, source_event_id, occurred_at, ingested_at,
+         sensitivity, payload_json, metadata_json
+       ) VALUES (?, 1, ?, ?, ?, 1, 'run.partial', 'ownloop', NULL, NULL, ?, ?,
+                 'normal', '{}', '{"collectorVersion":"0.1.0","sourceVersion":null}')`,
+    )
+    .run(eventId, workspaceId, conversationId, runId, at, at);
+  database
+    .prepare(
+      `INSERT INTO event_deduplication (
+         source, source_session_id, deduplication_key, event_id, created_at
+       ) VALUES ('ownloop', ?, ?, ?, ?)`,
+    )
+    .run(conversationId, `v1:run-finalization:${runId}:terminal`, eventId, at);
+  database
+    .prepare(
+      `INSERT INTO run_finalizations (
+         finalization_id, run_id, conversation_id, workspace_id, terminal_status, mode,
+         trigger_event_id, reconciliation_id, manifest_artifact_id, final_fingerprint,
+         final_snapshot_event_id, terminal_event_id, diagnostic_code, finalized_at,
+         generator_version
+       ) VALUES (?, ?, ?, ?, 'Partial', ?, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, '0.1.0')`,
+    )
+    .run(finalizationId, runId, conversationId, workspaceId, mode, eventId, diagnosticCode, at);
+}
+
 afterEach(() => {
   while (temporaryDirectories.length > 0) {
     const directory = temporaryDirectories.pop();
@@ -150,7 +218,7 @@ describe("SQLite migrations", () => {
 
       runMigrations(opened.database);
 
-      expect(readAppliedMigrations(opened.database)).toHaveLength(8);
+      expect(readAppliedMigrations(opened.database)).toHaveLength(MIGRATIONS.length);
       expect(
         opened.database
           .prepare(
@@ -182,7 +250,7 @@ describe("SQLite migrations", () => {
           .get(),
       ).toBeUndefined();
 
-      runMigrations(opened.database);
+      runMigrations(opened.database, MIGRATIONS.slice(0, 8));
       expect(readAppliedMigrations(opened.database)).toHaveLength(8);
       expect(
         opened.database
@@ -198,6 +266,71 @@ describe("SQLite migrations", () => {
           )
           .get(),
       ).toBeDefined();
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("upgrades valid version-8 finalizations and installs strict version-9 validation", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 8));
+      seedVersion8PartialFinalization(
+        opened.database,
+        "valid-recovery",
+        "recovery",
+        "stale_finalizing_recovered",
+      );
+
+      runMigrations(opened.database);
+
+      expect(readAppliedMigrations(opened.database)).toHaveLength(MIGRATIONS.length);
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'run_finalizations_validate_mode_diagnostic_v9'",
+          )
+          .get(),
+      ).toBeDefined();
+      expect(
+        opened.database
+          .prepare("SELECT mode, diagnostic_code FROM run_finalizations WHERE run_id = ?")
+          .get("run-valid-recovery"),
+      ).toEqual({ mode: "recovery", diagnostic_code: "stale_finalizing_recovered" });
+
+      expect(() =>
+        seedVersion8PartialFinalization(
+          opened.database,
+          "invalid-new",
+          "normal",
+          "stale_finalizing_recovered",
+        ),
+      ).toThrow();
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("rejects invalid existing version-8 mode and diagnostic combinations during migration 9", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 8));
+      seedVersion8PartialFinalization(
+        opened.database,
+        "invalid-existing",
+        "normal",
+        "stale_finalizing_recovered",
+      );
+
+      expect(() => runMigrations(opened.database)).toThrow();
+      expect(readAppliedMigrations(opened.database)).toHaveLength(8);
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'run_finalizations_validate_mode_diagnostic_v9'",
+          )
+          .get(),
+      ).toBeUndefined();
     } finally {
       opened.database.close();
     }

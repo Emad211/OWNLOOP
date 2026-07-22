@@ -127,6 +127,17 @@ function seedAggregates(
     evidenceGapCount: input.existingGap ? 1 : 0,
   });
 
+  if (input.existingGap) {
+    persistence.runSupport.insertEvidenceGap({
+      gapId: "existing-gap",
+      runId: "run-1",
+      code: "earlier_gap",
+      message: "Earlier controlled evidence gap.",
+      detailsJson: null,
+      createdAt: STARTED_AT,
+    });
+  }
+
   if (status === "Capturing") {
     return;
   }
@@ -209,17 +220,6 @@ function seedAggregates(
       typeChangedCount: 0,
       unmergedCount: 0,
       capturedAt: STOPPED_AT,
-    });
-  }
-
-  if (input.existingGap) {
-    persistence.runSupport.insertEvidenceGap({
-      gapId: "existing-gap",
-      runId: "run-1",
-      code: "earlier_gap",
-      message: "Earlier controlled evidence gap.",
-      detailsJson: null,
-      createdAt: STARTED_AT,
     });
   }
 }
@@ -336,8 +336,38 @@ describe("Run finalization", () => {
     }
   });
 
+  it("does not duplicate an existing evidence gap when StopFailure finalizes the Run", async () => {
+    const context = await createContext({ stopFailure: true, existingGap: true });
+    try {
+      const result = await finalizeRun(context.dependencies, "run-1");
+      expect(result).toMatchObject({
+        terminalStatus: "Failed",
+        diagnosticCode: "source_stop_failure",
+      });
+      expect(context.persistence.runSupport.countEvidenceGaps("run-1")).toBe(1);
+      expect(context.persistence.taskRuns.get("run-1")?.evidenceGapCount).toBe(1);
+    } finally {
+      context.persistence.close();
+    }
+  });
+
+  it("uses Partial for a partial baseline without duplicating its existing evidence gap", async () => {
+    const context = await createContext({ baselineOutcome: "partial", existingGap: true });
+    try {
+      const result = await finalizeRun(context.dependencies, "run-1");
+      expect(result).toMatchObject({
+        terminalStatus: "Partial",
+        diagnosticCode: "baseline_partial",
+      });
+      expect(context.persistence.runSupport.countEvidenceGaps("run-1")).toBe(1);
+      expect(context.persistence.taskRuns.get("run-1")?.evidenceGapCount).toBe(1);
+    } finally {
+      context.persistence.close();
+    }
+  });
+
   it("uses Partial for a partial reconciliation and keeps the active lifecycle evidence explicit", async () => {
-    const context = await createContext({ reconciliationOutcome: "partial" });
+    const context = await createContext({ reconciliationOutcome: "partial", existingGap: true });
     try {
       const result = await finalizeRun(context.dependencies, "run-1");
       expect(result).toMatchObject({
@@ -346,6 +376,7 @@ describe("Run finalization", () => {
       });
       expect(context.persistence.taskRuns.get("run-1")?.finalGitFingerprint).toBeNull();
       expect(context.persistence.runSupport.countEvidenceGaps("run-1")).toBe(1);
+      expect(context.persistence.taskRuns.get("run-1")?.evidenceGapCount).toBe(1);
     } finally {
       context.persistence.close();
     }
@@ -401,6 +432,7 @@ describe("Run finalization", () => {
     const context = await createContext({
       status: "Capturing",
       lastObservedAt: "2026-07-22T09:00:00.000Z",
+      existingGap: true,
     });
     try {
       const results = await recoverStaleRuns(context.dependencies, "2026-07-22T09:30:00.000Z");
@@ -412,6 +444,8 @@ describe("Run finalization", () => {
         }),
       ]);
       expect(context.persistence.taskRuns.get("run-1")?.status).toBe("Abandoned");
+      expect(context.persistence.runSupport.countEvidenceGaps("run-1")).toBe(1);
+      expect(context.persistence.taskRuns.get("run-1")?.evidenceGapCount).toBe(1);
       expect(context.persistence.events.listForRun("run-1").map((entry) => entry.type)).toEqual([
         "run.abandoned",
       ]);
@@ -421,7 +455,10 @@ describe("Run finalization", () => {
   });
 
   it("recovers stale Finalizing as forced Partial", async () => {
-    const context = await createContext({ lastObservedAt: "2026-07-22T09:00:00.000Z" });
+    const context = await createContext({
+      lastObservedAt: "2026-07-22T09:00:00.000Z",
+      existingGap: true,
+    });
     try {
       const results = await recoverStaleRuns(context.dependencies, "2026-07-22T09:30:00.000Z");
       expect(results[0]).toMatchObject({
@@ -430,6 +467,7 @@ describe("Run finalization", () => {
         diagnosticCode: "stale_finalizing_recovered",
       });
       expect(context.persistence.runSupport.countEvidenceGaps("run-1")).toBe(1);
+      expect(context.persistence.taskRuns.get("run-1")?.evidenceGapCount).toBe(1);
     } finally {
       context.persistence.close();
     }
