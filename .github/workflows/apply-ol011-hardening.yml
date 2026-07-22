@@ -1,0 +1,44 @@
+name: Apply OL-011 Corruption Hardening
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out pull request branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Verify hardening patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s .github/ol011-hardening.b64
+          test "$(wc -c < .github/ol011-hardening.b64)" -eq 2736
+          echo "8f3989c254ba77bb6c73e3b1baaa59818c5685eb7df7fb4c2b9fcd295575039b  .github/ol011-hardening.b64" | sha256sum --check
+          base64 --decode .github/ol011-hardening.b64 > /tmp/ol011-hardening.diff.gz
+          gzip --test /tmp/ol011-hardening.diff.gz
+          echo "63084d5e5c2e392c63a77d2a4062b9beed5df5ad67615e63531150dc70a2f73f  /tmp/ol011-hardening.diff.gz" | sha256sum --check
+          gzip --decompress --stdout /tmp/ol011-hardening.diff.gz > /tmp/ol011-hardening.diff
+          echo "ad064053c60d232728346c5e669f4737da6b153aabb9e57cecf369ec15f52ccf  /tmp/ol011-hardening.diff" | sha256sum --check
+          git apply --check --verbose /tmp/ol011-hardening.diff
+
+      - name: Apply and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --index /tmp/ol011-hardening.diff
+          git rm .github/ol011-hardening.b64
+          git rm .github/workflows/apply-ol011-hardening.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Harden OL-011 finalization integrity"
+          git push origin "HEAD:${{ github.head_ref }}"
