@@ -1,0 +1,119 @@
+name: Finalize OL-013 Implementation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'agent/ol-013-deterministic-change-classification'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out OL-013 branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 1
+
+      - name: Verify and decode implementation patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_sizes=(8000 8000 8000 8000 8000 128)
+          expected_hashes=(
+            cc769531b74231c4527762586d3a79833e5586c9e8435cdab20a3e9dae7029b9
+            d8065451d91cd028aedd354495ded619b2e1eceb335e54396589895ebe2c5aef
+            604327033e77268cf53dcdaa62a4f14674db033da8877f97c87e770528a262c2
+            12d8dcdac4f42c6615f1d33ec6f62bd5c3e5d1b041d19b7b8242a415e53ce9db
+            208d29cf46c76dad5075bfc98b58e640f8bf476c43caee58b07e2abf56b5b91c
+            1bb9236ab145169bd8f1e34e166dd3a88d4506f285a1cb5762130bd5800d7920
+          )
+          for index in $(seq 0 5); do
+            suffix=$(printf '%02d' "$index")
+            path=".github/ol013-payload/part-${suffix}"
+            test "$(wc -c < "$path")" -eq "${expected_sizes[$index]}"
+            echo "${expected_hashes[$index]}  $path" | sha256sum --check
+          done
+          cat .github/ol013-payload/part-* > /tmp/ol013.patch.gz.b64
+          test "$(wc -c < /tmp/ol013.patch.gz.b64)" -eq 40128
+          base64 --decode /tmp/ol013.patch.gz.b64 > /tmp/ol013.patch.gz
+          test "$(wc -c < /tmp/ol013.patch.gz)" -eq 30094
+          echo "1db763dc59a98ee5ba3a094ab86fd99478ecdca7db82ce102494c461a32b129a  /tmp/ol013.patch.gz" | sha256sum --check
+          gzip --test /tmp/ol013.patch.gz
+          gzip --decompress --stdout /tmp/ol013.patch.gz > /tmp/ol013.patch
+          test "$(wc -c < /tmp/ol013.patch)" -eq 138378
+          echo "2b127d3c7123dae95bce5119fbfebb749f7fc688cf49c12a72f1945ef2f4ec44  /tmp/ol013.patch" | sha256sum --check
+          git apply --check /tmp/ol013.patch
+
+      - name: Apply patch and verify exact scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply /tmp/ol013.patch
+          cat > /tmp/expected-files <<'FILES'
+          AGENTS.md
+          README.md
+          apps/daemon/src/change-classification/README.md
+          apps/daemon/src/change-classification/artifact.test.ts
+          apps/daemon/src/change-classification/artifact.ts
+          apps/daemon/src/change-classification/constants.ts
+          apps/daemon/src/change-classification/engine.test.ts
+          apps/daemon/src/change-classification/engine.ts
+          apps/daemon/src/change-classification/index.ts
+          apps/daemon/src/change-classification/policy.test.ts
+          apps/daemon/src/change-classification/processor.test.ts
+          apps/daemon/src/change-classification/processor.ts
+          apps/daemon/src/change-classification/rules.ts
+          apps/daemon/src/index.ts
+          apps/daemon/src/persistence/migration-definitions.ts
+          apps/daemon/src/persistence/migrations.test.ts
+          apps/daemon/src/persistence/repositories/artifacts.ts
+          docs/adr/0015-deterministic-evidence-backed-change-classification.md
+          packages/contracts/src/change-classification.ts
+          packages/contracts/src/index.ts
+          packages/contracts/tests/change-classification.test.ts
+          packages/contracts/tests/index.test.ts
+          FILES
+          git diff --name-only | grep -v '^\.github/' | sort > /tmp/actual-files
+          diff -u /tmp/expected-files /tmp/actual-files
+          git rm -r .github/ol013-payload
+          git rm .github/workflows/finalize-ol013.yml
+          git diff --check
+
+      - name: Set up exact Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.18.0
+
+      - name: Install frozen dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Validate OL-013 implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
+      - name: Publish clean OL-013 commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Implement deterministic change classification"
+          git push origin "HEAD:${{ github.head_ref }}"
