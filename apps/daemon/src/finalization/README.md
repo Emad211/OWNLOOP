@@ -20,11 +20,15 @@ Inside that transaction OwnLoop:
 
 `Completed` is intentionally strict. It requires a normal Stop, captured baseline, captured reconciliation, reliable final fingerprint, stored final manifest, zero evidence gaps, and consistent Event continuity. Missing or incomplete retainable evidence produces `Partial`; `StopFailure` produces `Failed`.
 
+Persisted reconciliation or artifact-integrity corruption is propagated as a typed failure. Only explicitly recoverable manifest materialization failures become `manifest_unavailable` evidence.
+
 ## Crash recovery
 
 Recovery is an explicit bounded API rather than a timer or background worker.
 
+- recovery cutoffs require an explicit timezone and are canonicalized to UTC before both selection and transactional re-check;
 - stale `Capturing` Runs become `Abandoned` with one controlled missing-stop evidence gap and one `run.abandoned` Event;
+- stale `Capturing` Runs that already contain a Stop boundary are rejected as persisted-state corruption;
 - stale `Finalizing` Runs use the same accepted evidence path but are forced to `Partial` with a restart-recovery evidence gap;
 - status and staleness are re-checked inside the write transaction;
 - repeated or concurrent recovery is idempotent;
@@ -36,20 +40,24 @@ Manifest bytes are prepared outside SQLite because the OL-010 object store is fi
 
 ## Database invariants
 
-Migration v8 and repository reads validate:
+Migration v8 creates the immutable finalization record. Migration v9 adds insert-time hardening triggers without modifying migrations 1 through 8. Repository reads repeat the critical checks after restart.
+
+Together they validate:
 
 - one finalization per Run;
 - Workspace, Conversation, Run, trigger Event, reconciliation, artifact, snapshot Event, and terminal Event ownership;
 - correct source and type for snapshot and terminal Events;
-- adjacent final snapshot and terminal sequences with predecessor continuity;
+- complete contiguous Event sequences from 1 through the terminal Event;
+- the persisted trigger remains the latest Stop or StopFailure boundary;
 - deterministic Event deduplication keys for both final snapshot and terminal Events;
 - final-manifest artifact kind, media type, storage version, and Run role;
 - terminal Run status, timestamp, fingerprint, evidence counter, and actual evidence-row count consistency;
 - controlled terminal-status, mode, diagnostic, reconciliation, snapshot, manifest, and fingerprint combinations;
+- every non-Completed result retains positive evidence and every new diagnostic has matching evidence;
 - strict evidence requirements for `Completed`;
 - immutable finalization rows.
 
-Repository reads intentionally repeat critical cross-table checks after insertion. Regression tests corrupt terminal deduplication, predecessor continuity, and the evidence counter in file-backed databases and verify that restart-time reads reject each case as `invalid_persisted_row`.
+Regression tests corrupt early sequence continuity, later Stop boundaries, artifact integrity, Partial mode/diagnostic combinations, and evidence rows in file-backed databases and verify that reads reject each case as `invalid_persisted_row` or propagate the typed integrity error.
 
 Persisted corruption is surfaced as a content-free persistence error rather than silently accepted.
 
