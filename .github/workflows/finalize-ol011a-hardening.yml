@@ -1,0 +1,124 @@
+name: Finalize OL-011A Hardening
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'agent/ol-011a-finalization-hardening'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out hardening branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 1
+
+      - name: Retrieve and verify reviewed patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin agent/ol-011-finalization-recovery
+
+          expected_sizes=(5001 5001 5001 5001 5001 5001 428)
+          expected_hashes=(
+            55b61ad43bd1d77f10814ca72ec876c2a160f5c4f5337d74fca1e61f8578b52a
+            e6acd94027bb8d3ac1e3339ea5f27dbf1d2deff5e6980814dcff6991a4d9f064
+            82ad92db70ac7a9ce698c2fcee9d07aafd7fb0e3dce8ddeb711d9a99284f881f
+            a05051e074865e6a01fabfc18b822efae20aeb67e2a21616c369c7e600a074c6
+            aa247f0192b9d66d3c5bfe078e1063f45599d8d9653600a5bf5a362b1f710f8b
+            29c06ae716347d9c9bed338697f01ffb942dd1336938240306ad5d00566e698e
+            e99ae3a4255d2a7f0e8e16858198d9c5c45e0f8a81d3a2b907922aa484bbbafc
+          )
+
+          for index in $(seq 0 6); do
+            suffix=$(printf '%02d' "$index")
+            path="/tmp/ol011a-part-${suffix}"
+            git show "FETCH_HEAD:.github/ol011-hardening/part-${suffix}" > "$path"
+            test "$(wc -c < "$path")" -eq "${expected_sizes[$index]}"
+            echo "${expected_hashes[$index]}  $path" | sha256sum --check
+          done
+
+          cat /tmp/ol011a-part-* > /tmp/ol011a-hardening.patch.b64
+          test "$(wc -c < /tmp/ol011a-hardening.patch.b64)" -eq 30434
+          base64 --decode /tmp/ol011a-hardening.patch.b64 > /tmp/ol011a-hardening.patch
+          test "$(wc -c < /tmp/ol011a-hardening.patch)" -eq 22820
+          echo "8b3b0dc3816c306fd58ead4ee0921545335526873107dbf2d07b34c92bd4d70e  /tmp/ol011a-hardening.patch" | sha256sum --check
+          git apply --check /tmp/ol011a-hardening.patch
+
+      - name: Apply patch and verify exact scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply /tmp/ol011a-hardening.patch
+
+          cat > /tmp/expected-production-files <<'FILES'
+          apps/daemon/src/finalization/processor.test.ts
+          apps/daemon/src/finalization/processor.ts
+          apps/daemon/src/persistence/migration-definitions.ts
+          apps/daemon/src/persistence/repositories/run-finalizations.ts
+          docs/adr/0013-deterministic-run-finalization-and-crash-recovery.md
+          FILES
+
+          git diff --name-only | grep -v '^\.github/' | sort > /tmp/actual-production-files
+          diff -u /tmp/expected-production-files /tmp/actual-production-files
+          git rm .github/workflows/finalize-ol011a-hardening.yml
+
+      - name: Set up exact Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.18.0
+
+      - name: Install frozen dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Validate hardened implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm format
+          git diff --check
+
+          cat > /tmp/expected-production-files <<'FILES'
+          apps/daemon/src/finalization/processor.test.ts
+          apps/daemon/src/finalization/processor.ts
+          apps/daemon/src/persistence/migration-definitions.ts
+          apps/daemon/src/persistence/repositories/run-finalizations.ts
+          docs/adr/0013-deterministic-run-finalization-and-crash-recovery.md
+          FILES
+
+          git diff --name-only | grep -v '^\.github/' | sort > /tmp/actual-production-files
+          diff -u /tmp/expected-production-files /tmp/actual-production-files
+
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
+      - name: Publish clean OL-011A commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add \
+            apps/daemon/src/finalization/processor.test.ts \
+            apps/daemon/src/finalization/processor.ts \
+            apps/daemon/src/persistence/migration-definitions.ts \
+            apps/daemon/src/persistence/repositories/run-finalizations.ts \
+            docs/adr/0013-deterministic-run-finalization-and-crash-recovery.md
+          git add -u .github
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Harden OL-011 finalization invariants"
+          git push origin "HEAD:${{ github.head_ref }}"
