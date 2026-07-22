@@ -119,6 +119,7 @@ export type {
   EventNormalizationOutcome,
   NewReceiptEventNormalization,
   ReceiptEventNormalization,
+  ReceiptReplayEventGroup,
 } from "./repositories/event-normalizations.js";
 export {
   EVENT_NORMALIZATION_DIAGNOSTIC_CODES,
@@ -205,6 +206,7 @@ export type {
 } from "./repositories/run-support.js";
 export type {
   NewTaskRun,
+  ReplayTaskRunCursor,
   StaleTaskRun,
   TaskRun,
   TaskRunStatus,

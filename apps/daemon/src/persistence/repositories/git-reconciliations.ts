@@ -295,9 +295,38 @@ export class GitReconciliationRepository {
     return row === undefined ? null : this.#mapWithEntries(row);
   }
 
+  listForRun(runId: string): readonly GitReconciliation[] {
+    const ids = this.#database
+      .prepare(
+        `SELECT reconciliation_id
+         FROM git_reconciliations
+         WHERE run_id = ?
+         ORDER BY captured_at ASC, reconciliation_id ASC
+         LIMIT 1001`,
+      )
+      .all(runId)
+      .map((row) => requiredString(row, "reconciliation_id"));
+    if (ids.length > 1000) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The persisted Run contains too many replay reconciliations.",
+      );
+    }
+    return ids.map((reconciliationId) => {
+      const reconciliation = this.get(reconciliationId);
+      if (reconciliation === null) {
+        throw new PersistenceError(
+          "invalid_persisted_row",
+          "The persisted replay reconciliation disappeared during the read.",
+        );
+      }
+      return reconciliation;
+    });
+  }
+
   #mapWithEntries(row: SqliteRow): GitReconciliation {
     const reconciliationId = requiredString(row, "reconciliation_id");
-    const entries = this.#database
+    const entryRows = this.#database
       .prepare(
         `SELECT
            gre.reconciliation_id,
@@ -318,19 +347,26 @@ export class GitReconciliationRepository {
          FROM git_reconciliation_entries gre
          JOIN events e ON e.event_id = gre.file_event_id
          WHERE gre.reconciliation_id = ?
-         ORDER BY gre.entry_index ASC`,
+         ORDER BY gre.entry_index ASC
+         LIMIT 2001`,
       )
-      .all(reconciliationId)
-      .map((entryRow, index) => {
-        const entry = mapEntry(entryRow);
-        if (entry.entryIndex !== index) {
-          throw new PersistenceError(
-            "invalid_persisted_row",
-            "The persisted Git reconciliation entry indices are not contiguous.",
-          );
-        }
-        return { entry, row: entryRow };
-      });
+      .all(reconciliationId);
+    if (entryRows.length > 2000) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The persisted Git reconciliation exceeds the replay entry limit.",
+      );
+    }
+    const entries = entryRows.map((entryRow, index) => {
+      const entry = mapEntry(entryRow);
+      if (entry.entryIndex !== index) {
+        throw new PersistenceError(
+          "invalid_persisted_row",
+          "The persisted Git reconciliation entry indices are not contiguous.",
+        );
+      }
+      return { entry, row: entryRow };
+    });
     const mappedEntries = entries.map(({ entry }) => entry);
     const reconciliation = mapReconciliation(row, mappedEntries);
     const countSum =

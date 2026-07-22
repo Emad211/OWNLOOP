@@ -35,6 +35,13 @@ export type StaleTaskRun = Readonly<{
   conversationLastObservedAt: string;
 }>;
 
+export type ReplayTaskRunCursor = Readonly<{
+  startedAt: string;
+  conversationId: string;
+  runNumber: number;
+  runId: string;
+}>;
+
 function mapTaskRun(row: SqliteRow): TaskRun {
   return {
     runId: requiredString(row, "run_id"),
@@ -121,6 +128,46 @@ export class TaskRunRepository {
     return this.#database
       .prepare(`${TASK_RUN_SELECT} WHERE conversation_id = ? ORDER BY run_number ASC`)
       .all(conversationId)
+      .map(mapTaskRun);
+  }
+
+  listRecentForReplay(limit: number, cursor: ReplayTaskRunCursor | null): TaskRun[] {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 101) {
+      return [];
+    }
+    if (cursor === null) {
+      return this.#database
+        .prepare(
+          `${TASK_RUN_SELECT}
+           ORDER BY started_at DESC, conversation_id ASC, run_number DESC, run_id ASC
+           LIMIT ?`,
+        )
+        .all(limit)
+        .map(mapTaskRun);
+    }
+    return this.#database
+      .prepare(
+        `${TASK_RUN_SELECT}
+         WHERE started_at < ?
+            OR (started_at = ? AND conversation_id > ?)
+            OR (started_at = ? AND conversation_id = ? AND run_number < ?)
+            OR (started_at = ? AND conversation_id = ? AND run_number = ? AND run_id > ?)
+         ORDER BY started_at DESC, conversation_id ASC, run_number DESC, run_id ASC
+         LIMIT ?`,
+      )
+      .all(
+        cursor.startedAt,
+        cursor.startedAt,
+        cursor.conversationId,
+        cursor.startedAt,
+        cursor.conversationId,
+        cursor.runNumber,
+        cursor.startedAt,
+        cursor.conversationId,
+        cursor.runNumber,
+        cursor.runId,
+        limit,
+      )
       .map(mapTaskRun);
   }
 

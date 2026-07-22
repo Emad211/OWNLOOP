@@ -8,12 +8,12 @@ The project observes a coding-agent Task Run, captures verifiable changes and ev
 
 ## Current status
 
-- Stage: v0.1 repository bootstrap
+- Stage: v0.1 local Raw Replay implementation
 - Product scope: proposed v0.1
 - First coding-agent adapter: Claude Code
 - First project languages: JavaScript and TypeScript
 - Runtime model: local single-user prototype
-- Repository state: minimal TypeScript workspace; no product behavior
+- Repository state: local ingestion, evidence capture, finalization, and authenticated Raw Replay viewer
 
 ## Local setup
 
@@ -30,14 +30,16 @@ corepack prepare pnpm@11.4.0 --activate
 pnpm install --frozen-lockfile
 ```
 
-Start the local daemon bootstrap and React development page together:
+Start the daemon bootstrap and React development viewer together:
 
 ```bash
 pnpm dev
 ```
 
-The daemon prints a stable startup message. The web application prints its local URL and renders
-only the OwnLoop v0.1 bootstrap state.
+The React page renders the Raw Replay connection shell. Authenticated Run data is available when a
+caller constructs the existing loopback server with persistence, the OL-010 artifact store, and the
+optional built web root. Production startup configuration remains explicit; the daemon entrypoint does
+not invent database, token, artifact-root, or listener settings.
 
 ## Verification
 
@@ -53,8 +55,9 @@ pnpm build
 
 Use `pnpm format` to apply formatting.
 
-The `contracts`, `event-model`, and `test-fixtures` packages contain only neutral bootstrap exports.
-The hook-adapter command is a non-functional placeholder and does not read or process hooks.
+The shared packages provide strict ingress, Event, and Raw Replay contracts. The daemon modules expose
+authenticated ingress, evidence capture, finalization, replay projection, and contained same-origin
+static delivery. The Claude Code hook adapter remains fail-open and outside the agent critical path.
 
 ## Design principles
 
@@ -77,6 +80,7 @@ The hook-adapter command is a non-functional placeholder and does not read or pr
 - [ADR-0001: Human Ownership Layer](docs/adr/0001-human-ownership-layer.md)
 - [ADR-0002: Local-First Claude-Code-First MVP](docs/adr/0002-local-first-claude-code-first-mvp.md)
 - [ADR-0003: Event Schema and Task-Run Lifecycle](docs/adr/0003-event-schema-and-session-lifecycle.md)
+- [ADR-0014: Deterministic Raw Replay and Local Viewer](docs/adr/0014-deterministic-raw-replay-projection-and-local-viewer.md)
 
 ### Architecture
 

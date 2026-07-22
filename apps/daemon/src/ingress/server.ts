@@ -1,4 +1,4 @@
-import { randomUUID, type KeyObject } from "node:crypto";
+import { type KeyObject, randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 
 import {
@@ -13,13 +13,18 @@ import {
 } from "@ownloop/ingress-security";
 import Fastify, {
   type FastifyInstance,
-  LogController,
   type FastifyReply,
   type FastifyRequest,
+  LogController,
 } from "fastify";
-
-import type { NewPreparedIngressReceipt, OwnLoopPersistence } from "../persistence/index.js";
+import type { LocalArtifactStore } from "../artifact-store/index.js";
+import type {
+  NewPreparedIngressReceipt,
+  OwnLoopPersistence,
+  OwnLoopPersistence as ReplayPersistence,
+} from "../persistence/index.js";
 import { PersistenceDeduplicationConflictError, PersistenceError } from "../persistence/index.js";
+import { createContainedStaticSite, registerReplayRoutes, replayError } from "../replay/index.js";
 import { createInstallationTokenVerifier } from "./auth.js";
 import { emitIngressDiagnostic, type IngressDiagnosticSink } from "./diagnostics.js";
 import { acceptedResponse, rejectedResponse, summarizeZodError } from "./responses.js";
@@ -43,6 +48,11 @@ export type IngressServerDependencies = Readonly<{
   clock?: () => Date;
   receiptIdGenerator?: () => string;
   diagnostics?: IngressDiagnosticSink;
+  replay?: Readonly<{
+    persistence: ReplayPersistence;
+    artifactStore: Pick<LocalArtifactStore, "readPreparedBytes">;
+    webRoot?: string;
+  }>;
 }>;
 
 export type IngressServerAddress = Readonly<{
@@ -170,7 +180,23 @@ export function createLoopbackIngressServer(
     sendRejected(reply, mapped.statusCode, mapped.code, diagnostics);
   });
 
-  server.setNotFoundHandler((_request, reply) => {
+  if (dependencies.replay !== undefined) {
+    registerReplayRoutes(server, {
+      persistence: dependencies.replay.persistence,
+      artifactStore: dependencies.replay.artifactStore,
+      tokenVerifier,
+    });
+  }
+  const staticSite = createContainedStaticSite(dependencies.replay?.webRoot);
+
+  server.setNotFoundHandler((request, reply) => {
+    if (request.url.startsWith("/v1/replay")) {
+      void reply.code(404).header("Cache-Control", "no-store").send(replayError("invalid_query"));
+      return;
+    }
+    if (!request.url.startsWith("/v1/") && staticSite?.serve(request, reply) === true) {
+      return;
+    }
     sendRejected(reply, 404, "invalid_payload", diagnostics);
   });
 
