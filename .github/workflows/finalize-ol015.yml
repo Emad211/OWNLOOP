@@ -128,7 +128,6 @@ jobs:
             | sort -u > /tmp/actual-files
           diff -u /tmp/expected-files /tmp/actual-files
           git rm -r .github/ol015-payload
-          git rm .github/workflows/export-ol015-source.yml
           git rm .github/workflows/finalize-ol015.yml
           git diff --check
 
