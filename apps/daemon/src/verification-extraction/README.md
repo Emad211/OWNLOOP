@@ -20,6 +20,7 @@ terminal Run + immutable finalization
 - Source Hook outcome and an explicit consistent exit code are the only status evidence.
 - Output text never overrides the source Event outcome.
 - Test-file changes are retained separately and never represented as executions.
+- A partial or unavailable OL-013 classification remains partial or unavailable verification evidence; it is never promoted to a complete `extracted` outcome.
 - The artifact stores a stable source-Event prefix count so later derived Events do not invalidate read-back.
 - Reduced excerpts remain only in the sensitive artifact; derived Events and safe results contain no command or output text.
 - Artifact reference, derived Events, per-Run sequence allocation, and deduplication rows are written in one synchronous SQLite transaction.
