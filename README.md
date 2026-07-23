@@ -8,12 +8,12 @@ The project observes a coding-agent Task Run, captures verifiable changes and ev
 
 ## Current status
 
-- Stage: v0.1 deterministic evidence foundation
+- Stage: v0.1 evidence-backed Candidate Moment contract
 - Product scope: proposed v0.1
 - First coding-agent adapter: Claude Code
 - First project languages: JavaScript and TypeScript
 - Runtime model: local single-user prototype
-- Repository state: trustworthy capture/replay and deterministic classification, verification, and Evidence Graph construction
+- Repository state: trustworthy deterministic evidence foundation plus strict Candidate Moment contracts in development
 
 ## Local setup
 
@@ -55,7 +55,7 @@ pnpm build
 
 Use `pnpm format` to apply formatting.
 
-The shared packages provide strict ingress, Event, Raw Replay, change-classification, verification-evidence, and Evidence Graph contracts. The daemon modules expose authenticated ingress, evidence capture, finalization, replay projection, contained same-origin static delivery, deterministic evidence processors, and Run-scoped evidence resolution. The Claude Code hook adapter remains fail-open and outside the agent critical path.
+The shared packages provide strict ingress, Event, Raw Replay, change-classification, verification-evidence, Evidence Graph, and evidence-backed Candidate Moment contracts. The daemon modules expose authenticated ingress, evidence capture, finalization, replay projection, contained same-origin static delivery, deterministic evidence processors, and Run-scoped evidence resolution. The Claude Code hook adapter remains fail-open and outside the agent critical path.
 
 ## Design principles
 
@@ -82,6 +82,7 @@ The shared packages provide strict ingress, Event, Raw Replay, change-classifica
 - [ADR-0015: Deterministic Evidence-Backed Change Classification](docs/adr/0015-deterministic-evidence-backed-change-classification.md)
 - [ADR-0016: Deterministic Verification Evidence Extraction](docs/adr/0016-deterministic-verification-evidence-extraction.md)
 - [ADR-0017: Deterministic Locally Resolvable Evidence Graph](docs/adr/0017-deterministic-locally-resolvable-evidence-graph.md)
+- [ADR-0018: Strict Evidence-Backed Candidate-Moment Contracts](docs/adr/0018-strict-evidence-backed-candidate-moment-contracts.md)
 
 ### Architecture
 
@@ -99,9 +100,10 @@ Claude Code hook
 → deterministic file/change evidence
 → deterministic verification evidence
 → deterministic locally resolvable Evidence Graph
+→ strict evidence-backed Candidate Moment contract
 ```
 
-Ownership Moment generation begins only after deterministic classification, verification extraction, and evidence graph validation are trustworthy.
+AI candidate generation begins only after deterministic classification, verification extraction, Evidence Graph validation, and strict candidate contracts are trustworthy.
 
 ## Contribution state
 

@@ -141,12 +141,27 @@ Model-authored strings are accepted only when they:
 - are NFC-normalized;
 - contain no NUL or disallowed controls;
 - contain no raw `<` or `>` delimiters;
-- contain no dangerous URI scheme such as `javascript:` or `data:text/html`, case-insensitively;
+- contain no URL or URI scheme, including HTTP(S), FTP, file, mailto, `javascript:`, `vbscript:`, or `data:`, case-insensitively;
 - remain within field-specific code-point and UTF-8 byte limits.
 
 The contract contains no raw HTML, rendered-Markdown instructions, CSS, JavaScript, shell command, tool call, URL, callback, function, or executable-content field.
 
 Ordinary punctuation and plain Markdown-like characters are allowed only when they do not violate the restrictions above. Validation never rewrites text.
+
+### Version 1 bounds
+
+The contract applies independent code-point and UTF-8 byte limits:
+
+- title: 160 code points and 640 bytes;
+- claim: 2,000 code points and 8,000 bytes;
+- decision/risk prompt and Check question: 500 code points and 2,000 bytes;
+- Check choice label: 160 code points and 640 bytes;
+- Evidence IDs per Candidate: 1–32;
+- Check choices: 2–5;
+- Candidates per batch: 0–50;
+- canonical JSON representation of one batch: at most 512 KiB.
+
+These limits are validation boundaries, not truncation targets. Oversized values are rejected without repair.
 
 ## Candidate batch
 
@@ -168,7 +183,7 @@ The contracts package exposes:
 - `parseCandidateMomentV1`;
 - `parseCandidateMomentBatchV1`.
 
-Parsing returns an immutable validated value or throws the underlying Zod validation error. Input objects are not mutated.
+Parsing first validates a cloned strict value, then recursively freezes the clone and returns an immutable value. It throws the underlying Zod validation error on failure. Input objects are not mutated or frozen.
 
 ## Consequences
 
