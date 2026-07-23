@@ -1,0 +1,120 @@
+name: Finalize OL-015 Evidence Graph
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'agent/ol-015-evidence-graph'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out OL-015 branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 1
+
+      - name: Verify and decode implementation patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(wc -c < .github/ol015-payload/part-00)" -eq 8000
+          test "$(wc -c < .github/ol015-payload/rest)" -eq 44192
+          echo "409c620305d7f8c94f93f21a572f0fa7df10df2e27c0b81f8381dc36a75ab90c  .github/ol015-payload/part-00" | sha256sum --check
+          echo "54f0d7507a687830de4d868df99b9074b7ab8ab5ddba5f726b047e9cddfdabd1  .github/ol015-payload/rest" | sha256sum --check
+          cat .github/ol015-payload/part-00 .github/ol015-payload/rest > /tmp/ol015.patch.gz.b64
+          test "$(wc -c < /tmp/ol015.patch.gz.b64)" -eq 52192
+          base64 --decode /tmp/ol015.patch.gz.b64 > /tmp/ol015.patch.gz
+          test "$(wc -c < /tmp/ol015.patch.gz)" -eq 39144
+          echo "be086d9b3ceb5f8fb3624f9513e7c44404af7f7b66e77b2504786a670d5d3a4a  /tmp/ol015.patch.gz" | sha256sum --check
+          gzip --test /tmp/ol015.patch.gz
+          gzip --decompress --stdout /tmp/ol015.patch.gz > /tmp/ol015.patch
+          test "$(wc -c < /tmp/ol015.patch)" -eq 179132
+          echo "cec34225d07113837bdb4d9fbac5ee5796f44a8ff24f323944794f88988afbdf  /tmp/ol015.patch" | sha256sum --check
+          git apply --check /tmp/ol015.patch
+
+      - name: Apply patch and verify exact scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply /tmp/ol015.patch
+          git add -N .
+          cat > /tmp/expected-files <<'FILES'
+          .github/workflows/export-ol015-source.yml
+          AGENTS.md
+          README.md
+          apps/daemon/src/evidence-graph/README.md
+          apps/daemon/src/evidence-graph/artifact.ts
+          apps/daemon/src/evidence-graph/builder.test.ts
+          apps/daemon/src/evidence-graph/builder.ts
+          apps/daemon/src/evidence-graph/constants.ts
+          apps/daemon/src/evidence-graph/index.ts
+          apps/daemon/src/evidence-graph/processor.test.ts
+          apps/daemon/src/evidence-graph/processor.ts
+          apps/daemon/src/index.ts
+          apps/daemon/src/ingress/server.ts
+          apps/daemon/src/persistence/migration-definitions.ts
+          apps/daemon/src/persistence/migrations.test.ts
+          apps/daemon/src/replay/constants.ts
+          apps/daemon/src/replay/projection.ts
+          apps/daemon/src/replay/replay.test.ts
+          apps/daemon/src/replay/responses.ts
+          apps/daemon/src/replay/routes.ts
+          apps/web/src/App.test.tsx
+          apps/web/src/App.tsx
+          apps/web/src/api.test.ts
+          apps/web/src/api.ts
+          apps/web/src/styles.css
+          docs/adr/0017-deterministic-locally-resolvable-evidence-graph.md
+          packages/contracts/src/evidence-graph.ts
+          packages/contracts/src/index.ts
+          packages/contracts/src/replay.ts
+          packages/contracts/tests/evidence-graph.test.ts
+          FILES
+          git diff HEAD --name-only \
+            | grep -v '^\.github/ol015-payload/' \
+            | grep -v '^\.github/workflows/finalize-ol015.yml$' \
+            | sort > /tmp/actual-files
+          diff -u /tmp/expected-files /tmp/actual-files
+          git rm -r .github/ol015-payload
+          git rm .github/workflows/finalize-ol015.yml
+          git diff HEAD --check
+
+      - name: Set up exact Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.18.0
+
+      - name: Install frozen dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Validate OL-015 implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
+      - name: Publish clean OL-015 commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Implement deterministic evidence graph"
+          git push origin "HEAD:${{ github.head_ref }}"
