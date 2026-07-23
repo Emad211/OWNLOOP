@@ -1,0 +1,112 @@
+name: Finalize OL-016 Candidate Contracts
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'agent/ol-016-candidate-moment-contracts'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out OL-016 branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 1
+
+      - name: Verify and decode implementation patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_sizes=(1800 1800 1800 1800 1800 1800 1800 836)
+          expected_hashes=(
+            4147d5860ba0bc25790c6e8ae32bdf7425b7bc6fd55ed61e0f78e4b7d4e88cfd
+            0ce12edb6aa5711a02e3c8487809745ef438638ae8efc02d047e617485dec5d4
+            11823aa3be414db88b30306d9389ae0301d05076ce077b701e7515ae3302436f
+            920fe7a2880f4e6510d9e74444fd134f2a3ca2375d0a1e418c24e52422080667
+            92e31dbb8e737cf7cc3b8782bfb6f419a9a6595407750b91bc195e4dab9d495f
+            c8a4569ad78131184f16a22c9eeceed6d0f61c81ed3ec10d2c0bd2579378bf39
+            7d168056fe4c0a03c05e7e3f8f888dd3ee299a03b06f6550d661b6f475b79fbf
+            54e2f00bfa8fbcb5a25c674ee110c32b3ee223219316c19b015e42eaf3619840
+          )
+          for index in $(seq 0 7); do
+            suffix=$(printf '%02d' "$index")
+            path=".github/ol016-payload-v2/part-${suffix}"
+            test "$(wc -c < "$path")" -eq "${expected_sizes[$index]}"
+            echo "${expected_hashes[$index]}  $path" | sha256sum --check
+          done
+          test ! -e .github/ol016-payload/part-00
+          cat .github/ol016-payload-v2/part-* > /tmp/ol016.patch.gz.b64
+          test "$(wc -c < /tmp/ol016.patch.gz.b64)" -eq 13436
+          base64 --decode /tmp/ol016.patch.gz.b64 > /tmp/ol016.patch.gz
+          test "$(wc -c < /tmp/ol016.patch.gz)" -eq 10077
+          echo "65856f3b7c8e922a88002e3dcca7a60ae05377c4aa9a4e64624909120d0c25aa  /tmp/ol016.patch.gz" | sha256sum --check
+          gzip --test /tmp/ol016.patch.gz
+          gzip --decompress --stdout /tmp/ol016.patch.gz > /tmp/ol016.patch
+          test "$(wc -c < /tmp/ol016.patch)" -eq 40876
+          echo "9047adacd10da5af6013d8f75124745919cd21ac26b59d7bd6b86e79418a7fd7  /tmp/ol016.patch" | sha256sum --check
+          git apply --check /tmp/ol016.patch
+
+      - name: Apply patch and verify exact scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply /tmp/ol016.patch
+          git add -N .
+          cat > /tmp/expected-files <<'FILES'
+          .github/workflows/export-ol016-source.yml
+          AGENTS.md
+          README.md
+          docs/adr/0018-strict-evidence-backed-candidate-moment-contracts.md
+          packages/contracts/src/candidate-moment.ts
+          packages/contracts/src/index.ts
+          packages/contracts/tests/candidate-moment.test.ts
+          packages/contracts/tests/index.test.ts
+          FILES
+          git diff HEAD --name-only \
+            | grep -v '^\.github/ol016-payload-v2/' \
+            | grep -v '^\.github/workflows/finalize-ol016.yml$' \
+            | sort > /tmp/actual-files
+          diff -u /tmp/expected-files /tmp/actual-files
+          git rm -r .github/ol016-payload-v2
+          git rm .github/workflows/finalize-ol016.yml
+          git diff HEAD --check
+
+      - name: Set up exact Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.18.0
+
+      - name: Install frozen dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Validate OL-016 implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
+      - name: Publish clean OL-016 commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Define strict evidence-backed candidate moment contracts"
+          git push origin "HEAD:${{ github.head_ref }}"
