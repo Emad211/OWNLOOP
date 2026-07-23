@@ -1,4 +1,6 @@
 import {
+  type EvidenceResolutionV1,
+  EvidenceResolutionV1Schema,
   type FinalDiffManifestV1,
   FinalDiffManifestV1Schema,
   type RawRunReplayV1,
@@ -34,6 +36,7 @@ export type ReplayApiClient = Readonly<{
   listRuns(cursor?: string | null): Promise<ReplayRunListResponseV1>;
   getRun(runId: string): Promise<RawRunReplayV1>;
   loadFinalManifest(artifactId: string): Promise<FinalDiffManifestV1>;
+  resolveEvidence(runId: string, evidenceId: string): Promise<EvidenceResolutionV1>;
 }>;
 
 async function responseJson(response: Response): Promise<unknown> {
@@ -118,6 +121,21 @@ export function createReplayApiClient(
       }
       const result = RawRunReplayV1Schema.safeParse(
         await requestJson(`/v1/replay/runs/${encodeURIComponent(runId)}`),
+      );
+      if (!result.success) {
+        throw new ReplayApiError("invalid_response");
+      }
+      return result.data;
+    },
+
+    async resolveEvidence(runId: string, evidenceId: string): Promise<EvidenceResolutionV1> {
+      if (!SAFE_ID_PATTERN.test(runId) || !/^ev_[0-9a-f]{48}$/u.test(evidenceId)) {
+        throw new ReplayApiError("not_found");
+      }
+      const result = EvidenceResolutionV1Schema.safeParse(
+        await requestJson(
+          `/v1/replay/runs/${encodeURIComponent(runId)}/evidence/${encodeURIComponent(evidenceId)}`,
+        ),
       );
       if (!result.success) {
         throw new ReplayApiError("invalid_response");

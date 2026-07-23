@@ -131,6 +131,7 @@ Version 1 node kinds are:
 - `artifact`;
 - `classification_entry`;
 - `classification_label`;
+- `classification_rule`;
 - `command_observation`;
 - `verification_observation`;
 - `test_file_change`.
@@ -145,10 +146,11 @@ Edges are emitted only from explicit persisted or artifact-backed relationships.
 - Event normalization sibling linkage;
 - baseline Event linkage;
 - reconciliation trigger, summary, and changed-file linkage;
+- changed-file observation to its persisted file Event;
 - finalization trigger, reconciliation, Event, and artifact linkage;
 - evidence-gap ownership;
 - changed-file classification entry and label linkage;
-- classification rule-evidence linkage;
+- classification label to a controlled `classification_rule` node carrying the validated stable rule ID and version;
 - command source and derived Event linkage;
 - command-to-verification linkage;
 - verification derived Event linkage;

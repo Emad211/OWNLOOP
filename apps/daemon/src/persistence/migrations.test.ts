@@ -819,7 +819,7 @@ describe("SQLite migrations", () => {
     try {
       runMigrations(opened.database, MIGRATIONS.slice(0, 11));
       expect(readAppliedMigrations(opened.database)).toHaveLength(11);
-      runMigrations(opened.database);
+      runMigrations(opened.database, MIGRATIONS.slice(0, 12));
       expect(readAppliedMigrations(opened.database)).toHaveLength(12);
       expect(
         opened.database
@@ -977,6 +977,127 @@ describe("SQLite migrations", () => {
         opened.database
           .prepare("UPDATE artifacts SET sensitivity = 'normal' WHERE artifact_id = ?")
           .run("verification-valid"),
+      ).toThrow();
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("upgrades migration 12 to Evidence Graph migration 13", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 12));
+      expect(readAppliedMigrations(opened.database)).toHaveLength(12);
+      runMigrations(opened.database);
+      expect(readAppliedMigrations(opened.database)).toHaveLength(13);
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'run_artifacts_validate_deterministic_evidence_graph_v1'",
+          )
+          .get(),
+      ).toBeDefined();
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("rejects invalid or duplicate pre-existing Evidence Graph roles during migration 13", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 12));
+      seedVersion8PartialFinalization(
+        opened.database,
+        "duplicate-v13-role",
+        "normal",
+        "baseline_missing",
+      );
+      for (const [artifactId, character] of [
+        ["graph-duplicate-a", "7"],
+        ["graph-duplicate-b", "8"],
+      ] as const) {
+        opened.database
+          .prepare(
+            `INSERT INTO artifacts (
+               artifact_id, digest, storage_path, size_bytes, kind, sensitivity,
+               storage_version, media_type, created_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            artifactId,
+            `sha256:${character.repeat(64)}`,
+            `objects/sha256/${character.repeat(2)}/${character.repeat(62)}`,
+            10,
+            "deterministic-evidence-graph-v1",
+            "sensitive",
+            1,
+            "application/vnd.ownloop.evidence-graph+json",
+            "2026-07-23T12:00:00.000Z",
+          );
+        opened.database
+          .prepare(
+            `INSERT INTO run_artifacts (run_id, artifact_id, role, created_at)
+             VALUES (?, ?, ?, ?)`,
+          )
+          .run(
+            "run-duplicate-v13-role",
+            artifactId,
+            "deterministic-evidence-graph-v1",
+            "2026-07-23T12:00:00.000Z",
+          );
+      }
+      expect(() => runMigrations(opened.database)).toThrow();
+      expect(readAppliedMigrations(opened.database)).toHaveLength(12);
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("enforces Evidence Graph metadata, size, finalization, uniqueness, and sensitivity", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database);
+      seedVersion8PartialFinalization(
+        opened.database,
+        "valid-v13-role",
+        "normal",
+        "baseline_missing",
+      );
+      opened.database
+        .prepare(
+          `INSERT INTO artifacts (
+             artifact_id, digest, storage_path, size_bytes, kind, sensitivity,
+             storage_version, media_type, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "graph-valid",
+          `sha256:${"9".repeat(64)}`,
+          `objects/sha256/99/${"9".repeat(62)}`,
+          10,
+          "deterministic-evidence-graph-v1",
+          "sensitive",
+          1,
+          "application/vnd.ownloop.evidence-graph+json",
+          "2026-07-23T12:00:00.000Z",
+        );
+      expect(() =>
+        opened.database
+          .prepare(
+            `INSERT INTO run_artifacts (run_id, artifact_id, role, created_at)
+             VALUES (?, ?, ?, ?)`,
+          )
+          .run(
+            "run-valid-v13-role",
+            "graph-valid",
+            "deterministic-evidence-graph-v1",
+            "2026-07-23T12:00:00.000Z",
+          ),
+      ).not.toThrow();
+      expect(() =>
+        opened.database
+          .prepare("UPDATE artifacts SET sensitivity = 'normal' WHERE artifact_id = ?")
+          .run("graph-valid"),
       ).toThrow();
     } finally {
       opened.database.close();

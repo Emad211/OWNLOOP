@@ -5,6 +5,12 @@ import {
 } from "@ownloop/event-model";
 import { z } from "zod";
 
+import {
+  EvidenceGraphLimitationSchema,
+  EvidenceGraphOutcomeSchema,
+  EvidenceIdSchema,
+} from "./evidence-graph.js";
+
 const safeIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u);
 const timestampSchema = z.iso.datetime({ offset: true });
 const boundedStringSchema = z.string().max(512);
@@ -118,6 +124,7 @@ export const ReplayTimelineEventV1Schema = z.strictObject({
   ingestedAt: timestampSchema,
   payload: ReplayTimelinePayloadV1Schema,
   metadata: ReplayTimelineMetadataV1Schema,
+  evidenceId: EvidenceIdSchema.nullable().optional(),
 });
 export type ReplayTimelineEventV1 = z.infer<typeof ReplayTimelineEventV1Schema>;
 
@@ -179,6 +186,7 @@ export const ReplayChangedFileV1Schema = z.strictObject({
   sensitivity: z.enum(["normal", "secret"]),
   attribution: z.enum(["run_relative", "observed_only", "unavailable"]),
   fileEventId: safeIdSchema,
+  evidenceId: EvidenceIdSchema.nullable().optional(),
 });
 export type ReplayChangedFileV1 = z.infer<typeof ReplayChangedFileV1Schema>;
 
@@ -211,6 +219,7 @@ export const ReplayEvidenceGapV1Schema = z.strictObject({
   code: z.string().min(1).max(128),
   message: z.string().min(1).max(512),
   createdAt: timestampSchema,
+  evidenceId: EvidenceIdSchema.nullable().optional(),
 });
 export type ReplayEvidenceGapV1 = z.infer<typeof ReplayEvidenceGapV1Schema>;
 
@@ -225,6 +234,7 @@ export const ReplayFinalizationV1Schema = z.strictObject({
   terminalEventId: safeIdSchema,
   manifestArtifactId: safeIdSchema.nullable(),
   finalizedAt: timestampSchema,
+  evidenceId: EvidenceIdSchema.nullable().optional(),
 });
 export type ReplayFinalizationV1 = z.infer<typeof ReplayFinalizationV1Schema>;
 
@@ -236,6 +246,7 @@ export const ReplayArtifactReferenceV1Schema = z.strictObject({
   sensitivity: z.enum(EVENT_SENSITIVITIES),
   sizeBytes: z.number().int().nonnegative(),
   contentUrl: z.string().regex(/^\/v1\/replay\/artifacts\/[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u),
+  evidenceId: EvidenceIdSchema.nullable().optional(),
 });
 export type ReplayArtifactReferenceV1 = z.infer<typeof ReplayArtifactReferenceV1Schema>;
 
@@ -252,8 +263,18 @@ export const ReplayVerificationV1Schema = z.strictObject({
   ]),
   occurredAt: timestampSchema,
   payload: ReplayTimelinePayloadV1Schema,
+  evidenceId: EvidenceIdSchema.nullable().optional(),
 });
 export type ReplayVerificationV1 = z.infer<typeof ReplayVerificationV1Schema>;
+
+export const ReplayEvidenceGraphSummaryV1Schema = z.strictObject({
+  artifactId: safeIdSchema,
+  outcome: EvidenceGraphOutcomeSchema,
+  limitations: z.array(EvidenceGraphLimitationSchema),
+  nodeCount: z.number().int().nonnegative(),
+  edgeCount: z.number().int().nonnegative(),
+});
+export type ReplayEvidenceGraphSummaryV1 = z.infer<typeof ReplayEvidenceGraphSummaryV1Schema>;
 
 export const RawRunReplayV1Schema = z.strictObject({
   ok: z.literal(true),
@@ -271,6 +292,7 @@ export const RawRunReplayV1Schema = z.strictObject({
   evidenceGaps: z.array(ReplayEvidenceGapV1Schema).max(10_000),
   finalization: ReplayFinalizationV1Schema.nullable(),
   artifacts: z.array(ReplayArtifactReferenceV1Schema).max(1000),
+  evidenceGraph: ReplayEvidenceGraphSummaryV1Schema.nullable().optional(),
 });
 export type RawRunReplayV1 = z.infer<typeof RawRunReplayV1Schema>;
 
@@ -280,6 +302,8 @@ export const REPLAY_ERROR_CODES = [
   "run_not_found",
   "artifact_not_found",
   "artifact_unavailable",
+  "evidence_not_found",
+  "evidence_unavailable",
   "projection_failed",
   "internal_error",
 ] as const;
