@@ -1,4 +1,5 @@
 import {
+  EvidenceResolutionV1Schema,
   RAW_REPLAY_SCHEMA_VERSION,
   RawRunReplayV1Schema,
   REPLAY_DEFAULT_LIST_LIMIT,
@@ -9,11 +10,13 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 import { isArtifactStoreError, type LocalArtifactStore } from "../artifact-store/index.js";
+import { readValidatedRunEvidenceGraph, resolveRunEvidence } from "../evidence-graph/index.js";
 import type { InstallationTokenVerifier } from "../ingress/index.js";
 import { type OwnLoopPersistence, PersistenceError } from "../persistence/index.js";
 import {
   FINAL_DIFF_MANIFEST_MEDIA_TYPE,
   REPLAY_ARTIFACT_ROUTE,
+  REPLAY_EVIDENCE_ROUTE,
   REPLAY_LIST_ROUTE,
   REPLAY_RUN_ROUTE,
 } from "./constants.js";
@@ -106,24 +109,71 @@ export function registerReplayRoutes(
     },
   );
 
-  server.get<{ Params: { runId: string } }>(REPLAY_RUN_ROUTE, { onRequest }, (request, reply) => {
-    if (!SAFE_ID_PATTERN.test(request.params.runId)) {
-      void reply.code(404).header("Cache-Control", "no-store").send(replayError("run_not_found"));
-      return;
-    }
-    try {
-      const replay = projectRawRunReplay(dependencies.persistence, request.params.runId);
-      if (replay === null) {
+  server.get<{ Params: { runId: string } }>(
+    REPLAY_RUN_ROUTE,
+    { onRequest },
+    async (request, reply) => {
+      if (!SAFE_ID_PATTERN.test(request.params.runId)) {
         void reply.code(404).header("Cache-Control", "no-store").send(replayError("run_not_found"));
         return;
       }
-      void reply
-        .header("Cache-Control", "no-store")
-        .send(RawRunReplayV1Schema.parse({ ...replay, schemaVersion: RAW_REPLAY_SCHEMA_VERSION }));
-    } catch (error) {
-      contentFreeFailure(reply, error);
-    }
-  });
+      try {
+        const graph = await readValidatedRunEvidenceGraph(dependencies, request.params.runId);
+        const replay = projectRawRunReplay(dependencies.persistence, request.params.runId, graph);
+        if (replay === null) {
+          void reply
+            .code(404)
+            .header("Cache-Control", "no-store")
+            .send(replayError("run_not_found"));
+          return;
+        }
+        void reply
+          .header("Cache-Control", "no-store")
+          .send(
+            RawRunReplayV1Schema.parse({ ...replay, schemaVersion: RAW_REPLAY_SCHEMA_VERSION }),
+          );
+      } catch (error) {
+        contentFreeFailure(reply, error);
+      }
+    },
+  );
+
+  server.get<{ Params: { runId: string; evidenceId: string } }>(
+    REPLAY_EVIDENCE_ROUTE,
+    { onRequest },
+    async (request, reply) => {
+      const { runId, evidenceId } = request.params;
+      if (!SAFE_ID_PATTERN.test(runId) || !/^ev_[0-9a-f]{48}$/u.test(evidenceId)) {
+        void reply
+          .code(404)
+          .header("Cache-Control", "no-store")
+          .send(replayError("evidence_not_found"));
+        return;
+      }
+      try {
+        const resolution = await resolveRunEvidence(dependencies, runId, evidenceId);
+        if (resolution === null) {
+          void reply
+            .code(404)
+            .header("Cache-Control", "no-store")
+            .send(replayError("evidence_not_found"));
+          return;
+        }
+        void reply
+          .header("Cache-Control", "no-store")
+          .send(EvidenceResolutionV1Schema.parse(resolution));
+      } catch (error) {
+        if (error instanceof PersistenceError || isArtifactStoreError(error)) {
+          void reply
+            .code(409)
+            .header("Cache-Control", "no-store")
+            .send(replayError("evidence_unavailable"));
+          return;
+        }
+        contentFreeFailure(reply, error);
+      }
+    },
+  );
 
   server.get<{ Params: { artifactId: string } }>(
     REPLAY_ARTIFACT_ROUTE,

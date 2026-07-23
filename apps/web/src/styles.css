@@ -659,3 +659,45 @@ pre {
   display: grid;
   gap: 0.3rem;
 }
+
+.evidence-graph-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem 1rem;
+  align-items: center;
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  background: var(--surface-soft);
+}
+
+.evidence-graph-summary ul {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding-left: 1.25rem;
+  color: var(--text-muted);
+}
+
+.evidence-action {
+  width: fit-content;
+  padding: 0.38rem 0.65rem;
+  font-size: 0.75rem;
+}
+
+.artifact-list li > .artifact-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+[id="run-summary"]:focus,
+[id="timeline"]:focus,
+[id="changed-files"]:focus,
+[id="verification"]:focus,
+[id="evidence-structure"]:focus,
+[id="evidence-gaps"]:focus,
+[id="artifacts"]:focus {
+  outline: 3px solid var(--accent);
+  outline-offset: 4px;
+}

@@ -13,7 +13,7 @@ The project observes a coding-agent Task Run, captures verifiable changes and ev
 - First coding-agent adapter: Claude Code
 - First project languages: JavaScript and TypeScript
 - Runtime model: local single-user prototype
-- Repository state: trustworthy capture/replay, deterministic change classification, and verification extraction in development
+- Repository state: trustworthy capture/replay and deterministic classification, verification, and Evidence Graph construction
 
 ## Local setup
 
@@ -55,7 +55,7 @@ pnpm build
 
 Use `pnpm format` to apply formatting.
 
-The shared packages provide strict ingress, Event, Raw Replay, and deterministic change-classification, and verification-evidence contracts. The daemon modules expose authenticated ingress, evidence capture, finalization, replay projection, contained same-origin static delivery, and explicit evidence-classification and verification-extraction APIs. The Claude Code hook adapter remains fail-open and outside the agent critical path.
+The shared packages provide strict ingress, Event, Raw Replay, change-classification, verification-evidence, and Evidence Graph contracts. The daemon modules expose authenticated ingress, evidence capture, finalization, replay projection, contained same-origin static delivery, deterministic evidence processors, and Run-scoped evidence resolution. The Claude Code hook adapter remains fail-open and outside the agent critical path.
 
 ## Design principles
 
@@ -81,6 +81,7 @@ The shared packages provide strict ingress, Event, Raw Replay, and deterministic
 - [ADR-0014: Deterministic Raw Replay and Local Viewer](docs/adr/0014-deterministic-raw-replay-projection-and-local-viewer.md)
 - [ADR-0015: Deterministic Evidence-Backed Change Classification](docs/adr/0015-deterministic-evidence-backed-change-classification.md)
 - [ADR-0016: Deterministic Verification Evidence Extraction](docs/adr/0016-deterministic-verification-evidence-extraction.md)
+- [ADR-0017: Deterministic Locally Resolvable Evidence Graph](docs/adr/0017-deterministic-locally-resolvable-evidence-graph.md)
 
 ### Architecture
 
@@ -97,6 +98,7 @@ Claude Code hook
 → deterministic raw replay
 → deterministic file/change evidence
 → deterministic verification evidence
+→ deterministic locally resolvable Evidence Graph
 ```
 
 Ownership Moment generation begins only after deterministic classification, verification extraction, and evidence graph validation are trustworthy.

@@ -23,8 +23,29 @@ type ViewerProps = Readonly<{
   onSelectRun(runId: string): void;
   onLoadMore(): void;
   onLoadArtifact(artifact: ReplayArtifactReferenceV1): void;
+  onResolveEvidence(evidenceId: string): void;
   onDisconnect(): void;
 }>;
+
+function EvidenceAction(
+  props: Readonly<{
+    evidenceId: string | null | undefined;
+    onResolveEvidence(evidenceId: string): void;
+  }>,
+) {
+  if (props.evidenceId === null || props.evidenceId === undefined) {
+    return null;
+  }
+  return (
+    <button
+      type="button"
+      className="button evidence-action"
+      onClick={() => props.onResolveEvidence(props.evidenceId ?? "")}
+    >
+      View evidence
+    </button>
+  );
+}
 
 function formatTime(value: string | null): string {
   return value === null ? "Not ended" : new Date(value).toLocaleString();
@@ -151,9 +172,17 @@ function EvidenceBanner({ replay }: Readonly<{ replay: RawRunReplayV1 }>) {
   );
 }
 
-function ReplayTimeline({ replay }: Readonly<{ replay: RawRunReplayV1 }>) {
+function ReplayTimeline(
+  props: Readonly<{ replay: RawRunReplayV1; onResolveEvidence(evidenceId: string): void }>,
+) {
+  const { replay } = props;
   return (
-    <section className="content-section" aria-labelledby="timeline-heading">
+    <section
+      id="timeline"
+      tabIndex={-1}
+      className="content-section"
+      aria-labelledby="timeline-heading"
+    >
       <div className="section-heading">
         <p className="eyebrow">Storage order</p>
         <h2 id="timeline-heading">Timeline</h2>
@@ -176,6 +205,10 @@ function ReplayTimeline({ replay }: Readonly<{ replay: RawRunReplayV1 }>) {
                 {Object.keys(event.payload).length > 0 ? (
                   <pre>{JSON.stringify(event.payload, null, 2)}</pre>
                 ) : null}
+                <EvidenceAction
+                  evidenceId={event.evidenceId}
+                  onResolveEvidence={props.onResolveEvidence}
+                />
               </div>
             </li>
           ))}
@@ -185,10 +218,18 @@ function ReplayTimeline({ replay }: Readonly<{ replay: RawRunReplayV1 }>) {
   );
 }
 
-function ChangedFiles({ replay }: Readonly<{ replay: RawRunReplayV1 }>) {
+function ChangedFiles(
+  props: Readonly<{ replay: RawRunReplayV1; onResolveEvidence(evidenceId: string): void }>,
+) {
+  const { replay } = props;
   const files = replay.reconciliations.flatMap((item) => item.changedFiles);
   return (
-    <section className="content-section" aria-labelledby="files-heading">
+    <section
+      id="changed-files"
+      tabIndex={-1}
+      className="content-section"
+      aria-labelledby="files-heading"
+    >
       <div className="section-heading">
         <p className="eyebrow">Repository observations</p>
         <h2 id="files-heading">Changed files</h2>
@@ -202,6 +243,10 @@ function ChangedFiles({ replay }: Readonly<{ replay: RawRunReplayV1 }>) {
               <code>{file.relativePath ?? "Sensitive path withheld"}</code>
               <span>{file.changeKind.replace("_", " ")}</span>
               <small>{file.attribution.replace("_", " ")}</small>
+              <EvidenceAction
+                evidenceId={file.evidenceId}
+                onResolveEvidence={props.onResolveEvidence}
+              />
             </li>
           ))}
         </ul>
@@ -210,9 +255,17 @@ function ChangedFiles({ replay }: Readonly<{ replay: RawRunReplayV1 }>) {
   );
 }
 
-function Verification({ replay }: Readonly<{ replay: RawRunReplayV1 }>) {
+function Verification(
+  props: Readonly<{ replay: RawRunReplayV1; onResolveEvidence(evidenceId: string): void }>,
+) {
+  const { replay } = props;
   return (
-    <section className="content-section" aria-labelledby="verification-heading">
+    <section
+      id="verification"
+      tabIndex={-1}
+      className="content-section"
+      aria-labelledby="verification-heading"
+    >
       <div className="section-heading">
         <p className="eyebrow">Observed only</p>
         <h2 id="verification-heading">Verification</h2>
@@ -227,6 +280,10 @@ function Verification({ replay }: Readonly<{ replay: RawRunReplayV1 }>) {
             <li key={item.eventId}>
               <strong>{item.type}</strong>
               <span>Sequence {item.sequence}</span>
+              <EvidenceAction
+                evidenceId={item.evidenceId}
+                onResolveEvidence={props.onResolveEvidence}
+              />
             </li>
           ))}
         </ul>
@@ -237,7 +294,12 @@ function Verification({ replay }: Readonly<{ replay: RawRunReplayV1 }>) {
 
 function EvidenceStructure({ replay }: Readonly<{ replay: RawRunReplayV1 }>) {
   return (
-    <section className="content-section" aria-labelledby="structure-heading">
+    <section
+      id="evidence-structure"
+      tabIndex={-1}
+      className="content-section"
+      aria-labelledby="structure-heading"
+    >
       <div className="section-heading">
         <p className="eyebrow">Persisted relationships</p>
         <h2 id="structure-heading">Evidence structure</h2>
@@ -297,10 +359,16 @@ function Artifacts(
     replay: RawRunReplayV1;
     manifest: FinalDiffManifestV1 | null;
     onLoadArtifact(artifact: ReplayArtifactReferenceV1): void;
+    onResolveEvidence(evidenceId: string): void;
   }>,
 ) {
   return (
-    <section className="content-section" aria-labelledby="artifacts-heading">
+    <section
+      id="artifacts"
+      tabIndex={-1}
+      className="content-section"
+      aria-labelledby="artifacts-heading"
+    >
       <div className="section-heading">
         <p className="eyebrow">Verified local objects</p>
         <h2 id="artifacts-heading">Artifacts</h2>
@@ -317,13 +385,19 @@ function Artifacts(
                   {artifact.mediaType ?? "Unknown media type"} · {artifact.sizeBytes} bytes
                 </span>
               </div>
-              <button
-                type="button"
-                className="button secondary"
-                onClick={() => props.onLoadArtifact(artifact)}
-              >
-                Load verified manifest
-              </button>
+              <div className="artifact-actions">
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => props.onLoadArtifact(artifact)}
+                >
+                  Load verified manifest
+                </button>
+                <EvidenceAction
+                  evidenceId={artifact.evidenceId}
+                  onResolveEvidence={props.onResolveEvidence}
+                />
+              </div>
             </li>
           ))}
         </ul>
@@ -343,10 +417,11 @@ function ReplayDetail(
     replay: RawRunReplayV1;
     manifest: FinalDiffManifestV1 | null;
     onLoadArtifact(artifact: ReplayArtifactReferenceV1): void;
+    onResolveEvidence(evidenceId: string): void;
   }>,
 ) {
   return (
-    <article className="replay-detail">
+    <article id="run-summary" tabIndex={-1} className="replay-detail">
       <header className="replay-header">
         <div>
           <p className="eyebrow">Run {props.replay.run.runNumber}</p>
@@ -355,18 +430,42 @@ function ReplayDetail(
         <span className={statusClass(props.replay.run.status)}>{props.replay.run.status}</span>
       </header>
       <EvidenceBanner replay={props.replay} />
+      {props.replay.evidenceGraph !== null && props.replay.evidenceGraph !== undefined ? (
+        <section className={`evidence-graph-summary outcome-${props.replay.evidenceGraph.outcome}`}>
+          <div>
+            <p className="eyebrow">Evidence Graph</p>
+            <h2>{props.replay.evidenceGraph.outcome}</h2>
+          </div>
+          <p>
+            {props.replay.evidenceGraph.nodeCount} nodes · {props.replay.evidenceGraph.edgeCount}{" "}
+            edges
+          </p>
+          {props.replay.evidenceGraph.limitations.length > 0 ? (
+            <ul>
+              {props.replay.evidenceGraph.limitations.map((limitation) => (
+                <li key={limitation}>{limitation.replaceAll("_", " ")}</li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
       <section className="prompt-block" aria-labelledby="prompt-heading">
         <p className="eyebrow">Redacted input</p>
         <h2 id="prompt-heading">Prompt</h2>
         <p>{props.replay.run.redactedPrompt || "No prompt text was captured."}</p>
       </section>
       <div className="replay-grid">
-        <ReplayTimeline replay={props.replay} />
+        <ReplayTimeline replay={props.replay} onResolveEvidence={props.onResolveEvidence} />
         <div className="side-sections">
-          <ChangedFiles replay={props.replay} />
-          <Verification replay={props.replay} />
+          <ChangedFiles replay={props.replay} onResolveEvidence={props.onResolveEvidence} />
+          <Verification replay={props.replay} onResolveEvidence={props.onResolveEvidence} />
           <EvidenceStructure replay={props.replay} />
-          <section className="content-section" aria-labelledby="gaps-heading">
+          <section
+            id="evidence-gaps"
+            tabIndex={-1}
+            className="content-section"
+            aria-labelledby="gaps-heading"
+          >
             <div className="section-heading">
               <p className="eyebrow">Uncertainty</p>
               <h2 id="gaps-heading">Evidence gaps</h2>
@@ -380,6 +479,10 @@ function ReplayDetail(
                     <strong>{gap.code}</strong>
                     <p>{gap.message}</p>
                     <small>{formatTime(gap.createdAt)}</small>
+                    <EvidenceAction
+                      evidenceId={gap.evidenceId}
+                      onResolveEvidence={props.onResolveEvidence}
+                    />
                   </li>
                 ))}
               </ul>
@@ -389,6 +492,7 @@ function ReplayDetail(
             replay={props.replay}
             manifest={props.manifest}
             onLoadArtifact={props.onLoadArtifact}
+            onResolveEvidence={props.onResolveEvidence}
           />
         </div>
       </div>
@@ -439,6 +543,7 @@ export function ReplayViewer(props: ViewerProps) {
               replay={props.replay}
               manifest={props.manifest}
               onLoadArtifact={props.onLoadArtifact}
+              onResolveEvidence={props.onResolveEvidence}
             />
           ) : null}
         </main>
@@ -572,6 +677,25 @@ export function App() {
     }
   }
 
+  async function resolveEvidence(evidenceId: string): Promise<void> {
+    const client = clientRef.current;
+    if (client === null || selectedRunId === null) {
+      return;
+    }
+    try {
+      const resolution = await client.resolveEvidence(selectedRunId, evidenceId);
+      const target = document.getElementById(resolution.anchor.sectionId);
+      if (target === null) {
+        throw new ReplayApiError("invalid_response");
+      }
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      target.focus({ preventScroll: true });
+      setStatusMessage(`Evidence resolved to ${resolution.nodeKind.replaceAll("_", " ")}.`);
+    } catch (error) {
+      handleApiError(error, "The evidence reference could not be resolved.");
+    }
+  }
+
   return (
     <>
       {!connected ? (
@@ -604,6 +728,7 @@ export function App() {
           onSelectRun={selectRun}
           onLoadMore={loadMore}
           onLoadArtifact={loadArtifact}
+          onResolveEvidence={resolveEvidence}
           onDisconnect={() => clearConnection()}
         />
       )}

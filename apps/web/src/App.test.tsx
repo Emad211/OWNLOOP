@@ -45,6 +45,7 @@ const replay: RawRunReplayV1 = {
       ingestedAt: "2026-07-22T10:00:00.000Z",
       payload: {},
       metadata: { collectorVersion: "0.1.0", sourceVersion: null },
+      evidenceId: "ev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     },
   ],
   causalLinks: [],
@@ -57,6 +58,7 @@ const replay: RawRunReplayV1 = {
       code: "baseline_partial",
       message: "The baseline was incomplete.",
       createdAt: "2026-07-22T10:02:00.000Z",
+      evidenceId: "ev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     },
   ],
   finalization: {
@@ -70,8 +72,16 @@ const replay: RawRunReplayV1 = {
     terminalEventId: "event-1",
     manifestArtifactId: null,
     finalizedAt: "2026-07-22T10:02:00.000Z",
+    evidenceId: "ev_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   },
   artifacts: [],
+  evidenceGraph: {
+    artifactId: "graph-artifact",
+    outcome: "partial",
+    limitations: ["diff_hunks_not_retained"],
+    nodeCount: 12,
+    edgeCount: 16,
+  },
 };
 
 describe("Raw Replay viewer", () => {
@@ -88,6 +98,7 @@ describe("Raw Replay viewer", () => {
         onSelectRun={() => undefined}
         onLoadMore={() => undefined}
         onLoadArtifact={() => undefined}
+        onResolveEvidence={() => undefined}
         onDisconnect={() => undefined}
       />,
     );
@@ -96,6 +107,9 @@ describe("Raw Replay viewer", () => {
     expect(html).toContain("Evidence gaps");
     expect(html).toContain("No verification Event was observed");
     expect(html).toContain("run.started");
+    expect(html).toContain("Evidence Graph");
+    expect(html).toContain("diff hunks not retained");
+    expect(html).toContain("View evidence");
     expect(html).not.toContain("dangerouslySetInnerHTML");
   });
 

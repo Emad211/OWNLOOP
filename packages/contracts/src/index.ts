@@ -154,6 +154,54 @@ export {
   ReplayTimelinePayloadV1Schema,
   ReplayVerificationV1Schema,
 } from "./replay.js";
+
+export type {
+  DeterministicEvidenceGraphV1,
+  EvidenceEdgeId,
+  EvidenceEdgeType,
+  EvidenceEdgeV1,
+  EvidenceGraphDiagnosticCode,
+  EvidenceGraphKindCountV1,
+  EvidenceGraphLimitation,
+  EvidenceGraphOutcome,
+  EvidenceId,
+  EvidenceNodeKind,
+  EvidenceNodeLocatorV1,
+  EvidenceNodeMetadataV1,
+  EvidenceNodeV1,
+  EvidenceResolutionAnchorKind,
+  EvidenceResolutionV1,
+} from "./evidence-graph.js";
+export {
+  DeterministicEvidenceGraphV1Schema,
+  EVIDENCE_EDGE_TYPES,
+  EVIDENCE_GRAPH_BUILDER_VERSION,
+  EVIDENCE_GRAPH_DIAGNOSTIC_CODES,
+  EVIDENCE_GRAPH_LIMITATIONS,
+  EVIDENCE_GRAPH_MAX_ARTIFACT_BYTES,
+  EVIDENCE_GRAPH_MAX_EDGES,
+  EVIDENCE_GRAPH_MAX_NODES,
+  EVIDENCE_GRAPH_OUTCOMES,
+  EVIDENCE_GRAPH_SCHEMA_VERSION,
+  EVIDENCE_GRAPH_TAXONOMY_VERSION,
+  EVIDENCE_NODE_KINDS,
+  EVIDENCE_RESOLUTION_ANCHOR_KINDS,
+  EvidenceEdgeIdSchema,
+  EvidenceEdgeTypeSchema,
+  EvidenceEdgeV1Schema,
+  EvidenceGraphDiagnosticCodeSchema,
+  EvidenceGraphKindCountV1Schema,
+  EvidenceGraphLimitationSchema,
+  EvidenceGraphOutcomeSchema,
+  EvidenceIdSchema,
+  EvidenceNodeKindSchema,
+  EvidenceNodeLocatorV1Schema,
+  EvidenceNodeMetadataV1Schema,
+  EvidenceNodeV1Schema,
+  EvidenceResolutionAnchorKindSchema,
+  EvidenceResolutionV1Schema,
+} from "./evidence-graph.js";
+
 export type { ClaudeSourceMetadata } from "./source-metadata.js";
 export { ClaudeSourceMetadataSchema } from "./source-metadata.js";
 export type {

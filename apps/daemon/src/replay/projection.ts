@@ -1,4 +1,5 @@
 import {
+  type DeterministicEvidenceGraphV1,
   RAW_REPLAY_SCHEMA_VERSION,
   type RawRunReplayV1,
   REPLAY_PROMPT_PREVIEW_CODE_POINTS,
@@ -425,6 +426,10 @@ function artifactProjection(
 export function projectRawRunReplay(
   persistence: OwnLoopPersistence,
   runId: string,
+  evidenceGraph: Readonly<{
+    artifactId: string;
+    value: DeterministicEvidenceGraphV1;
+  }> | null = null,
 ): RawRunReplayV1 | null {
   const run = persistence.taskRuns.get(runId);
   if (run === null) {
@@ -444,7 +449,7 @@ export function projectRawRunReplay(
       occurredAt: event.occurredAt,
       payload: event.payload,
     }));
-  return {
+  const replay: RawRunReplayV1 = {
     ok: true,
     schemaVersion: RAW_REPLAY_SCHEMA_VERSION,
     run: {
@@ -510,6 +515,75 @@ export function projectRawRunReplay(
             finalizedAt: context.finalization.finalizedAt,
           },
     artifacts: artifactProjection(context.artifactRecords),
+  };
+  if (evidenceGraph === null) {
+    return replay;
+  }
+  const eventEvidence = new Map<string, string>();
+  const changedFileEvidence = new Map<string, string>();
+  const gapEvidence = new Map<string, string>();
+  const finalizationEvidence = new Map<string, string>();
+  const artifactEvidence = new Map<string, string>();
+  for (const node of evidenceGraph.value.nodes) {
+    switch (node.locator.kind) {
+      case "event":
+        eventEvidence.set(node.locator.eventId, node.evidenceId);
+        break;
+      case "changed_file":
+        changedFileEvidence.set(node.locator.fileEventId, node.evidenceId);
+        break;
+      case "evidence_gap":
+        gapEvidence.set(node.locator.gapId, node.evidenceId);
+        break;
+      case "finalization":
+        finalizationEvidence.set(node.locator.finalizationId, node.evidenceId);
+        break;
+      case "artifact":
+        artifactEvidence.set(node.locator.artifactId, node.evidenceId);
+        break;
+      default:
+        break;
+    }
+  }
+  return {
+    ...replay,
+    timeline: replay.timeline.map((item) => ({
+      ...item,
+      evidenceId: eventEvidence.get(item.eventId) ?? null,
+    })),
+    reconciliations: replay.reconciliations.map((item) => ({
+      ...item,
+      changedFiles: item.changedFiles.map((file) => ({
+        ...file,
+        evidenceId: changedFileEvidence.get(file.fileEventId) ?? null,
+      })),
+    })),
+    verification: replay.verification.map((item) => ({
+      ...item,
+      evidenceId: eventEvidence.get(item.eventId) ?? null,
+    })),
+    evidenceGaps: replay.evidenceGaps.map((item) => ({
+      ...item,
+      evidenceId: gapEvidence.get(item.gapId) ?? null,
+    })),
+    finalization:
+      replay.finalization === null
+        ? null
+        : {
+            ...replay.finalization,
+            evidenceId: finalizationEvidence.get(replay.finalization.finalizationId) ?? null,
+          },
+    artifacts: replay.artifacts.map((item) => ({
+      ...item,
+      evidenceId: artifactEvidence.get(item.artifactId) ?? null,
+    })),
+    evidenceGraph: {
+      artifactId: evidenceGraph.artifactId,
+      outcome: evidenceGraph.value.outcome,
+      limitations: evidenceGraph.value.limitations,
+      nodeCount: evidenceGraph.value.nodes.length,
+      edgeCount: evidenceGraph.value.edges.length,
+    },
   };
 }
 
