@@ -8,7 +8,7 @@
 - `docs/adr/0009-transactional-event-normalization-and-sequencing.md`
 - `docs/adr/0012-local-content-addressed-artifact-store.md`
 - `docs/adr/0013-deterministic-run-finalization-and-crash-recovery.md`
-- `docs/adr/0014-authenticated-deterministic-raw-replay.md`
+- `docs/adr/0014-deterministic-raw-replay-projection-and-local-viewer.md`
 - `docs/adr/0015-deterministic-evidence-backed-change-classification.md`
 - GitHub Issue #42
 

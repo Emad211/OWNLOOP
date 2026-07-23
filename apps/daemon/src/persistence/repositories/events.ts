@@ -137,6 +137,26 @@ export class EventRepository {
     return events;
   }
 
+  listForRunPrefixExact(runId: string, count: number): readonly NormalizedEventEnvelope[] {
+    if (!Number.isInteger(count) || count < 0 || count > 100_000) {
+      return [];
+    }
+    if (count === 0) {
+      return [];
+    }
+    const events = this.#database
+      .prepare(`${EVENT_SELECT} WHERE run_id = ? ORDER BY sequence ASC LIMIT ?`)
+      .all(runId, count)
+      .map(mapEvent);
+    if (events.length !== count) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The persisted Run is missing the requested Event prefix.",
+      );
+    }
+    return events;
+  }
+
   recordDeduplicationKey(record: EventDeduplicationRecord): void {
     try {
       this.#database

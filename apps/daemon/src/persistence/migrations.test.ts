@@ -382,7 +382,7 @@ describe("SQLite migrations", () => {
           .get(),
       ).toBeUndefined();
 
-      runMigrations(opened.database);
+      runMigrations(opened.database, MIGRATIONS.slice(0, 11));
 
       expect(readAppliedMigrations(opened.database)).toHaveLength(11);
       expect(
@@ -809,6 +809,175 @@ describe("SQLite migrations", () => {
 
       expect(applied?.checksum).toBe(migrationChecksum(initialMigration.sql));
       expect(applied?.checksum).toMatch(/^[0-9a-f]{64}$/);
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("upgrades migration 11 to verification artifact migration 12", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 11));
+      expect(readAppliedMigrations(opened.database)).toHaveLength(11);
+      runMigrations(opened.database);
+      expect(readAppliedMigrations(opened.database)).toHaveLength(12);
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name = 'run_artifacts_validate_deterministic_verification_evidence_v1'",
+          )
+          .get(),
+      ).toBeDefined();
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("rejects pre-existing verification evidence with invalid metadata during migration 12", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 11));
+      seedVersion8PartialFinalization(
+        opened.database,
+        "invalid-v12-metadata",
+        "normal",
+        "baseline_missing",
+      );
+      opened.database
+        .prepare(
+          `INSERT INTO artifacts (
+             artifact_id, digest, storage_path, size_bytes, kind, sensitivity,
+             storage_version, media_type, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "verification-invalid-metadata",
+          `sha256:${"b".repeat(64)}`,
+          `objects/sha256/bb/${"b".repeat(62)}`,
+          10,
+          "deterministic-verification-evidence-v1",
+          "normal",
+          1,
+          "application/vnd.ownloop.verification-evidence+json",
+          "2026-07-22T12:00:00.000Z",
+        );
+      opened.database
+        .prepare(
+          `INSERT INTO run_artifacts (run_id, artifact_id, role, created_at)
+           VALUES (?, ?, ?, ?)`,
+        )
+        .run(
+          "run-invalid-v12-metadata",
+          "verification-invalid-metadata",
+          "deterministic-verification-evidence-v1",
+          "2026-07-22T12:00:00.000Z",
+        );
+
+      expect(() => runMigrations(opened.database)).toThrow();
+      expect(readAppliedMigrations(opened.database)).toHaveLength(11);
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("rejects duplicate pre-existing verification evidence roles during migration 12", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 11));
+      seedVersion8PartialFinalization(
+        opened.database,
+        "duplicate-v12-role",
+        "normal",
+        "baseline_missing",
+      );
+      for (const [artifactId, character] of [
+        ["verification-duplicate-a", "c"],
+        ["verification-duplicate-b", "d"],
+      ] as const) {
+        opened.database
+          .prepare(
+            `INSERT INTO artifacts (
+               artifact_id, digest, storage_path, size_bytes, kind, sensitivity,
+               storage_version, media_type, created_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            artifactId,
+            `sha256:${character.repeat(64)}`,
+            `objects/sha256/${character.repeat(2)}/${character.repeat(62)}`,
+            10,
+            "deterministic-verification-evidence-v1",
+            "sensitive",
+            1,
+            "application/vnd.ownloop.verification-evidence+json",
+            "2026-07-22T12:00:00.000Z",
+          );
+        opened.database
+          .prepare(
+            `INSERT INTO run_artifacts (run_id, artifact_id, role, created_at)
+             VALUES (?, ?, ?, ?)`,
+          )
+          .run(
+            "run-duplicate-v12-role",
+            artifactId,
+            "deterministic-verification-evidence-v1",
+            "2026-07-22T12:00:00.000Z",
+          );
+      }
+
+      expect(() => runMigrations(opened.database)).toThrow();
+      expect(readAppliedMigrations(opened.database)).toHaveLength(11);
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("enforces verification role metadata and finalized Run ownership after migration 12", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database);
+      seedVersion8PartialFinalization(
+        opened.database,
+        "valid-v12-role",
+        "normal",
+        "baseline_missing",
+      );
+      opened.database
+        .prepare(
+          `INSERT INTO artifacts (
+             artifact_id, digest, storage_path, size_bytes, kind, sensitivity,
+             storage_version, media_type, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "verification-valid",
+          `sha256:${"e".repeat(64)}`,
+          `objects/sha256/ee/${"e".repeat(62)}`,
+          10,
+          "deterministic-verification-evidence-v1",
+          "sensitive",
+          1,
+          "application/vnd.ownloop.verification-evidence+json",
+          "2026-07-22T12:00:00.000Z",
+        );
+      expect(() =>
+        opened.database
+          .prepare(
+            `INSERT INTO run_artifacts (run_id, artifact_id, role, created_at)
+             VALUES (?, ?, ?, ?)`,
+          )
+          .run(
+            "run-valid-v12-role",
+            "verification-valid",
+            "deterministic-verification-evidence-v1",
+            "2026-07-22T12:00:00.000Z",
+          ),
+      ).not.toThrow();
+      expect(() =>
+        opened.database
+          .prepare("UPDATE artifacts SET sensitivity = 'normal' WHERE artifact_id = ?")
+          .run("verification-valid"),
+      ).toThrow();
     } finally {
       opened.database.close();
     }

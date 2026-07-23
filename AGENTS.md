@@ -4,7 +4,7 @@ These instructions apply to the entire repository.
 
 ## Product boundary
 
-OwnLoop is a local-first Human Ownership Layer for AI-generated software. The accepted direction is defined by the product scope, C4 architecture, backlog amendments, and ADR-0001 through ADR-0015.
+OwnLoop is a local-first Human Ownership Layer for AI-generated software. The accepted direction is defined by the product scope, C4 architecture, backlog amendments, and ADR-0001 through ADR-0016.
 
 Read the relevant documents before changing code. Do not silently reinterpret an accepted decision. Architectural changes require a new ADR.
 
@@ -13,15 +13,15 @@ Read the relevant documents before changing code. Do not silently reinterpret an
 - Work on exactly one issue at a time and keep the Pull Request independently reviewable.
 - Do not modify unrelated files or add speculative behavior.
 - Never commit secrets, credentials, installation tokens, `.env` contents, database files, raw Git output, prepared artifact bytes, source-file content, machine-specific roots, or exception stacks.
-- Do not weaken strict contracts, runtime validation, type checking, linting, tests, database constraints, append-only evidence, artifact verification, transactionality, idempotency, or version discipline.
-- Do not use `any`, `z.any()`, `@ts-ignore`, disabled lint rules, skipped tests, content inference, or hidden I/O without an issue-specific accepted decision.
-- OL-013 classification consumes only the immutable finalization-linked OL-009 reconciliation. It must not read repository files, run Git, inspect Event payload text, prompts, commands, or source artifacts.
-- Hidden, secret, unsupported, or unmatched entries remain `unknown`; never guess a semantic label.
-- Confidence is a fixed deterministic rule strength in basis points, not a probability or correctness claim.
-- Every non-unknown label requires stable rule evidence; rule and label ordering must be canonical and reproducible.
-- Classification artifacts must omit relative paths, path identity hashes, roots, commits, Git hashes/fingerprints, prompts, commands, source sessions, source content, exceptions, and artifact storage metadata.
-- The same accepted input and classifier/rule-set versions must produce byte-identical canonical output.
-- Do not use the generic `analysis_jobs` table in OL-013 or introduce a scheduler/background worker.
+- Do not weaken strict contracts, runtime validation, type checking, linting, tests, database constraints, append-only evidence, sequence continuity, artifact verification, transactionality, idempotency, or version discipline.
+- Do not use `any`, `z.any()`, `@ts-ignore`, disabled lint rules, skipped tests, semantic guessing, arbitrary payload traversal, or hidden I/O without an accepted issue-specific decision.
+- OL-014 may consume only immutable finalization, sequenced canonical/redacted Events, and validated OL-013 classification evidence.
+- It must not execute commands, invoke a shell, read repository/source files, run Git, inspect prompts/transcripts, or contact an agent/model.
+- Changed test files are not test executions. Missing execution is not success. Ambiguous commands remain `unknown`.
+- Output text cannot override the persisted Hook outcome or explicit consistent exit status.
+- Reduced output excerpts belong only in the sensitive OL-010 artifact; derived Events and safe results contain no raw command/output.
+- Derived Events must be deterministic, contiguous, deduplicated, replay-safe, and transactionally consistent with the artifact reference.
+- Do not use `analysis_jobs` or add a scheduler/background worker.
 
 ## Technical baseline
 
@@ -35,16 +35,17 @@ Read the relevant documents before changing code. Do not silently reinterpret an
 - CI: GitHub Actions
 - Formatting/linting: Biome
 
-No new runtime dependency is authorized for OL-013.
+No new runtime dependency is authorized for OL-014.
 
 ## Repository placement
 
-- strict classification contracts belong in `packages/contracts/`;
-- deterministic rules, canonical artifact preparation, and explicit processors belong in `apps/daemon/src/change-classification/`;
-- SQL remains inside existing persistence repositories and migration definitions;
-- architectural policy belongs in ADR-0015.
+- strict verification contracts belong in `packages/contracts/`;
+- command recognition, output reduction, canonical artifact preparation, and explicit processors belong in `apps/daemon/src/verification-extraction/`;
+- SQL remains inside persistence repositories and migration definitions;
+- Replay may project only controlled derived Event payloads;
+- architectural policy belongs in ADR-0016.
 
-Do not create a new package, service, listener, classifier table, replay cache, or scheduler.
+Do not create a new package, service, listener, verification table, replay cache, scheduler, or command runner.
 
 ## Quality gates
 
@@ -58,28 +59,13 @@ pnpm test
 pnpm build
 ```
 
-Focused OL-013 tests must prove:
-
-- strict versioned contracts and rejection of forbidden fields;
-- canonical byte identity and stable input fingerprint;
-- deterministic multi-label ordering, rule evidence, and fixed confidence;
-- every taxonomy category and explicit `unknown` fallback;
-- common Node.js/TypeScript, React, API, auth, test, dependency, database, infrastructure, and documentation layouts;
-- unsafe/absolute/traversal/secret path corruption rejection;
-- 2000-entry and two-MiB bounds;
-- no filesystem, Git, network, source-content, prompt, command, or Event-payload reads in the pure classifier;
-- migration 10→11, immutable migration history, unique role, metadata, terminal/finalization constraints, and sensitivity preservation;
-- OL-010 content-addressed persistence, idempotency, concurrency, rollback, and restart durability;
-- tampered content, wrong source linkage/version/fingerprint/metadata, and duplicate-role rejection;
-- bounded deterministic batch eligibility;
-- five Milestone A fixture outcomes classify or explicitly report unavailable;
-- no lifecycle, Event, evidence-gap, Git, finalization, or source-artifact mutation.
+Focused OL-014 tests must prove strict contracts, deterministic recognition/reduction/artifact bytes, source-backed outcomes, explicit unknown/no-observation semantics, test-file separation, bounds, migration v12, controlled derived Events, contiguous sequences, idempotency/concurrency, rollback/GC, restart/tamper detection, bounded batches, Raw Replay privacy, and no execution/repository/AI boundary.
 
 Never claim a check passed unless it completed successfully.
 
 ## Git and Pull Request discipline
 
-- Base implementation on `agent/ol-013-deterministic-change-classification` from current `main`.
+- Base implementation on `agent/ol-014-verification-extraction` from current `main`.
 - Make focused commits and leave the worktree clean.
 - Do not push directly to `main`.
 - Keep the PR draft until clean-checkout CI and final review pass.
@@ -88,19 +74,18 @@ Never claim a check passed unless it completed successfully.
 
 ## Current phase restriction
 
-The active issue is `OL-013: Build deterministic evidence-backed file and change classifiers` (#40).
+The active issue is `OL-014: Extract deterministic verification evidence from observed commands and classified files` (#42).
 
-Before implementing, read issue #40, ADR-0011 through ADR-0015, the finalization/reconciliation/artifact repositories, migration history, strict contracts, and OL-010 verified artifact API.
+Before implementing, read Issue #42, ADR-0009 and ADR-0012 through ADR-0016, the Event, finalization, OL-013, artifact-store, migration, and Raw Replay code.
 
 Explicitly forbidden:
 
-- source, AST, package-content, prompt, transcript, command, or arbitrary Event-payload analysis;
-- repository or Git reads/mutation beyond accepted OL-009 facts;
-- probabilistic or AI-generated classification;
-- silent classification of hidden or unsupported paths;
-- mutable classification tables or generic analysis-job scheduling;
-- verification extraction, Evidence Graph, replay UI classification display, or Moment generation;
-- lifecycle, Event, evidence-gap, Git, finalization, artifact-source, or replay mutation;
-- cloud, analytics, telemetry, billing, or multi-user authentication.
+- command execution, retries, shell interpretation, or project mutation;
+- source, AST, package-content, prompt, transcript, or arbitrary output semantics;
+- verification inference from changed files, terminal status, or absence of failure;
+- repository/Git reads or mutation;
+- raw command/output in derived Events or safe results;
+- verification tables, generic analysis-job scheduling, background workers, or startup processing;
+- Evidence Graph, replay UI evidence navigation, candidate Moments, AI, cloud, analytics, telemetry, billing, or multi-user authentication.
 
-OL-013 is complete only when final-reconciliation entries can be classified reproducibly into the controlled taxonomy with stable evidence and fixed confidence, immutable OL-010 artifacts, explicit partial/unavailable/unknown outcomes, restart-safe validation, and no new observation or AI boundary.
+OL-014 is complete only when accepted command executions and test-file changes produce reproducible, privacy-bounded, source-backed verification evidence with immutable OL-010 artifacts, controlled derived Events, explicit unknown/not-observed outcomes, restart-safe validation, and no execution or semantic-inference boundary.
