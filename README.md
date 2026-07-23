@@ -13,7 +13,7 @@ The project observes a coding-agent Task Run, captures verifiable changes and ev
 - First coding-agent adapter: Claude Code
 - First project languages: JavaScript and TypeScript
 - Runtime model: local single-user prototype
-- Repository state: trustworthy capture/replay plus deterministic file/change classification in development
+- Repository state: trustworthy capture/replay, deterministic change classification, and verification extraction in development
 
 ## Local setup
 
@@ -55,7 +55,7 @@ pnpm build
 
 Use `pnpm format` to apply formatting.
 
-The shared packages provide strict ingress, Event, Raw Replay, and deterministic change-classification contracts. The daemon modules expose authenticated ingress, evidence capture, finalization, replay projection, contained same-origin static delivery, and explicit evidence-classification APIs. The Claude Code hook adapter remains fail-open and outside the agent critical path.
+The shared packages provide strict ingress, Event, Raw Replay, and deterministic change-classification, and verification-evidence contracts. The daemon modules expose authenticated ingress, evidence capture, finalization, replay projection, contained same-origin static delivery, and explicit evidence-classification and verification-extraction APIs. The Claude Code hook adapter remains fail-open and outside the agent critical path.
 
 ## Design principles
 
@@ -80,6 +80,7 @@ The shared packages provide strict ingress, Event, Raw Replay, and deterministic
 - [ADR-0003: Event Schema and Task-Run Lifecycle](docs/adr/0003-event-schema-and-session-lifecycle.md)
 - [ADR-0014: Deterministic Raw Replay and Local Viewer](docs/adr/0014-deterministic-raw-replay-projection-and-local-viewer.md)
 - [ADR-0015: Deterministic Evidence-Backed Change Classification](docs/adr/0015-deterministic-evidence-backed-change-classification.md)
+- [ADR-0016: Deterministic Verification Evidence Extraction](docs/adr/0016-deterministic-verification-evidence-extraction.md)
 
 ### Architecture
 
@@ -95,6 +96,7 @@ Claude Code hook
 → Git baseline and final reconciliation
 → deterministic raw replay
 → deterministic file/change evidence
+→ deterministic verification evidence
 ```
 
 Ownership Moment generation begins only after deterministic classification, verification extraction, and evidence graph validation are trustworthy.
