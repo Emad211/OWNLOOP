@@ -84,10 +84,13 @@ jobs:
           packages/contracts/src/verification-evidence.ts
           packages/contracts/tests/verification-evidence.test.ts
           FILES
-          git diff --name-only \
+          {
+            git diff --name-only
+            git diff --cached --name-only
+          } \
             | grep -v '^\.github/ol014-payload/' \
             | grep -v '^\.github/workflows/finalize-ol014.yml$' \
-            | sort > /tmp/actual-files
+            | sort -u > /tmp/actual-files
           diff -u /tmp/expected-files /tmp/actual-files
           git rm -r .github/ol014-payload
           git rm .github/workflows/finalize-ol014.yml
