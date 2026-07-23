@@ -25,46 +25,52 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          exact_paths=(
+            .github/ol015-payload/part-00
+            .github/ol015-payload/part-01
+            .github/ol015-payload/part-02
+            .github/ol015-payload/part-03
+          )
+          exact_sizes=(8000 8000 8000 8000)
+          exact_hashes=(
+            193a9d3ebc887ba409ce07cba9fbcb0cd394572ad008981a74ea8e6e4623e261
+            03b2cab8b247f3ecece193ea086484583f2a2ea604a818447674c1a04b6307cd
+            45aef9790480551a71f3d4d746de21bd3a3e522645ede473b923e6da63a25ef2
+            9d55cc635255e69cb46fdac55b8fbf663ee70a56d6d81511accd177f9a56805b
+          )
+          for index in $(seq 0 3); do
+            path="${exact_paths[$index]}"
+            test "$(wc -c < "$path")" -eq "${exact_sizes[$index]}"
+            echo "${exact_hashes[$index]}  $path" | sha256sum --check
+          done
           corrected_paths=(
-            .github/ol015-payload/part-00-fix-00
-            .github/ol015-payload/part-00-fix-01
-            .github/ol015-payload/part-00-fix-02
-            .github/ol015-payload/part-00-fix-03
+            .github/ol015-payload/part-04-fix-00
+            .github/ol015-payload/part-04-fix-01
+            .github/ol015-payload/part-04-fix-02
+            .github/ol015-payload/part-04-fix-03
           )
           corrected_hashes=(
-            226150861fb2cdcbf8c09c80a57b5e84bbee140f9f5d9e6bd0531a1451e83adc
-            e783380992dd8e2dfe84ea38e5366e50e262e7b55c8d0e851ac66e7059398844
-            93cb8b88aa07efa3d90497b2474739c7061e5f66ed7524edd237a0e04e455db2
-            594b90c51c6736c5e3bf63c4152a7c079f5e6749f558f2c5de9845a501c41c29
+            57dadcd9bd4b91314482afcb16e6d04651a500d088b9ccd9b706c1886f456e8a
+            520c3171b0f5aabe284bee935e7f684cccea84c4c59d357a37de272507e1d034
+            62d75f5e21f513260c08a52d1e68ec2c99cba068cf9cb992f814380b6d56ad57
+            f1565ce9fc721eac396f0f6d6cb3de224f0e3abbfd40d70278d9be27d97b7294
           )
           for index in $(seq 0 3); do
             path="${corrected_paths[$index]}"
             test "$(wc -c < "$path")" -eq 2000
             echo "${corrected_hashes[$index]}  $path" | sha256sum --check
           done
-          expected_sizes=(8000 8000 8000 8000 3628)
-          expected_hashes=(
-            03b2cab8b247f3ecece193ea086484583f2a2ea604a818447674c1a04b6307cd
-            45aef9790480551a71f3d4d746de21bd3a3e522645ede473b923e6da63a25ef2
-            9d55cc635255e69cb46fdac55b8fbf663ee70a56d6d81511accd177f9a56805b
-            c790a389470b40d13d662993be6cdc8ba59bed4210b0aa6d9283a7f09c928186
-            b98490434519b03bf84f4be47d81c4efc6fd1f9d9a238d0d33a9d3a1f21ef5fe
-          )
-          for index in $(seq 1 5); do
-            path=".github/ol015-payload/part-$(printf '%02d' "$index")"
-            array_index=$((index - 1))
-            test "$(wc -c < "$path")" -eq "${expected_sizes[$array_index]}"
-            echo "${expected_hashes[$array_index]}  $path" | sha256sum --check
-          done
+          test "$(wc -c < .github/ol015-payload/part-05)" -eq 3628
+          echo "b98490434519b03bf84f4be47d81c4efc6fd1f9d9a238d0d33a9d3a1f21ef5fe  .github/ol015-payload/part-05" | sha256sum --check
           cat \
-            .github/ol015-payload/part-00-fix-00 \
-            .github/ol015-payload/part-00-fix-01 \
-            .github/ol015-payload/part-00-fix-02 \
-            .github/ol015-payload/part-00-fix-03 \
+            .github/ol015-payload/part-00 \
             .github/ol015-payload/part-01 \
             .github/ol015-payload/part-02 \
             .github/ol015-payload/part-03 \
-            .github/ol015-payload/part-04 \
+            .github/ol015-payload/part-04-fix-00 \
+            .github/ol015-payload/part-04-fix-01 \
+            .github/ol015-payload/part-04-fix-02 \
+            .github/ol015-payload/part-04-fix-03 \
             .github/ol015-payload/part-05 \
             > /tmp/ol015.patch.gz.b64
           test "$(wc -c < /tmp/ol015.patch.gz.b64)" -eq 43628
