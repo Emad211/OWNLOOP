@@ -27,6 +27,12 @@ terminal Run + immutable finalization
 - At most one `deterministic-evidence-graph-v1` reference exists per finalized Run.
 - Failed artifact-reference creation may leave only an orphan object removable by bounded sweeping.
 
+## Coverage and resolution semantics
+
+Limitations such as `diff_hunks_not_retained`, `classification_partial`, or `verification_unavailable` describe the coverage of retained evidence. They are never evidence that an event, change, test, or risk did not occur, and later claim validation must not convert them into absence facts.
+
+Resolution is always scoped by both Run ID and Evidence ID. The resolver loads the exact graph role for that Run, proves the node belongs to the validated graph, and returns only a controlled anchor into the same authenticated Raw Replay. An Evidence ID from another Run, an unknown node, or a corrupt graph resolves to a content-free error rather than a cross-Run lookup or fallback search.
+
 ## Bounds
 
 - source Run Events: 25,000
