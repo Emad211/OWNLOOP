@@ -22,3 +22,9 @@ echo '7f71a94da332be2024f929e56a6a9cfe948b9ae9b9235916e17fe053be11a091  /tmp/ol0
 
 git apply --check /tmp/ol019-hardening-v2.patch
 git apply /tmp/ol019-hardening-v2.patch
+
+type_fix=.github/ol019-hardening-v2/type-fix.patch
+test "$(wc -c < "$type_fix")" -eq 640
+echo '95595e55bbc8b0262c78c8bfc33df74295efde22656a7b4908d2218cde1ee8ce  .github/ol019-hardening-v2/type-fix.patch' | sha256sum --check
+git apply --check "$type_fix"
+git apply "$type_fix"
