@@ -1,4 +1,4 @@
-name: Recover OL-018 Transfer Tail
+name: Reconstruct OL-018 Partial Patch
 
 on:
   pull_request:
@@ -6,10 +6,10 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  recover:
+  reconstruct:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.head_ref == 'agent/ol-018-provider-candidate-generation'
@@ -21,96 +21,59 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
 
-      - name: Recover and verify exact final transfer part
+      - name: Reconstruct verified prefix and partial patch
         shell: bash
         run: |
           set -euo pipefail
+          out=/tmp/ol018-reconstruction
+          mkdir -p "$out"
           old_blob=f1f4b23764a15cee4994487741e926684d89296a
-          recovered=.github/ol018-transfer/part-05
-          test ! -e "$recovered"
-          git cat-file blob "$old_blob" > /tmp/ol018-historical-fragment
+          git cat-file blob "$old_blob" > "$out/historical-part04-plus-prefix"
+
+          cp .github/ol018-transfer/part-04 "$out/correct-part-03"
+          head -c 6000 "$out/historical-part04-plus-prefix" > "$out/correct-part-04"
+          tail -c +6001 "$out/historical-part04-plus-prefix" > "$out/part-05-known-prefix"
+
+          test "$(wc -c < "$out/correct-part-03")" -eq 6000
+          test "$(wc -c < "$out/correct-part-04")" -eq 6000
+          test "$(wc -c < "$out/part-05-known-prefix")" -eq 264
+
           cat .github/ol018-transfer/part-00 \
               .github/ol018-transfer/part-01 \
               .github/ol018-transfer/part-02 \
-              .github/ol018-transfer/part-03 \
-              .github/ol018-transfer/part-04 > /tmp/ol018-prefix.b64
-          test "$(wc -c < /tmp/ol018-prefix.b64)" -eq 30000
+              "$out/correct-part-03" \
+              "$out/correct-part-04" \
+              "$out/part-05-known-prefix" > "$out/known-prefix.b64"
+          test "$(wc -c < "$out/known-prefix.b64")" -eq 30264
+          base64 --decode "$out/known-prefix.b64" > "$out/partial.patch.gz"
 
           python3 - <<'PY'
-          import base64
-          import gzip
-          import hashlib
           from pathlib import Path
+          import hashlib
+          import zlib
 
-          prefix = Path('/tmp/ol018-prefix.b64').read_bytes()
-          fragment = Path('/tmp/ol018-historical-fragment').read_bytes()
-          expected_gzip_sha = '5cb9e099478c77b6193863ce7712105f92e1c8105c1b2ee4a254df027370f7c5'
-          expected_raw_sha = '9871f71e55d0e4ed0624d9cf3238e747832a84ffd2c886a77358385af5a21feb'
-          matches: list[tuple[int, bytes]] = []
-          tail_size = 4004
-          for start in range(0, len(fragment) - tail_size + 1):
-              tail = fragment[start : start + tail_size]
-              payload = prefix + tail
-              try:
-                  compressed = base64.b64decode(payload, validate=True)
-              except Exception:
-                  continue
-              if len(compressed) != 25501:
-                  continue
-              if hashlib.sha256(compressed).hexdigest() != expected_gzip_sha:
-                  continue
-              try:
-                  raw = gzip.decompress(compressed)
-              except Exception:
-                  continue
-              if len(raw) != 122395:
-                  continue
-              if hashlib.sha256(raw).hexdigest() != expected_raw_sha:
-                  continue
-              matches.append((start, tail))
-
-          if len(matches) != 1:
-              raise SystemExit(f'expected exactly one verified transfer tail, found {len(matches)}')
-          start, tail = matches[0]
-          Path('.github/ol018-transfer/part-05').write_bytes(tail)
-          print(f'recovered_fragment_offset={start}')
-          print(f'recovered_suffix_size={len(tail)}')
+          out = Path('/tmp/ol018-reconstruction')
+          compressed = (out / 'partial.patch.gz').read_bytes()
+          decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
+          raw = decoder.decompress(compressed)
+          (out / 'partial.patch').write_bytes(raw)
+          report = [
+              f'known_base64_size={(out / "known-prefix.b64").stat().st_size}',
+              f'partial_gzip_size={len(compressed)}',
+              f'partial_gzip_sha256={hashlib.sha256(compressed).hexdigest()}',
+              f'partial_raw_size={len(raw)}',
+              f'partial_raw_sha256={hashlib.sha256(raw).hexdigest()}',
+              f'gzip_eof={str(decoder.eof).lower()}',
+              f'missing_base64_size={34004 - (out / "known-prefix.b64").stat().st_size}',
+          ]
+          (out / 'report.txt').write_text('\n'.join(report) + '\n', encoding='utf-8')
+          print('\n'.join(report))
           PY
 
-          cat .github/ol018-transfer/part-0* > /tmp/ol018-payload.b64
-          test "$(wc -c < /tmp/ol018-payload.b64)" -eq 34004
-          base64 --decode /tmp/ol018-payload.b64 > /tmp/ol018.patch.gz
-          test "$(wc -c < /tmp/ol018.patch.gz)" -eq 25501
-          echo "5cb9e099478c77b6193863ce7712105f92e1c8105c1b2ee4a254df027370f7c5  /tmp/ol018.patch.gz" | sha256sum --check
-          gzip --test /tmp/ol018.patch.gz
-          gzip --decompress --stdout /tmp/ol018.patch.gz > /tmp/ol018.patch
-          test "$(wc -c < /tmp/ol018.patch)" -eq 122395
-          echo "9871f71e55d0e4ed0624d9cf3238e747832a84ffd2c886a77358385af5a21feb  /tmp/ol018.patch" | sha256sum --check
-          git apply --check /tmp/ol018.patch
-
-      - name: Remove recovery workflow and verify scope
-        shell: bash
-        run: |
-          set -euo pipefail
-          git rm .github/workflows/recover-ol018-transfer-tail.yml
-          cat > /tmp/expected <<'FILES'
-          .github/ol018-transfer/part-05
-          .github/workflows/recover-ol018-transfer-tail.yml
-          FILES
-          {
-            git diff --name-only
-            git diff --cached --name-only
-            git ls-files --others --exclude-standard
-          } | sort -u > /tmp/actual
-          diff -u /tmp/expected /tmp/actual
-          git diff --check
-
-      - name: Publish verified transfer tail
-        shell: bash
-        run: |
-          set -euo pipefail
-          git add -A
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Recover verified OL-018 transfer tail"
-          git push origin "HEAD:${{ github.head_ref }}"
+      - name: Upload reconstruction
+        uses: actions/upload-artifact@v6
+        with:
+          name: ol018-partial-patch-reconstruction
+          path: /tmp/ol018-reconstruction
+          if-no-files-found: error
+          retention-days: 1
