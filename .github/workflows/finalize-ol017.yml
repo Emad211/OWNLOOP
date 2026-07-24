@@ -1,0 +1,248 @@
+name: Finalize OL-017 Source
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'agent/ol-017-reduced-semantic-input'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 1
+
+      - name: Verify and apply OL-017 patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/ol017-transfer/part-* > /tmp/ol017.payload.b64
+          test "$(wc -c < /tmp/ol017.payload.b64)" -eq 34956
+          base64 --decode /tmp/ol017.payload.b64 > /tmp/ol017.patch.gz
+          test "$(wc -c < /tmp/ol017.patch.gz)" -eq 26216
+          echo "baa45e4c50a21406d2c5e5acd355614a86ab7f028214e4cdaa094fa71850cce5  /tmp/ol017.patch.gz" | sha256sum --check
+          gzip --test /tmp/ol017.patch.gz
+          gzip --decompress --stdout /tmp/ol017.patch.gz > /tmp/ol017.patch
+          test "$(wc -c < /tmp/ol017.patch)" -eq 128367
+          echo "c975a77d0ca07e95de9563b4266ecb91349785824b048b38cd4303fc8499906c  /tmp/ol017.patch" | sha256sum --check
+          git apply --check /tmp/ol017.patch
+          git apply /tmp/ol017.patch
+
+      - name: Apply exact typecheck corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          contracts = Path("packages/contracts/src/semantic-analysis-input.ts")
+          text = contracts.read_text()
+          old = '''function utf8ByteLength(value: string): number {
+            return new TextEncoder().encode(value).byteLength;
+          }
+          '''
+          new = '''function utf8ByteLength(value: string): number {
+            let length = 0;
+            for (const character of value) {
+              const codePoint = character.codePointAt(0);
+              if (codePoint === undefined) {
+                continue;
+              }
+              if (codePoint <= 0x7f) {
+                length += 1;
+              } else if (codePoint <= 0x7ff) {
+                length += 2;
+              } else if (codePoint <= 0xffff) {
+                length += 3;
+              } else {
+                length += 4;
+              }
+            }
+            return length;
+          }
+          '''
+          if text.count(old) != 1:
+              raise SystemExit("semantic input UTF-8 helper anchor changed")
+          contracts.write_text(text.replace(old, new, 1))
+
+          reducer = Path("apps/daemon/src/semantic-input/reducer.ts")
+          text = reducer.read_text()
+          replacements = [
+              (
+                  '''function buildCandidate(
+            input: SemanticAnalysisBuilderInput,
+            runEvidenceId: string,
+          ''',
+                  '''function buildCandidate(
+            input: SemanticAnalysisBuilderInput,
+            graphOutcome: "complete" | "partial",
+            runEvidenceId: string,
+          ''',
+              ),
+              ('      outcome: input.evidenceGraph.outcome,\n', '      outcome: graphOutcome,\n'),
+              (
+                  '''      input.evidenceGraph.outcome === "complete" && !budgetTruncated ? "ready" : "partial",
+            diagnosticCode: diagnostic(input.evidenceGraph.outcome, budgetTruncated),
+          ''',
+                  '''      graphOutcome === "complete" && !budgetTruncated ? "ready" : "partial",
+            diagnosticCode: diagnostic(graphOutcome, budgetTruncated),
+          ''',
+              ),
+              (
+                  '  if (input.evidenceGraph.outcome === "unavailable") {\n',
+                  '  const graphOutcome = input.evidenceGraph.outcome;\n  if (graphOutcome === "unavailable") {\n',
+              ),
+              (
+                  '''    const prepared = buildCandidate(
+              input,
+              runNode.evidenceId,
+          ''',
+                  '''    const prepared = buildCandidate(
+              input,
+              graphOutcome,
+              runNode.evidenceId,
+          ''',
+              ),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f"semantic reducer anchor changed: {old[:50]!r}")
+              text = text.replace(old, new, 1)
+          reducer.write_text(text)
+          PY
+
+      - name: Set up exact Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+
+      - name: Set up exact pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Format OL-017 source
+        run: pnpm format
+
+      - name: Remove transfer files and capture scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/ol017-transfer/part-*
+          git rm .github/workflows/finalize-ol017.yml
+          cat > /tmp/expected-files <<'FILES'
+          .github/ol017-transfer/part-00
+          .github/ol017-transfer/part-01
+          .github/ol017-transfer/part-02
+          .github/ol017-transfer/part-03
+          .github/ol017-transfer/part-04
+          .github/ol017-transfer/part-05
+          .github/ol017-transfer/part-06
+          .github/ol017-transfer/part-07
+          .github/ol017-transfer/part-08
+          .github/ol017-transfer/part-09
+          .github/ol017-transfer/part-10
+          .github/ol017-transfer/part-11
+          .github/workflows/finalize-ol017.yml
+          AGENTS.md
+          README.md
+          apps/daemon/src/index.ts
+          apps/daemon/src/persistence/migration-definitions.ts
+          apps/daemon/src/persistence/migrations.test.ts
+          apps/daemon/src/semantic-input/README.md
+          apps/daemon/src/semantic-input/artifact.test.ts
+          apps/daemon/src/semantic-input/artifact.ts
+          apps/daemon/src/semantic-input/constants.ts
+          apps/daemon/src/semantic-input/index.ts
+          apps/daemon/src/semantic-input/processor.test.ts
+          apps/daemon/src/semantic-input/processor.ts
+          apps/daemon/src/semantic-input/redaction.test.ts
+          apps/daemon/src/semantic-input/redaction.ts
+          apps/daemon/src/semantic-input/reducer.test.ts
+          apps/daemon/src/semantic-input/reducer.ts
+          apps/daemon/src/semantic-input/test-fixture.ts
+          docs/adr/0019-deterministic-reduced-semantic-analysis-input.md
+          packages/contracts/src/index.ts
+          packages/contracts/src/semantic-analysis-input.ts
+          packages/contracts/tests/semantic-analysis-input.test.ts
+          FILES
+          {
+            git diff --name-only
+            git diff --cached --name-only
+            git ls-files --others --exclude-standard
+          } | sort -u > /tmp/actual-files
+          diff -u /tmp/expected-files /tmp/actual-files > /tmp/scope.diff || true
+          git diff --check
+
+      - name: Upload scope diagnostic
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ol017-scope-diagnostic
+          path: |
+            /tmp/expected-files
+            /tmp/actual-files
+            /tmp/scope.diff
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Require exact scope
+        shell: bash
+        run: test ! -s /tmp/scope.diff
+
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Capture typecheck
+        shell: bash
+        run: |
+          set +e
+          pnpm typecheck > /tmp/ol017-typecheck.log 2>&1
+          printf '%s\n' "$?" > /tmp/ol017-typecheck.status
+          exit 0
+
+      - name: Upload typecheck diagnostic
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ol017-typecheck-diagnostic
+          path: |
+            /tmp/ol017-typecheck.log
+            /tmp/ol017-typecheck.status
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Require typecheck
+        shell: bash
+        run: test "$(cat /tmp/ol017-typecheck.status)" -eq 0
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Publish OL-017 implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Build deterministic reduced semantic-analysis input"
+          git push origin "HEAD:${{ github.head_ref }}"
