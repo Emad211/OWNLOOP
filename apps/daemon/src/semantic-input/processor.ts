@@ -54,6 +54,7 @@ export type SemanticAnalysisInputDependencies = Readonly<{
 export type SemanticAnalysisInputOptions = Readonly<{ enabled: boolean }>;
 
 type AuthoritativeSource = Readonly<{
+  outcome: "eligible";
   run: TaskRun;
   finalization: RunFinalization;
   evidenceGraphArtifactId: string;
@@ -61,6 +62,13 @@ type AuthoritativeSource = Readonly<{
   verificationArtifactId: string;
   verification: DeterministicVerificationEvidenceV1;
 }>;
+
+type UnavailableAuthoritativeSource = Readonly<{
+  outcome: "unavailable";
+  limitations: readonly SemanticAnalysisLimitation[];
+}>;
+
+type AuthoritativeSourceResult = AuthoritativeSource | UnavailableAuthoritativeSource | null;
 
 const TERMINAL_STATUSES = new Set(["Completed", "Partial", "Abandoned", "Failed"]);
 
@@ -135,7 +143,10 @@ function safeResult(
   });
 }
 
-function semanticRecord(persistence: OwnLoopPersistence, runId: string): RunArtifactRecord | null {
+function semanticRecord(
+  persistence: OwnLoopPersistence,
+  runId: string,
+): RunArtifactRecord | null {
   return persistence.artifacts.getRecordForRunRole(runId, REDUCED_SEMANTIC_ANALYSIS_INPUT_ROLE);
 }
 
@@ -173,7 +184,7 @@ function assertVerificationMetadata(metadata: ArtifactMetadata, expectedSize?: n
 async function authoritativeSource(
   dependencies: SemanticAnalysisInputDependencies,
   runId: string,
-): Promise<AuthoritativeSource | null> {
+): Promise<AuthoritativeSourceResult> {
   const run = dependencies.persistence.taskRuns.get(runId);
   if (run === null || !TERMINAL_STATUSES.has(run.status)) return null;
   const finalization = dependencies.persistence.runFinalizations.getByRun(runId);
@@ -184,7 +195,10 @@ async function authoritativeSource(
     );
   }
   const graph = await readValidatedRunEvidenceGraph(dependencies, runId);
-  if (graph === null || graph.value.outcome === "unavailable") return null;
+  if (graph === null) return null;
+  if (graph.value.outcome === "unavailable") {
+    return { outcome: "unavailable", limitations: graph.value.limitations };
+  }
   const verificationResult = await getRunVerificationEvidence(dependencies, runId);
   if (
     verificationResult === null ||
@@ -226,6 +240,7 @@ async function authoritativeSource(
     );
   }
   return {
+    outcome: "eligible",
     run,
     finalization,
     evidenceGraphArtifactId: graph.artifactId,
@@ -271,7 +286,7 @@ async function readAndValidate(
     );
   }
   const source = await authoritativeSource(dependencies, value.runId);
-  if (source === null) {
+  if (source === null || source.outcome === "unavailable") {
     throw new PersistenceError(
       "invalid_persisted_row",
       "The semantic-analysis input no longer has an eligible source.",
@@ -305,6 +320,9 @@ export async function prepareFinalizedRunSemanticAnalysisInput(
   if (existing !== null) return existing;
   const source = await authoritativeSource(dependencies, runId);
   if (source === null) return unavailableResult(runId);
+  if (source.outcome === "unavailable") {
+    return unavailableResult(runId, source.limitations);
+  }
   const prepared = prepareSource(source);
   if (prepared === null) return unavailableResult(runId, source.evidenceGraph.limitations);
 
