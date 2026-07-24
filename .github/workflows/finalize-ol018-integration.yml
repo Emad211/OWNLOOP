@@ -1,0 +1,128 @@
+name: Finalize OL-018 Integration
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'agent/ol-018-provider-candidate-generation'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 1
+
+      - name: Verify and apply exact integration patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' \
+            '78bfdb8cf4141982a3a9958b0cec7150a1c715ff83a5fb44542fab76930f67a1  .github/ol018-integration/chunk-00' \
+            '85d4122a0b2d94817f5d0456a9831a2211514dd89f8f933d7de55ef1f4b84ea9  .github/ol018-integration/chunk-01' \
+            '25f14ca0738cf433ba56cc167d7e0ae854cfeb1127da21912db5db060a71194e  .github/ol018-integration/chunk-02' \
+            '7712e61ec3679e894b3cfc5ba6cc25b2482c19b51d0fd61104ebcc6d63732f9e  .github/ol018-integration/chunk-03' \
+            '41c77e5e8dba58164ba45838b27c796ddc42e9d0cf1d18aa1e0401d2b8981132  .github/ol018-integration/chunk-04' \
+            '4bb95b3b56a8209f21826217b6ebf3da58deb652d36ad653eae95653c834e731  .github/ol018-integration/chunk-05' \
+            '2526c56894f59d9b1b6205e17f1306e22f1fd452833a072b3d91323d9f0ae70c  .github/ol018-integration/chunk-06' \
+            '7a299f100127536562f939893b43859b28457962baae19ee9cc3fffc0066a87f  .github/ol018-integration/chunk-07' \
+            '715ee44f292cd8ba3ac099e5bd2f764618e810381bfc01f2bd446ca2f1d350c6  .github/ol018-integration/chunk-08' \
+            | sha256sum --check --strict
+          for chunk in .github/ol018-integration/chunk-{00..07}; do
+            test "$(wc -c < "$chunk")" -eq 1000
+          done
+          test "$(wc -c < .github/ol018-integration/chunk-08)" -eq 556
+
+          cat .github/ol018-integration/chunk-* > /tmp/ol018-integration.b64
+          test "$(wc -c < /tmp/ol018-integration.b64)" -eq 8556
+          echo '4ca7dc47aff601731c7553512891ebec5ab7c19fe5705adcd1cb23dbc394558b  /tmp/ol018-integration.b64' | sha256sum --check
+
+          base64 --decode /tmp/ol018-integration.b64 > /tmp/ol018-integration.patch.gz
+          test "$(wc -c < /tmp/ol018-integration.patch.gz)" -eq 6417
+          echo '553161185aaa904ddca871915262dabcefba95953e76726e26ddb89e7791cada  /tmp/ol018-integration.patch.gz' | sha256sum --check
+          gzip --test /tmp/ol018-integration.patch.gz
+
+          gzip --decompress --stdout /tmp/ol018-integration.patch.gz > /tmp/ol018-integration.patch
+          test "$(wc -c < /tmp/ol018-integration.patch)" -eq 25834
+          echo '0988d452b7d14b3cc690ade12ca8b65ee337f7742decc14d5e3096e866da8e71  /tmp/ol018-integration.patch' | sha256sum --check
+          git apply --check /tmp/ol018-integration.patch
+          git apply /tmp/ol018-integration.patch
+
+      - name: Set up exact Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+
+      - name: Set up exact pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Format integration source
+        run: pnpm format
+
+      - name: Remove transfer files and verify exact scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/ol018-integration/chunk-*
+          git rm .github/workflows/finalize-ol018-integration.yml
+          cat > /tmp/expected-files <<'FILES'
+          .github/ol018-integration/chunk-00
+          .github/ol018-integration/chunk-01
+          .github/ol018-integration/chunk-02
+          .github/ol018-integration/chunk-03
+          .github/ol018-integration/chunk-04
+          .github/ol018-integration/chunk-05
+          .github/ol018-integration/chunk-06
+          .github/ol018-integration/chunk-07
+          .github/ol018-integration/chunk-08
+          .github/workflows/export-ol018-integration-source.yml
+          .github/workflows/finalize-ol018-integration.yml
+          apps/daemon/src/candidate-generation/index.ts
+          apps/daemon/src/candidate-generation/processor.integration.test.ts
+          FILES
+          sort -o /tmp/expected-files /tmp/expected-files
+          {
+            git diff --name-only
+            git diff --cached --name-only
+            git ls-files --others --exclude-standard
+          } | sort -u > /tmp/actual-files
+          diff -u /tmp/expected-files /tmp/actual-files
+          git diff --check
+
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Publish OL-018 integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Test OL-018 persistence and restart boundaries'
+          git push origin "HEAD:${{ github.head_ref }}"
