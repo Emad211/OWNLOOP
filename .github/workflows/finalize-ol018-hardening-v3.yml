@@ -72,8 +72,28 @@ jobs:
         shell: bash
         run: test "$(cat /tmp/ol018-hardening-typecheck.status)" -eq 0
 
-      - name: Test
-        run: pnpm test
+      - name: Capture tests
+        shell: bash
+        run: |
+          set +e
+          pnpm test > /tmp/ol018-hardening-tests.log 2>&1
+          printf '%s\n' "$?" > /tmp/ol018-hardening-tests.status
+          exit 0
+
+      - name: Upload test diagnostic
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ol018-hardening-tests
+          path: |
+            /tmp/ol018-hardening-tests.log
+            /tmp/ol018-hardening-tests.status
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Require tests
+        shell: bash
+        run: test "$(cat /tmp/ol018-hardening-tests.status)" -eq 0
 
       - name: Build
         run: pnpm build
