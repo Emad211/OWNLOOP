@@ -21,7 +21,23 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 1
 
-      - name: Build exact source archive
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Format exact source
+        run: pnpm format
+
+      - name: Build formatted source archive
         shell: bash
         run: |
           set -euo pipefail
@@ -33,15 +49,15 @@ jobs:
             --exclude='*/dist' \
             --exclude=.turbo \
             --exclude='*/.turbo' \
-            -czf /tmp/ownloop-ol016-source.tar.gz .
-          sha256sum /tmp/ownloop-ol016-source.tar.gz > /tmp/ownloop-ol016-source.sha256
+            -czf /tmp/ownloop-ol016-formatted-source.tar.gz .
+          sha256sum /tmp/ownloop-ol016-formatted-source.tar.gz > /tmp/ownloop-ol016-formatted-source.sha256
 
-      - name: Upload source
+      - name: Upload formatted source
         uses: actions/upload-artifact@v6
         with:
-          name: ownloop-ol016-source
+          name: ownloop-ol016-formatted-source
           path: |
-            /tmp/ownloop-ol016-source.tar.gz
-            /tmp/ownloop-ol016-source.sha256
+            /tmp/ownloop-ol016-formatted-source.tar.gz
+            /tmp/ownloop-ol016-formatted-source.sha256
           if-no-files-found: error
           retention-days: 1
