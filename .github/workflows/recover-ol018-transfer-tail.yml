@@ -26,30 +26,55 @@ jobs:
         run: |
           set -euo pipefail
           old_blob=f1f4b23764a15cee4994487741e926684d89296a
-          current=.github/ol018-transfer/part-04
           recovered=.github/ol018-transfer/part-05
           test ! -e "$recovered"
-          git cat-file blob "$old_blob" > /tmp/ol018-overlapping-tail
+          git cat-file blob "$old_blob" > /tmp/ol018-historical-fragment
+          cat .github/ol018-transfer/part-00 \
+              .github/ol018-transfer/part-01 \
+              .github/ol018-transfer/part-02 \
+              .github/ol018-transfer/part-03 \
+              .github/ol018-transfer/part-04 > /tmp/ol018-prefix.b64
+          test "$(wc -c < /tmp/ol018-prefix.b64)" -eq 30000
 
           python3 - <<'PY'
+          import base64
+          import gzip
+          import hashlib
           from pathlib import Path
 
-          old = Path('/tmp/ol018-overlapping-tail').read_bytes()
-          current = Path('.github/ol018-transfer/part-04').read_bytes()
-          maximum = min(len(current), len(old))
-          overlap = 0
-          for size in range(maximum, 0, -1):
-              if current[-size:] == old[:size]:
-                  overlap = size
-                  break
-          if overlap == 0:
-              raise SystemExit('no suffix-prefix overlap exists for the historical transfer blob')
-          suffix = old[overlap:]
-          if len(suffix) != 4004:
-              raise SystemExit(f'unexpected recovered suffix size: {len(suffix)}')
-          Path('.github/ol018-transfer/part-05').write_bytes(suffix)
-          print(f'overlap_size={overlap}')
-          print(f'recovered_suffix_size={len(suffix)}')
+          prefix = Path('/tmp/ol018-prefix.b64').read_bytes()
+          fragment = Path('/tmp/ol018-historical-fragment').read_bytes()
+          expected_gzip_sha = '5cb9e099478c77b6193863ce7712105f92e1c8105c1b2ee4a254df027370f7c5'
+          expected_raw_sha = '9871f71e55d0e4ed0624d9cf3238e747832a84ffd2c886a77358385af5a21feb'
+          matches: list[tuple[int, bytes]] = []
+          tail_size = 4004
+          for start in range(0, len(fragment) - tail_size + 1):
+              tail = fragment[start : start + tail_size]
+              payload = prefix + tail
+              try:
+                  compressed = base64.b64decode(payload, validate=True)
+              except Exception:
+                  continue
+              if len(compressed) != 25501:
+                  continue
+              if hashlib.sha256(compressed).hexdigest() != expected_gzip_sha:
+                  continue
+              try:
+                  raw = gzip.decompress(compressed)
+              except Exception:
+                  continue
+              if len(raw) != 122395:
+                  continue
+              if hashlib.sha256(raw).hexdigest() != expected_raw_sha:
+                  continue
+              matches.append((start, tail))
+
+          if len(matches) != 1:
+              raise SystemExit(f'expected exactly one verified transfer tail, found {len(matches)}')
+          start, tail = matches[0]
+          Path('.github/ol018-transfer/part-05').write_bytes(tail)
+          print(f'recovered_fragment_offset={start}')
+          print(f'recovered_suffix_size={len(tail)}')
           PY
 
           cat .github/ol018-transfer/part-0* > /tmp/ol018-payload.b64
