@@ -58,3 +58,9 @@ test "$(wc -c < /tmp/ol018-runtime-test-fix.patch)" -eq 2391
 echo 'e89deec869d5bd7b5f701f4039ded7ca1d228936ad7f75ae50856955d0b062a8  /tmp/ol018-runtime-test-fix.patch' | sha256sum --check
 git apply --check /tmp/ol018-runtime-test-fix.patch
 git apply /tmp/ol018-runtime-test-fix.patch
+
+deadline_fix=.github/ol018-hardening-v3/deadline-fix.patch
+test "$(wc -c < "$deadline_fix")" -eq 611
+echo '219671bdcaa59de2ee3aa559cfedd1a5255b1e5cf03168ab9f388650f533fa67  .github/ol018-hardening-v3/deadline-fix.patch' | sha256sum --check
+git apply --check "$deadline_fix"
+git apply "$deadline_fix"
