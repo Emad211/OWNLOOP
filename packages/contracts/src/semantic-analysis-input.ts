@@ -4,16 +4,27 @@ import { CANDIDATE_MOMENT_SCHEMA_VERSION } from "./candidate-moment.js";
 import {
   CHANGE_CLASSIFICATION_EVIDENCE_KINDS,
   CHANGE_CLASSIFICATION_LABELS,
+  CHANGE_CLASSIFICATION_RULE_SET_VERSION,
+  CHANGE_CLASSIFICATION_SCHEMA_VERSION,
+  CHANGE_CLASSIFICATION_TAXONOMY_VERSION,
+  CHANGE_CLASSIFIER_VERSION,
 } from "./change-classification.js";
 import {
+  EVIDENCE_GRAPH_BUILDER_VERSION,
   EVIDENCE_GRAPH_LIMITATIONS,
+  EVIDENCE_GRAPH_SCHEMA_VERSION,
+  EVIDENCE_GRAPH_TAXONOMY_VERSION,
   EvidenceGraphLimitationSchema,
   EvidenceGraphOutcomeSchema,
   EvidenceIdSchema,
 } from "./evidence-graph.js";
 import {
+  VERIFICATION_COMMAND_RULE_SET_VERSION,
+  VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+  VERIFICATION_EXTRACTOR_VERSION,
   VERIFICATION_OBSERVED_STATUSES,
   VERIFICATION_OUTPUT_FIELDS,
+  VERIFICATION_OUTPUT_REDUCTION_POLICY_VERSION,
 } from "./verification-evidence.js";
 
 const safeIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u);
@@ -90,6 +101,29 @@ export type SemanticAnalysisRedactionCountV1 = z.infer<
   typeof SemanticAnalysisRedactionCountV1Schema
 >;
 
+export const SemanticAnalysisSourceVersionsV1Schema = z.strictObject({
+  changeClassification: z.strictObject({
+    schemaVersion: z.literal(CHANGE_CLASSIFICATION_SCHEMA_VERSION),
+    classifierVersion: z.literal(CHANGE_CLASSIFIER_VERSION),
+    taxonomyVersion: z.literal(CHANGE_CLASSIFICATION_TAXONOMY_VERSION),
+    ruleSetVersion: z.literal(CHANGE_CLASSIFICATION_RULE_SET_VERSION),
+  }),
+  verificationEvidence: z.strictObject({
+    schemaVersion: z.literal(VERIFICATION_EVIDENCE_SCHEMA_VERSION),
+    extractorVersion: z.literal(VERIFICATION_EXTRACTOR_VERSION),
+    commandRuleSetVersion: z.literal(VERIFICATION_COMMAND_RULE_SET_VERSION),
+    outputReductionPolicyVersion: z.literal(VERIFICATION_OUTPUT_REDUCTION_POLICY_VERSION),
+  }),
+  evidenceGraph: z.strictObject({
+    schemaVersion: z.literal(EVIDENCE_GRAPH_SCHEMA_VERSION),
+    builderVersion: z.literal(EVIDENCE_GRAPH_BUILDER_VERSION),
+    taxonomyVersion: z.literal(EVIDENCE_GRAPH_TAXONOMY_VERSION),
+  }),
+});
+export type SemanticAnalysisSourceVersionsV1 = z.infer<
+  typeof SemanticAnalysisSourceVersionsV1Schema
+>;
+
 function utf8ByteLength(value: string): number {
   let length = 0;
   for (const character of value) {
@@ -114,6 +148,82 @@ function codePointLength(value: string): number {
   return [...value].length;
 }
 
+function containsLoneSurrogate(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      if (index + 1 >= value.length) return true;
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+      index += 1;
+    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function containsDisallowedControl(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (
+      codePoint !== undefined &&
+      (codePoint <= 0x08 ||
+        (codePoint >= 0x0b && codePoint <= 0x1f) ||
+        (codePoint >= 0x7f && codePoint <= 0x9f))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+const semanticPrivateKeyPattern = /-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----/iu;
+const semanticBearerPattern = /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/iu;
+const semanticProviderTokenPattern =
+  /\b(?:sk-(?:proj-)?[A-Za-z0-9_-]{16,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|npm_[A-Za-z0-9]{20,}|hf_[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})\b/u;
+const semanticSecretAssignmentPattern =
+  /\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|password|passwd|secret|client[_-]?secret|private[_-]?key|credential)\b\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)/iu;
+const semanticEmailPattern =
+  /\b[A-Z0-9._%+-]+@[A-Z0-9](?:[A-Z0-9-]{0,62}[A-Z0-9])?(?:\.[A-Z0-9](?:[A-Z0-9-]{0,62}[A-Z0-9])?)+\b/iu;
+const semanticSchemePattern =
+  /(?:^|[^a-z0-9+.-])(?:j\s*a\s*v\s*a\s*s\s*c\s*r\s*i\s*p\s*t|v\s*b\s*s\s*c\s*r\s*i\s*p\s*t|d\s*a\s*t\s*a|h\s*t\s*t\s*p\s*s?|f\s*t\s*p|f\s*i\s*l\s*e|m\s*a\s*i\s*l\s*t\s*o)\s*:/iu;
+const semanticBareDomainPattern =
+  /(?:^|[^a-z0-9._-])(?:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.)+(?:com|org|net|io|dev|app|ai|co|me|info|biz|edu|gov|cloud|tech|site|online|shop|store|xyz|fr|de|uk|ir)(?=$|[^a-z0-9_-])/iu;
+const semanticNavigableDomainPattern =
+  /(?:^|[^a-z0-9._-])(?:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{2,59})(?::\d{1,5}|[/?#])[^\s<>"']*(?=$|[^a-z0-9_-])/iu;
+const semanticLocalhostPattern =
+  /(?:^|[^a-z0-9_])localhost(?::\d{1,5}(?:[/?#][^\s<>"']*)?|[/?#][^\s<>"']*)(?=$|[^a-z0-9_-])/iu;
+const semanticIpv4Pattern =
+  /\b(?:25[0-5]|2[0-4]\d|1?\d?\d)(?:\.(?:25[0-5]|2[0-4]\d|1?\d?\d)){3}\b/u;
+const semanticIpv6Pattern = /\b(?:[0-9A-Fa-f]{1,4}:){2,7}[0-9A-Fa-f]{1,4}\b/u;
+const semanticWindowsPathPattern = /\b[A-Za-z]:[\\/]/u;
+const semanticUncPathPattern = /\\\\[^\s\/<>:"|?*]+[\\/][^\s<>:"|?*]+/u;
+const semanticPosixPathPattern =
+  /(?<![A-Za-z0-9._-])\/(?:[^\s/<>"']+\/)*[^\s/<>"']+(?=$|[\s)"',.;:!?])/u;
+const semanticPunctuationWhitespacePattern = /\s*([.:/?#@])\s*/gu;
+
+function containsUnredactedSensitiveText(value: string): boolean {
+  const compacted = value.replace(semanticPunctuationWhitespacePattern, "$1");
+  return [value, compacted].some(
+    (candidate) =>
+      semanticPrivateKeyPattern.test(candidate) ||
+      semanticBearerPattern.test(candidate) ||
+      semanticProviderTokenPattern.test(candidate) ||
+      semanticSecretAssignmentPattern.test(candidate) ||
+      semanticEmailPattern.test(candidate) ||
+      semanticSchemePattern.test(candidate) ||
+      semanticBareDomainPattern.test(candidate) ||
+      semanticNavigableDomainPattern.test(candidate) ||
+      semanticLocalhostPattern.test(candidate) ||
+      semanticIpv4Pattern.test(candidate) ||
+      semanticIpv6Pattern.test(candidate) ||
+      semanticWindowsPathPattern.test(candidate) ||
+      semanticUncPathPattern.test(candidate) ||
+      semanticPosixPathPattern.test(candidate),
+  );
+}
+
 function orderedUniqueRedactionCounts(
   values: readonly SemanticAnalysisRedactionCountV1[],
 ): boolean {
@@ -133,11 +243,26 @@ const boundedRedactedTextSchema = (maxCodePoints: number, maxBytes: number): z.Z
     .string()
     .min(1)
     .superRefine((value, context) => {
+      if (containsLoneSurrogate(value)) {
+        context.addIssue({ code: "custom", message: "Semantic text contains invalid Unicode." });
+      }
       if (value.normalize("NFC") !== value) {
         context.addIssue({ code: "custom", message: "Semantic text must be NFC-normalized." });
       }
+      if (containsDisallowedControl(value)) {
+        context.addIssue({
+          code: "custom",
+          message: "Semantic text contains a control character.",
+        });
+      }
       if (value.includes("<") || value.includes(">")) {
         context.addIssue({ code: "custom", message: "Semantic text contains markup delimiters." });
+      }
+      if (containsUnredactedSensitiveText(value)) {
+        context.addIssue({
+          code: "custom",
+          message: "Semantic text contains unredacted sensitive material.",
+        });
       }
       if (codePointLength(value) > maxCodePoints || utf8ByteLength(value) > maxBytes) {
         context.addIssue({ code: "custom", message: "Semantic text exceeds its size limit." });
@@ -169,8 +294,7 @@ export const SemanticAnalysisRedactedTextV1Schema = z
     if (
       value.retainedCodePointCount !== codePointLength(value.text) ||
       value.retainedByteCount !== utf8ByteLength(value.text) ||
-      value.sourceCodePointCount < value.retainedCodePointCount ||
-      value.sourceByteCount < value.retainedByteCount ||
+      (value.truncated && !value.text.endsWith("[TRUNCATED]")) ||
       !orderedUniqueRedactionCounts(value.redactions)
     ) {
       context.addIssue({ code: "custom", message: "Semantic redacted-text metadata is invalid." });
@@ -187,8 +311,7 @@ export const SemanticAnalysisGoalV1Schema = z
     if (
       value.retainedCodePointCount !== codePointLength(value.text) ||
       value.retainedByteCount !== utf8ByteLength(value.text) ||
-      value.sourceCodePointCount < value.retainedCodePointCount ||
-      value.sourceByteCount < value.retainedByteCount ||
+      (value.truncated && !value.text.endsWith("[TRUNCATED]")) ||
       !orderedUniqueRedactionCounts(value.redactions)
     ) {
       context.addIssue({ code: "custom", message: "Semantic goal metadata is invalid." });
@@ -359,8 +482,7 @@ export const SemanticAnalysisVerificationExcerptV1Schema = z
     if (
       value.retainedCodePointCount !== codePointLength(value.text) ||
       value.retainedByteCount !== utf8ByteLength(value.text) ||
-      value.sourceCodePointCount < value.retainedCodePointCount ||
-      value.sourceByteCount < value.retainedByteCount ||
+      (value.truncated && !value.text.endsWith("[TRUNCATED]")) ||
       !orderedUniqueRedactionCounts(value.redactions)
     ) {
       context.addIssue({ code: "custom", message: "Verification excerpt metadata is invalid." });
@@ -422,6 +544,23 @@ function excerptSortKey(value: SemanticAnalysisVerificationExcerptV1): string {
   return `${value.evidenceId}:${String(VERIFICATION_OUTPUT_FIELDS.indexOf(value.field)).padStart(2, "0")}`;
 }
 
+function combinedRedactionCounts(
+  goal: SemanticAnalysisGoalV1 | null,
+  excerpts: readonly SemanticAnalysisVerificationExcerptV1[],
+): SemanticAnalysisRedactionCountV1[] {
+  const counts = new Map<SemanticAnalysisRedactionKind, number>();
+  for (const entry of [
+    ...(goal?.redactions ?? []),
+    ...excerpts.flatMap((excerpt) => excerpt.redactions),
+  ]) {
+    counts.set(entry.kind, (counts.get(entry.kind) ?? 0) + entry.count);
+  }
+  return SEMANTIC_ANALYSIS_REDACTION_KINDS.flatMap((kind) => {
+    const count = counts.get(kind) ?? 0;
+    return count === 0 ? [] : [{ kind, count }];
+  });
+}
+
 export const DeterministicSemanticAnalysisInputV1Schema = z
   .strictObject({
     schemaVersion: z.literal(SEMANTIC_ANALYSIS_INPUT_SCHEMA_VERSION),
@@ -432,10 +571,13 @@ export const DeterministicSemanticAnalysisInputV1Schema = z
     targetCandidateMomentSchemaVersion: z.literal(CANDIDATE_MOMENT_SCHEMA_VERSION),
     runId: safeIdSchema,
     finalizationId: safeIdSchema,
+    classificationArtifactId: safeIdSchema,
+    classificationInputFingerprint: sha256HexSchema,
     evidenceGraphArtifactId: safeIdSchema,
     evidenceGraphInputFingerprint: sha256HexSchema,
     verificationArtifactId: safeIdSchema,
     verificationInputFingerprint: sha256HexSchema,
+    sourceVersions: SemanticAnalysisSourceVersionsV1Schema,
     graphContext: SemanticAnalysisGraphContextV1Schema,
     outcome: SemanticAnalysisInputOutcomeSchema,
     diagnosticCode: SemanticAnalysisInputDiagnosticCodeSchema.nullable(),
@@ -539,19 +681,66 @@ export const DeterministicSemanticAnalysisInputV1Schema = z
       }
     }
 
+    if (value.outcome !== "unavailable") {
+      const runSummaries = value.evidenceSummaries.filter((summary) => summary.kind === "run");
+      const finalizationSummaries = value.evidenceSummaries.filter(
+        (summary) => summary.kind === "finalization",
+      );
+      if (
+        runSummaries.length !== 1 ||
+        finalizationSummaries.length !== 1 ||
+        runSummaries[0]?.evidenceId !== value.graphContext.runEvidenceId ||
+        runSummaries[0]?.terminalStatus !== finalizationSummaries[0]?.terminalStatus
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "Run and finalization summaries are invalid.",
+        });
+      }
+      const verificationSummaries = value.evidenceSummaries.filter(
+        (
+          summary,
+        ): summary is Extract<
+          SemanticAnalysisEvidenceSummaryV1,
+          { kind: "verification_observation" }
+        > => summary.kind === "verification_observation",
+      );
+      for (const excerpt of value.verificationExcerpts) {
+        const summary = verificationSummaries.find(
+          (candidate) => candidate.evidenceId === excerpt.evidenceId,
+        );
+        if (
+          summary === undefined ||
+          summary.verificationKind !== excerpt.verificationKind ||
+          summary.observedStatus !== excerpt.observedStatus
+        ) {
+          context.addIssue({ code: "custom", message: "Verification excerpt summary is invalid." });
+        }
+      }
+    }
+
     const modelVisibleTextCodePointCount =
       (value.goal === null ? 0 : codePointLength(value.goal.text)) +
       value.verificationExcerpts.reduce(
         (total, excerpt) => total + codePointLength(excerpt.text),
         0,
       );
+    const expectedRedactions = combinedRedactionCounts(value.goal, value.verificationExcerpts);
+    const droppedAny =
+      value.aggregates.droppedSummaryCount > 0 ||
+      value.aggregates.droppedRelationCount > 0 ||
+      value.aggregates.droppedVerificationExcerptCount > 0;
+    const graphLimitations = value.limitations.filter((entry) => entry !== "budget_truncated");
     if (
       value.aggregates.summaryCount !== value.evidenceSummaries.length ||
       value.aggregates.relationCount !== value.evidenceRelations.length ||
       value.aggregates.verificationExcerptCount !== value.verificationExcerpts.length ||
       !orderedUniqueRedactionCounts(value.aggregates.redactions) ||
+      JSON.stringify(value.aggregates.redactions) !== JSON.stringify(expectedRedactions) ||
+      droppedAny !== budgetTruncated ||
+      JSON.stringify(graphLimitations) !== JSON.stringify(value.graphContext.limitations) ||
       value.estimates.modelVisibleTextCodePointCount !== modelVisibleTextCodePointCount ||
-      value.estimates.inputTokenUpperBound < value.estimates.utf8ByteCount
+      value.estimates.inputTokenUpperBound !== value.estimates.utf8ByteCount
     ) {
       context.addIssue({
         code: "custom",

@@ -36,7 +36,9 @@ Every factual summary, relation, goal, and excerpt carries graph-owned OL-015 Ev
 
 ## Deterministic package
 
-The v1 package records schema, builder, reduction, redaction, token-estimator, and target Candidate schema versions; source artifact IDs and fingerprints; graph outcome and limitations; deterministic input fingerprint; bounded evidence summaries, relations, and excerpts; aggregate redaction/drop counts; exact byte count; visible-text code-point count; a conservative byte-based token upper bound; and monetary status `provider_not_selected`.
+The v1 package records schema, builder, reduction, redaction, token-estimator, and target Candidate schema versions; exact OL-013 classification, OL-014 verification, and OL-015 Evidence Graph version tuples; classification, verification, and graph artifact IDs and fingerprints; graph outcome and limitations; deterministic input fingerprint; bounded evidence summaries, relations, and excerpts; aggregate redaction/drop counts; exact byte count; visible-text code-point count; a conservative byte-based token upper bound equal to the canonical byte count for estimator v1; and monetary status `provider_not_selected`.
+
+Strict read-back validation rejects non-canonical or tampered text, source versions, source identities, redaction aggregates, estimates, Run/finalization status summaries, and verification excerpts that no longer match a graph-backed verification summary. Controlled placeholders may expand beyond the original sensitive substring; retained counts describe the redacted output rather than pretending to be bounded by source length.
 
 Canonical size is limited to 512 KiB. The fixed reduction order removes lower-priority relations, optional excerpts, then lower-priority summaries while retaining graph outcome, limitations, gaps, and finalization whenever a valid package remains. Truncation yields `partial` with `budget_truncated`; an evidence-free package is `unavailable` and is not referenced.
 
@@ -45,7 +47,7 @@ Canonical size is limited to 512 KiB. The fixed reduction order removes lower-pr
 Migration v14 preserves migrations 1–13 and adds only artifact-reference invariants:
 
 - at most one v1 semantic-input role per Run;
-- exact storage version, kind, media type, sensitivity, and size limit;
+- exact storage version, kind, media type, sensitivity, and a non-empty 512 KiB size limit;
 - terminal Run with immutable finalization;
 - pre-existing-role validation and sensitivity preservation.
 

@@ -1537,6 +1537,7 @@ SELECT CASE WHEN
         OR a.kind <> 'reduced-semantic-analysis-input-v1'
         OR a.media_type <> 'application/vnd.ownloop.semantic-analysis-input+json'
         OR a.sensitivity <> 'sensitive'
+        OR a.size_bytes <= 0
         OR a.size_bytes > 524288
         OR rf.run_id IS NULL
         OR tr.status NOT IN ('Completed', 'Partial', 'Abandoned', 'Failed')
@@ -1568,6 +1569,7 @@ BEGIN
       AND a.kind = 'reduced-semantic-analysis-input-v1'
       AND a.media_type = 'application/vnd.ownloop.semantic-analysis-input+json'
       AND a.sensitivity = 'sensitive'
+      AND a.size_bytes > 0
       AND a.size_bytes <= 524288
   ) THEN RAISE(ABORT, 'invalid reduced semantic analysis input artifact metadata') END;
 

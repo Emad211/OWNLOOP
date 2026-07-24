@@ -2,11 +2,18 @@ import { createHash } from "node:crypto";
 
 import {
   CANDIDATE_MOMENT_SCHEMA_VERSION,
+  CHANGE_CLASSIFICATION_RULE_SET_VERSION,
+  CHANGE_CLASSIFICATION_SCHEMA_VERSION,
+  CHANGE_CLASSIFICATION_TAXONOMY_VERSION,
+  CHANGE_CLASSIFIER_VERSION,
   type DeterministicEvidenceGraphV1,
   type DeterministicSemanticAnalysisInputV1,
   DeterministicSemanticAnalysisInputV1Schema,
   type DeterministicVerificationEvidenceV1,
+  EVIDENCE_GRAPH_BUILDER_VERSION,
   EVIDENCE_GRAPH_LIMITATIONS,
+  EVIDENCE_GRAPH_SCHEMA_VERSION,
+  EVIDENCE_GRAPH_TAXONOMY_VERSION,
   type EvidenceGraphLimitation,
   type EvidenceNodeV1,
   type SemanticAnalysisEvidenceRelationV1,
@@ -25,7 +32,11 @@ import {
   SEMANTIC_ANALYSIS_REDACTION_KINDS,
   SEMANTIC_ANALYSIS_RELATION_TYPES,
   SEMANTIC_ANALYSIS_SUMMARY_KINDS,
+  VERIFICATION_COMMAND_RULE_SET_VERSION,
+  VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+  VERIFICATION_EXTRACTOR_VERSION,
   VERIFICATION_OUTPUT_FIELDS,
+  VERIFICATION_OUTPUT_REDUCTION_POLICY_VERSION,
 } from "@ownloop/contracts";
 import {
   canonicalizeJson,
@@ -345,10 +356,31 @@ function inputFingerprint(input: SemanticAnalysisBuilderInput): string {
           runId: input.run.runId,
           finalizationId: input.finalization.finalizationId,
           redactedPrompt: input.run.redactedPrompt,
+          classificationArtifactId: input.evidenceGraph.classificationArtifactId,
+          classificationInputFingerprint: input.evidenceGraph.classificationInputFingerprint,
           evidenceGraphArtifactId: input.evidenceGraphArtifactId,
           evidenceGraphInputFingerprint: input.evidenceGraph.inputFingerprint,
           verificationArtifactId: input.verificationArtifactId,
           verificationInputFingerprint: input.verification.inputFingerprint,
+          sourceVersions: {
+            changeClassification: {
+              schemaVersion: CHANGE_CLASSIFICATION_SCHEMA_VERSION,
+              classifierVersion: CHANGE_CLASSIFIER_VERSION,
+              taxonomyVersion: CHANGE_CLASSIFICATION_TAXONOMY_VERSION,
+              ruleSetVersion: CHANGE_CLASSIFICATION_RULE_SET_VERSION,
+            },
+            verificationEvidence: {
+              schemaVersion: VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+              extractorVersion: VERIFICATION_EXTRACTOR_VERSION,
+              commandRuleSetVersion: VERIFICATION_COMMAND_RULE_SET_VERSION,
+              outputReductionPolicyVersion: VERIFICATION_OUTPUT_REDUCTION_POLICY_VERSION,
+            },
+            evidenceGraph: {
+              schemaVersion: EVIDENCE_GRAPH_SCHEMA_VERSION,
+              builderVersion: EVIDENCE_GRAPH_BUILDER_VERSION,
+              taxonomyVersion: EVIDENCE_GRAPH_TAXONOMY_VERSION,
+            },
+          },
           maximumArtifactBytes: SEMANTIC_ANALYSIS_MAX_ARTIFACT_BYTES,
           maximumSummaries: SEMANTIC_ANALYSIS_MAX_SUMMARIES,
           maximumRelations: SEMANTIC_ANALYSIS_MAX_RELATIONS,
@@ -440,10 +472,31 @@ function buildCandidate(
     targetCandidateMomentSchemaVersion: CANDIDATE_MOMENT_SCHEMA_VERSION,
     runId: input.run.runId,
     finalizationId: input.finalization.finalizationId,
+    classificationArtifactId: input.evidenceGraph.classificationArtifactId,
+    classificationInputFingerprint: input.evidenceGraph.classificationInputFingerprint,
     evidenceGraphArtifactId: input.evidenceGraphArtifactId,
     evidenceGraphInputFingerprint: input.evidenceGraph.inputFingerprint,
     verificationArtifactId: input.verificationArtifactId,
     verificationInputFingerprint: input.verification.inputFingerprint,
+    sourceVersions: {
+      changeClassification: {
+        schemaVersion: CHANGE_CLASSIFICATION_SCHEMA_VERSION,
+        classifierVersion: CHANGE_CLASSIFIER_VERSION,
+        taxonomyVersion: CHANGE_CLASSIFICATION_TAXONOMY_VERSION,
+        ruleSetVersion: CHANGE_CLASSIFICATION_RULE_SET_VERSION,
+      },
+      verificationEvidence: {
+        schemaVersion: VERIFICATION_EVIDENCE_SCHEMA_VERSION,
+        extractorVersion: VERIFICATION_EXTRACTOR_VERSION,
+        commandRuleSetVersion: VERIFICATION_COMMAND_RULE_SET_VERSION,
+        outputReductionPolicyVersion: VERIFICATION_OUTPUT_REDUCTION_POLICY_VERSION,
+      },
+      evidenceGraph: {
+        schemaVersion: EVIDENCE_GRAPH_SCHEMA_VERSION,
+        builderVersion: EVIDENCE_GRAPH_BUILDER_VERSION,
+        taxonomyVersion: EVIDENCE_GRAPH_TAXONOMY_VERSION,
+      },
+    },
     graphContext: {
       outcome: graphOutcome,
       limitations: input.evidenceGraph.limitations,
@@ -478,6 +531,29 @@ function dropChunk<T>(values: T[], currentBytes: number): number {
   return count;
 }
 
+function dropSummaryChunk(
+  values: SemanticAnalysisEvidenceSummaryV1[],
+  priority: 1 | 2,
+  currentBytes: number,
+): number {
+  const removableCount = values.reduce(
+    (count, value) => count + (summaryDropPriority(value) === priority ? 1 : 0),
+    0,
+  );
+  if (removableCount === 0) return 0;
+  const over = Math.max(1, currentBytes - SEMANTIC_ANALYSIS_MAX_ARTIFACT_BYTES);
+  let remaining = Math.max(1, Math.ceil((removableCount * over) / Math.max(1, currentBytes)));
+  const requested = remaining;
+  for (let index = values.length - 1; index >= 0 && remaining > 0; index -= 1) {
+    const value = values[index];
+    if (value !== undefined && summaryDropPriority(value) === priority) {
+      values.splice(index, 1);
+      remaining -= 1;
+    }
+  }
+  return requested - remaining;
+}
+
 export function prepareDeterministicSemanticAnalysisInput(
   input: SemanticAnalysisBuilderInput,
 ): PreparedSemanticAnalysisInput | UnavailableSemanticAnalysisInput {
@@ -488,7 +564,19 @@ export function prepareDeterministicSemanticAnalysisInput(
     input.evidenceGraph.finalizationId !== input.finalization.finalizationId ||
     input.verification.finalizationId !== input.finalization.finalizationId ||
     input.evidenceGraph.verificationArtifactId !== input.verificationArtifactId ||
-    input.evidenceGraph.verificationInputFingerprint !== input.verification.inputFingerprint
+    input.evidenceGraph.verificationInputFingerprint !== input.verification.inputFingerprint ||
+    input.evidenceGraph.classificationArtifactId !== input.verification.classificationArtifactId ||
+    input.evidenceGraph.classificationInputFingerprint !==
+      input.verification.classificationInputFingerprint ||
+    input.verification.schemaVersion !== VERIFICATION_EVIDENCE_SCHEMA_VERSION ||
+    input.verification.extractorVersion !== VERIFICATION_EXTRACTOR_VERSION ||
+    input.verification.commandRuleSetVersion !== VERIFICATION_COMMAND_RULE_SET_VERSION ||
+    input.verification.outputReductionPolicyVersion !==
+      VERIFICATION_OUTPUT_REDUCTION_POLICY_VERSION ||
+    input.evidenceGraph.schemaVersion !== EVIDENCE_GRAPH_SCHEMA_VERSION ||
+    input.evidenceGraph.builderVersion !== EVIDENCE_GRAPH_BUILDER_VERSION ||
+    input.evidenceGraph.taxonomyVersion !== EVIDENCE_GRAPH_TAXONOMY_VERSION ||
+    input.run.status !== input.finalization.terminalStatus
   ) {
     throw new PersistenceError(
       "invalid_persisted_row",
@@ -514,13 +602,33 @@ export function prepareDeterministicSemanticAnalysisInput(
     };
   }
 
-  const runNode = input.evidenceGraph.nodes.find((node) => node.kind === "run");
-  if (runNode === undefined) {
+  const runNodes = input.evidenceGraph.nodes.filter((node) => node.kind === "run");
+  const finalizationNodes = input.evidenceGraph.nodes.filter(
+    (node) => node.kind === "finalization",
+  );
+  if (runNodes.length === 0 || finalizationNodes.length === 0) {
     return {
       outcome: "unavailable",
       diagnosticCode: "source_unavailable",
       limitations: input.evidenceGraph.limitations,
     };
+  }
+  if (runNodes.length !== 1 || finalizationNodes.length !== 1) {
+    throw new PersistenceError(
+      "invalid_persisted_row",
+      "Semantic-input Evidence Graph has duplicate Run or finalization nodes.",
+    );
+  }
+  const runNode = runNodes[0];
+  const finalizationNode = finalizationNodes[0];
+  if (
+    runNode?.metadata.terminalStatus !== input.run.status ||
+    finalizationNode?.metadata.terminalStatus !== input.finalization.terminalStatus
+  ) {
+    throw new PersistenceError(
+      "invalid_persisted_row",
+      "Semantic-input Evidence Graph terminal status differs from the finalized Run.",
+    );
   }
 
   const goal = redactSemanticGoal(input.run.redactedPrompt);
@@ -545,7 +653,8 @@ export function prepareDeterministicSemanticAnalysisInput(
   let droppedRelationCount = allRelations.length - relations.length;
   let droppedVerificationExcerptCount = allExcerpts.length - excerpts.length;
 
-  for (let iteration = 0; iteration < 64; iteration += 1) {
+  const maximumReductionIterations = summaries.length + relations.length + excerpts.length + 4;
+  for (let iteration = 0; iteration < maximumReductionIterations; iteration += 1) {
     const prepared = buildCandidate(
       input,
       graphOutcome,
@@ -573,20 +682,14 @@ export function prepareDeterministicSemanticAnalysisInput(
       droppedVerificationExcerptCount += dropChunk(excerpts, bytes.byteLength);
       continue;
     }
-    const lowPriorityIndex = summaries.findLastIndex(
-      (summary) => summaryDropPriority(summary) === 2,
-    );
-    if (lowPriorityIndex >= 0) {
-      summaries.splice(lowPriorityIndex, 1);
-      droppedSummaryCount += 1;
+    const droppedLowPriority = dropSummaryChunk(summaries, 2, bytes.byteLength);
+    if (droppedLowPriority > 0) {
+      droppedSummaryCount += droppedLowPriority;
       continue;
     }
-    const verificationIndex = summaries.findLastIndex(
-      (summary) => summary.kind === "verification_observation" || summary.kind === "artifact",
-    );
-    if (verificationIndex >= 0) {
-      summaries.splice(verificationIndex, 1);
-      droppedSummaryCount += 1;
+    const droppedVerification = dropSummaryChunk(summaries, 1, bytes.byteLength);
+    if (droppedVerification > 0) {
+      droppedSummaryCount += droppedVerification;
       continue;
     }
     return {

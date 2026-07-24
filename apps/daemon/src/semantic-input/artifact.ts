@@ -29,7 +29,7 @@ export function canonicalSemanticAnalysisInput(
   if (
     bytes.byteLength > SEMANTIC_ANALYSIS_MAX_ARTIFACT_BYTES ||
     parsed.estimates.utf8ByteCount !== bytes.byteLength ||
-    parsed.estimates.inputTokenUpperBound < bytes.byteLength
+    parsed.estimates.inputTokenUpperBound !== bytes.byteLength
   ) {
     throw new PersistenceError(
       "operation_failed",
@@ -54,7 +54,7 @@ export function parseCanonicalSemanticAnalysisInput(
     if (
       canonicalizeJson(parsed, SEMANTIC_ARTIFACT_CANONICAL_LIMITS) !== canonicalJson ||
       parsed.estimates.utf8ByteCount !== bytes.byteLength ||
-      parsed.estimates.inputTokenUpperBound < bytes.byteLength
+      parsed.estimates.inputTokenUpperBound !== bytes.byteLength
     ) {
       throw new Error("non-canonical semantic input");
     }

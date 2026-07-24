@@ -352,6 +352,7 @@ export type {
   SemanticAnalysisRedactionCountV1,
   SemanticAnalysisRedactionKind,
   SemanticAnalysisRelationType,
+  SemanticAnalysisSourceVersionsV1,
   SemanticAnalysisVerificationExcerptV1,
 } from "./semantic-analysis-input.js";
 export {
@@ -394,5 +395,6 @@ export {
   SemanticAnalysisRedactionCountV1Schema,
   SemanticAnalysisRedactionKindSchema,
   SemanticAnalysisRelationTypeSchema,
+  SemanticAnalysisSourceVersionsV1Schema,
   SemanticAnalysisVerificationExcerptV1Schema,
 } from "./semantic-analysis-input.js";

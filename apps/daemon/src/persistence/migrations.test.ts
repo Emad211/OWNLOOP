@@ -1229,6 +1229,38 @@ describe("SQLite migrations", () => {
            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
+          "semantic-empty",
+          `sha256:${"e".repeat(64)}`,
+          `objects/sha256/ee/${"e".repeat(62)}`,
+          0,
+          "reduced-semantic-analysis-input-v1",
+          "sensitive",
+          1,
+          "application/vnd.ownloop.semantic-analysis-input+json",
+          "2026-07-24T12:00:00.000Z",
+        );
+      expect(() =>
+        opened.database
+          .prepare(
+            `INSERT INTO run_artifacts (run_id, artifact_id, role, created_at)
+             VALUES (?, ?, ?, ?)`,
+          )
+          .run(
+            "run-valid-v14-role",
+            "semantic-empty",
+            "reduced-semantic-analysis-input-v1",
+            "2026-07-24T12:00:00.000Z",
+          ),
+      ).toThrow();
+
+      opened.database
+        .prepare(
+          `INSERT INTO artifacts (
+             artifact_id, digest, storage_path, size_bytes, kind, sensitivity,
+             storage_version, media_type, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
           "semantic-oversized",
           `sha256:${"d".repeat(64)}`,
           `objects/sha256/dd/${"d".repeat(62)}`,
