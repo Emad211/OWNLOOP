@@ -37,6 +37,44 @@ jobs:
           git apply --check /tmp/ol017.patch
           git apply /tmp/ol017.patch
 
+      - name: Apply exact contracts typecheck correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("packages/contracts/src/semantic-analysis-input.ts")
+          text = path.read_text()
+          old = '''function utf8ByteLength(value: string): number {
+            return new TextEncoder().encode(value).byteLength;
+          }
+          '''
+          new = '''function utf8ByteLength(value: string): number {
+            let length = 0;
+            for (const character of value) {
+              const codePoint = character.codePointAt(0);
+              if (codePoint === undefined) {
+                continue;
+              }
+              if (codePoint <= 0x7f) {
+                length += 1;
+              } else if (codePoint <= 0x7ff) {
+                length += 2;
+              } else if (codePoint <= 0xffff) {
+                length += 3;
+              } else {
+                length += 4;
+              }
+            }
+            return length;
+          }
+          '''
+          if text.count(old) != 1:
+              raise SystemExit("semantic input UTF-8 helper anchor changed")
+          path.write_text(text.replace(old, new, 1))
+          PY
+
       - name: Set up exact Node.js
         uses: actions/setup-node@v7
         with:
