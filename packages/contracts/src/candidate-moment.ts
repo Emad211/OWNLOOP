@@ -247,9 +247,7 @@ export const CandidateMomentBatchV1Schema = z
   });
 type MutableCandidateMomentBatchV1 = z.infer<typeof CandidateMomentBatchV1Schema>;
 
-type DeepReadonly<T> = T extends object
-  ? { readonly [Key in keyof T]: DeepReadonly<T[Key]> }
-  : T;
+type DeepReadonly<T> = T extends object ? { readonly [Key in keyof T]: DeepReadonly<T[Key]> } : T;
 
 export type CandidateMomentV1 = DeepReadonly<MutableCandidateMomentV1>;
 export type CandidateMomentBatchV1 = DeepReadonly<MutableCandidateMomentBatchV1>;
