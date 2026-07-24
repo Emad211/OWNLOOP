@@ -43,3 +43,18 @@ test "$(wc -c < /tmp/ol018-hardening-test-fix.patch)" -eq 3058
 echo '38cb2e9fe9b2bc2a6a25eb0e8982f682f9678a219e86ff75d2e3bca86381ea4d  /tmp/ol018-hardening-test-fix.patch' | sha256sum --check
 git apply --check /tmp/ol018-hardening-test-fix.patch
 git apply /tmp/ol018-hardening-test-fix.patch
+
+printf '%s\n' \
+  'caab3c005b39b91baefccaca063a670156c529e30f3540fff545a476ef569b9f  .github/ol018-hardening-v3/runtime-test-fix-00' \
+  'beab5918ce4e6ce08f3a621551a8a0940d47f17cb1ebf69b4e95d7b9efc863c6  .github/ol018-hardening-v3/runtime-test-fix-01' \
+  '286c0748deb3c417e33ea7996f1846f7be8aaa92cf6ec13ddfb1c7ebd6a16ad8  .github/ol018-hardening-v3/runtime-test-fix-02' \
+  | sha256sum --check --strict
+for part in .github/ol018-hardening-v3/runtime-test-fix-{00..01}; do
+  test "$(wc -c < "$part")" -eq 1000
+done
+test "$(wc -c < .github/ol018-hardening-v3/runtime-test-fix-02)" -eq 391
+cat .github/ol018-hardening-v3/runtime-test-fix-* > /tmp/ol018-runtime-test-fix.patch
+test "$(wc -c < /tmp/ol018-runtime-test-fix.patch)" -eq 2391
+echo 'e89deec869d5bd7b5f701f4039ded7ca1d228936ad7f75ae50856955d0b062a8  /tmp/ol018-runtime-test-fix.patch' | sha256sum --check
+git apply --check /tmp/ol018-runtime-test-fix.patch
+git apply /tmp/ol018-runtime-test-fix.patch
