@@ -1,0 +1,16 @@
+.github/ol019-hardening-v2/chunk-00
+.github/ol019-hardening-v2/chunk-01
+.github/ol019-hardening-v2/chunk-02
+.github/ol019-hardening-v2/chunk-03
+.github/ol019-hardening-v2/chunks.sha256
+.github/ol019-hardening-v2/cleanup-and-verify.sh
+.github/ol019-hardening-v2/expected-files
+.github/ol019-hardening-v2/verify-and-apply.sh
+.github/workflows/export-ol019-review.yml
+.github/workflows/finalize-ol019-hardening-v2.yml
+apps/daemon/src/candidate-validation/validator.test.ts
+apps/daemon/src/candidate-validation/validator.ts
+apps/daemon/src/persistence/repositories/candidate-validations.test.ts
+apps/daemon/src/persistence/repositories/candidate-validations.ts
+packages/contracts/src/candidate-validation.ts
+packages/contracts/tests/candidate-validation.test.ts
