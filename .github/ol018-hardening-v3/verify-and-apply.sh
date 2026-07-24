@@ -21,3 +21,9 @@ test "$(wc -c < /tmp/ol018-hardening-v3.patch)" -eq 42046
 echo 'd71a1d5d7722ae4cc1237d796cfb589676056d76c0c59264ad745138291af982  /tmp/ol018-hardening-v3.patch' | sha256sum --check
 git apply --check /tmp/ol018-hardening-v3.patch
 git apply /tmp/ol018-hardening-v3.patch
+
+type_fix=.github/ol018-hardening-v3/type-fix.patch
+test "$(wc -c < "$type_fix")" -eq 889
+echo '26b7f1186bbbf447838a45364974121029f17a4647ccf89e40555f9349290408  .github/ol018-hardening-v3/type-fix.patch' | sha256sum --check
+git apply --check "$type_fix"
+git apply "$type_fix"
