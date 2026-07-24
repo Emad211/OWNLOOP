@@ -141,8 +141,28 @@ jobs:
       - name: Check formatting
         run: pnpm format:check
 
-      - name: Lint
-        run: pnpm lint
+      - name: Capture lint
+        shell: bash
+        run: |
+          set +e
+          pnpm lint > /tmp/ol018-lint.log 2>&1
+          printf '%s\n' "$?" > /tmp/ol018-lint.status
+          exit 0
+
+      - name: Upload lint diagnostic
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ol018-lint-diagnostic
+          path: |
+            /tmp/ol018-lint.log
+            /tmp/ol018-lint.status
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Require lint
+        shell: bash
+        run: test "$(cat /tmp/ol018-lint.status)" -eq 0
 
       - name: Typecheck
         run: pnpm typecheck
