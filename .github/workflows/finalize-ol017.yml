@@ -44,13 +44,20 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              if text.count(old) != 1:
+                  raise SystemExit(f"{label} anchor changed: count={text.count(old)}")
+              return text.replace(old, new, 1)
+
           contracts = Path("packages/contracts/src/semantic-analysis-input.ts")
           text = contracts.read_text()
-          old = '''function utf8ByteLength(value: string): number {
+          text = replace_once(
+              text,
+              '''function utf8ByteLength(value: string): number {
             return new TextEncoder().encode(value).byteLength;
           }
-          '''
-          new = '''function utf8ByteLength(value: string): number {
+          ''',
+              '''function utf8ByteLength(value: string): number {
             let length = 0;
             for (const character of value) {
               const codePoint = character.codePointAt(0);
@@ -69,54 +76,63 @@ jobs:
             }
             return length;
           }
-          '''
-          if text.count(old) != 1:
-              raise SystemExit("semantic input UTF-8 helper anchor changed")
-          contracts.write_text(text.replace(old, new, 1))
+          ''',
+              "contracts UTF-8 helper",
+          )
+          contracts.write_text(text)
 
           reducer = Path("apps/daemon/src/semantic-input/reducer.ts")
           text = reducer.read_text()
-          replacements = [
-              (
-                  '''function buildCandidate(
+          text = replace_once(
+              text,
+              '''function buildCandidate(
             input: SemanticAnalysisBuilderInput,
             runEvidenceId: string,
           ''',
-                  '''function buildCandidate(
+              '''function buildCandidate(
             input: SemanticAnalysisBuilderInput,
             graphOutcome: "complete" | "partial",
             runEvidenceId: string,
           ''',
-              ),
-              ('      outcome: input.evidenceGraph.outcome,\n', '      outcome: graphOutcome,\n'),
-              (
-                  '''      input.evidenceGraph.outcome === "complete" && !budgetTruncated ? "ready" : "partial",
-            diagnosticCode: diagnostic(input.evidenceGraph.outcome, budgetTruncated),
-          ''',
-                  '''      graphOutcome === "complete" && !budgetTruncated ? "ready" : "partial",
-            diagnosticCode: diagnostic(graphOutcome, budgetTruncated),
-          ''',
-              ),
-              (
-                  '  if (input.evidenceGraph.outcome === "unavailable") {\n',
-                  '  const graphOutcome = input.evidenceGraph.outcome;\n  if (graphOutcome === "unavailable") {\n',
-              ),
-              (
-                  '''    const prepared = buildCandidate(
+              "reducer buildCandidate signature",
+          )
+          text = replace_once(
+              text,
+              '      outcome: input.evidenceGraph.outcome,\n',
+              '      outcome: graphOutcome,\n',
+              "reducer graph context outcome",
+          )
+          text = replace_once(
+              text,
+              '      input.evidenceGraph.outcome === "complete" && !budgetTruncated ? "ready" : "partial",\n',
+              '      graphOutcome === "complete" && !budgetTruncated ? "ready" : "partial",\n',
+              "reducer output outcome",
+          )
+          text = replace_once(
+              text,
+              '    diagnosticCode: diagnostic(input.evidenceGraph.outcome, budgetTruncated),\n',
+              '    diagnosticCode: diagnostic(graphOutcome, budgetTruncated),\n',
+              "reducer diagnostic outcome",
+          )
+          text = replace_once(
+              text,
+              '  if (input.evidenceGraph.outcome === "unavailable") {\n',
+              '  const graphOutcome = input.evidenceGraph.outcome;\n  if (graphOutcome === "unavailable") {\n',
+              "reducer unavailable guard",
+          )
+          text = replace_once(
+              text,
+              '''    const prepared = buildCandidate(
               input,
               runNode.evidenceId,
           ''',
-                  '''    const prepared = buildCandidate(
+              '''    const prepared = buildCandidate(
               input,
               graphOutcome,
               runNode.evidenceId,
           ''',
-              ),
-          ]
-          for old, new in replacements:
-              if text.count(old) != 1:
-                  raise SystemExit(f"semantic reducer anchor changed: {old[:50]!r}")
-              text = text.replace(old, new, 1)
+              "reducer buildCandidate call",
+          )
           reducer.write_text(text)
           PY
 
@@ -136,7 +152,7 @@ jobs:
       - name: Format OL-017 source
         run: pnpm format
 
-      - name: Remove transfer files and capture scope
+      - name: Remove transfer files and verify exact scope
         shell: bash
         run: |
           set -euo pipefail
@@ -183,24 +199,8 @@ jobs:
             git diff --cached --name-only
             git ls-files --others --exclude-standard
           } | sort -u > /tmp/actual-files
-          diff -u /tmp/expected-files /tmp/actual-files > /tmp/scope.diff || true
+          diff -u /tmp/expected-files /tmp/actual-files
           git diff --check
-
-      - name: Upload scope diagnostic
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: ol017-scope-diagnostic
-          path: |
-            /tmp/expected-files
-            /tmp/actual-files
-            /tmp/scope.diff
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Require exact scope
-        shell: bash
-        run: test ! -s /tmp/scope.diff
 
       - name: Check formatting
         run: pnpm format:check
@@ -208,28 +208,8 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      - name: Capture typecheck
-        shell: bash
-        run: |
-          set +e
-          pnpm typecheck > /tmp/ol017-typecheck.log 2>&1
-          printf '%s\n' "$?" > /tmp/ol017-typecheck.status
-          exit 0
-
-      - name: Upload typecheck diagnostic
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: ol017-typecheck-diagnostic
-          path: |
-            /tmp/ol017-typecheck.log
-            /tmp/ol017-typecheck.status
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Require typecheck
-        shell: bash
-        run: test "$(cat /tmp/ol017-typecheck.status)" -eq 0
+      - name: Typecheck
+        run: pnpm typecheck
 
       - name: Test
         run: pnpm test
