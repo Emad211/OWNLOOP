@@ -27,15 +27,23 @@ export type CandidateMomentImportance = z.infer<typeof CandidateMomentImportance
 export const CANDIDATE_DECISION_OPTIONS = ["confirm", "revise", "uncertain"] as const;
 export const CANDIDATE_RISK_OPTIONS = ["acknowledge", "mitigate", "dismiss"] as const;
 
-const knownUriSchemePattern = /(?:javascript|vbscript|data|https?|ftp|file|mailto):/iu;
-const domainUrlPattern =
-  /(?:^|[^a-z0-9._-])(?:www\.)?(?:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.)+(?:com|org|net|io|dev|app|ai|co|me|info|biz|edu|gov|cloud|tech|site|online|shop|store|xyz|fr|de|uk|ir)(?::\d{1,5})?(?:[/?#][^\s<>"']*)?(?=$|[^a-z0-9_-])/iu;
+const knownUriSchemePattern =
+  /(?:^|[^a-z0-9+.-])(?:j\s*a\s*v\s*a\s*s\s*c\s*r\s*i\s*p\s*t|v\s*b\s*s\s*c\s*r\s*i\s*p\s*t|d\s*a\s*t\s*a|h\s*t\s*t\s*p\s*s?|f\s*t\s*p|f\s*i\s*l\s*e|m\s*a\s*i\s*l\s*t\s*o)\s*:/iu;
+const bareDomainUrlPattern =
+  /(?:^|[^a-z0-9._-])(?:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.)+(?:com|org|net|io|dev|app|ai|co|me|info|biz|edu|gov|cloud|tech|site|online|shop|store|xyz|fr|de|uk|ir)(?=$|[^a-z0-9_-])/iu;
+const navigableDomainUrlPattern =
+  /(?:^|[^a-z0-9._-])(?:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{2,59})(?::\d{1,5}|[/?#])[^\s<>"']*(?=$|[^a-z0-9_-])/iu;
+const wwwDomainUrlPattern =
+  /(?:^|[^a-z0-9._-])www\.(?:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{2,59})(?::\d{1,5})?(?:[/?#][^\s<>"']*)?(?=$|[^a-z0-9_-])/iu;
 const protocolRelativeUrlPattern =
-  /(?:^|[^a-z0-9_])\/\/(?:localhost(?::\d{1,5})?|(?:[a-z0-9-]+\.)+[a-z]{2,})(?:[/?#]|$)/iu;
+  /(?:^|[^a-z0-9_])\/\/(?:localhost(?::\d{1,5})?|(?:[a-z0-9-]+\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{2,59}))(?:[/?#]|$)/iu;
 const localhostUrlPattern =
   /(?:^|[^a-z0-9_])localhost(?::\d{1,5}(?:[/?#][^\s<>"']*)?|[/?#][^\s<>"']*)(?=$|[^a-z0-9_-])/iu;
 const ipv4UrlPattern =
   /(?:^|[^0-9])(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5}(?:[/?#][^\s<>"']*)?|[/?#][^\s<>"']*)(?=$|[^0-9])/u;
+const emailLikePattern =
+  /(?:^|[^a-z0-9._%+-])[a-z0-9._%+-]+@(?:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{2,59})(?=$|[^a-z0-9_-])/iu;
+const urlPunctuationWhitespacePattern = /\s*([.:/?#@])\s*/gu;
 
 function containsDisallowedControl(value: string): boolean {
   for (const character of value) {
@@ -74,13 +82,17 @@ function containsLoneSurrogate(value: string): boolean {
 }
 
 function containsUrlOrUri(value: string): boolean {
-  const compactWhitespace = value.replace(/\s+/gu, "");
-  return (
-    knownUriSchemePattern.test(compactWhitespace) ||
-    domainUrlPattern.test(compactWhitespace) ||
-    protocolRelativeUrlPattern.test(compactWhitespace) ||
-    localhostUrlPattern.test(compactWhitespace) ||
-    ipv4UrlPattern.test(compactWhitespace)
+  const punctuationCompacted = value.replace(urlPunctuationWhitespacePattern, "$1");
+  return [value, punctuationCompacted].some(
+    (candidate) =>
+      knownUriSchemePattern.test(candidate) ||
+      bareDomainUrlPattern.test(candidate) ||
+      navigableDomainUrlPattern.test(candidate) ||
+      wwwDomainUrlPattern.test(candidate) ||
+      protocolRelativeUrlPattern.test(candidate) ||
+      localhostUrlPattern.test(candidate) ||
+      ipv4UrlPattern.test(candidate) ||
+      emailLikePattern.test(candidate),
   );
 }
 
