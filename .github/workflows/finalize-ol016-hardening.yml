@@ -1,0 +1,178 @@
+name: Finalize OL-016 Plain-Text Hardening
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'agent/ol-016-candidate-moment-contracts'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out OL-016 branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 1
+
+      - name: Apply deterministic Unicode and URL hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path("packages/contracts/src/candidate-moment.ts")
+          text = source.read_text()
+
+          old = '''const dangerousUriPattern = /(?:javascript|vbscript|data)\\s*:/iu;
+          const ordinaryUrlPattern = /(?:https?|ftp|file)\\s*:/iu;
+          const mailtoPattern = /mailto\\s*:/iu;
+          '''
+          new = '''const knownUriSchemePattern = /(?:javascript|vbscript|data|https?|ftp|file|mailto):/iu;
+          const domainUrlPattern =
+            /(?:^|[^a-z0-9._-])(?:www\\.)?(?:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\\.)+(?:com|org|net|io|dev|app|ai|co|me|info|biz|edu|gov)(?::\\d{1,5})?(?:[/?#][^\\s<>"']*)?(?=$|[^a-z0-9_-])/iu;
+          const protocolRelativeUrlPattern =
+            /(?:^|[^a-z0-9_])\\/\\/(?:localhost(?::\\d{1,5})?|(?:[a-z0-9-]+\\.)+[a-z]{2,})(?:[/?#]|$)/iu;
+          const localhostUrlPattern =
+            /(?:^|[^a-z0-9_])localhost(?::\\d{1,5})(?:[/?#][^\\s<>"']*)?(?=$|[^a-z0-9_-])/iu;
+          const ipv4UrlPattern =
+            /(?:^|[^0-9])(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d{1,5}|[/?#])[^\\s<>"']*(?=$|[^0-9])/u;
+          '''
+          if old not in text:
+              raise SystemExit("candidate URI constants changed")
+          text = text.replace(old, new, 1)
+
+          old = '''    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+              const nextCodeUnit = value.charCodeAt(index + 1);
+          '''
+          new = '''    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+              if (index + 1 >= value.length) {
+                return true;
+              }
+              const nextCodeUnit = value.charCodeAt(index + 1);
+          '''
+          if old not in text:
+              raise SystemExit("candidate surrogate guard changed")
+          text = text.replace(old, new, 1)
+
+          anchor = '''function utf8ByteLength(value: string): number {
+          '''
+          helper = '''function containsUrlOrUri(value: string): boolean {
+            const compactWhitespace = value.replace(/\\s+/gu, "");
+            return (
+              knownUriSchemePattern.test(compactWhitespace) ||
+              domainUrlPattern.test(value) ||
+              protocolRelativeUrlPattern.test(value) ||
+              localhostUrlPattern.test(value) ||
+              ipv4UrlPattern.test(value)
+            );
+          }
+
+          '''
+          if anchor not in text:
+              raise SystemExit("candidate helper anchor changed")
+          text = text.replace(anchor, helper + anchor, 1)
+
+          old = '''    if (
+              dangerousUriPattern.test(value) ||
+              ordinaryUrlPattern.test(value) ||
+              mailtoPattern.test(value)
+            ) {
+              context.addIssue({ code: "custom", message: "Candidate text contains a URI." });
+            }
+          '''
+          new = '''    if (containsUrlOrUri(value)) {
+              context.addIssue({ code: "custom", message: "Candidate text contains a URL or URI." });
+            }
+          '''
+          if old not in text:
+              raise SystemExit("candidate URI validation changed")
+          source.write_text(text.replace(old, new, 1))
+
+          test_file = Path("packages/contracts/tests/candidate-moment-hardening.test.ts")
+          tests = test_file.read_text()
+          anchor = '''  it("preserves the fixed decision option tuple in deeply readonly parser output", () => {
+          '''
+          addition = '''  it("rejects obfuscated and scheme-less URLs without rejecting ordinary dotted text", () => {
+            for (const title of [
+              "java\\nscript:alert(1)",
+              "h t t p s ://example.com/path",
+              "www.example.com/path",
+              "//example.com/path",
+              "example.com/path",
+              "localhost:3000/path",
+              "127.0.0.1:3000/path",
+            ]) {
+              expect(() => CandidateMomentV1Schema.parse({ ...decisionCandidate, title })).toThrow();
+            }
+
+            const title = "Update package.json while preserving version 1.2.3";
+            expect(CandidateMomentV1Schema.parse({ ...decisionCandidate, title }).title).toBe(title);
+          });
+
+          '''
+          if anchor not in tests:
+              raise SystemExit("candidate hardening test anchor changed")
+          test_file.write_text(tests.replace(anchor, addition + anchor, 1))
+          PY
+
+      - name: Format and verify exact output
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm exec biome format --write \
+            packages/contracts/src/candidate-moment.ts \
+            packages/contracts/tests/candidate-moment-hardening.test.ts
+          echo "4a081a15886972bf75939a598453f43b6cbb887c14734e7ac7683ce91b4b84ab  packages/contracts/src/candidate-moment.ts" | sha256sum --check
+          echo "2d265f29a226cab1fd8da64e451e3e128bca49d9d7f2a21ab6cf74c415653188  packages/contracts/tests/candidate-moment-hardening.test.ts" | sha256sum --check
+          git rm .github/workflows/export-ol016-source.yml
+          git rm .github/workflows/finalize-ol016-hardening.yml
+          cat > /tmp/expected-files <<'FILES'
+          .github/workflows/export-ol016-source.yml
+          .github/workflows/finalize-ol016-hardening.yml
+          packages/contracts/src/candidate-moment.ts
+          packages/contracts/tests/candidate-moment-hardening.test.ts
+          FILES
+          git diff --name-only | sort > /tmp/actual-files
+          diff -u /tmp/expected-files /tmp/actual-files
+          git diff --check
+
+      - name: Set up exact Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+
+      - name: Set up exact pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate complete repository
+        run: |
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
+      - name: Publish clean OL-016 hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Harden candidate moment plain-text validation"
+          git push origin "HEAD:${{ github.head_ref }}"
