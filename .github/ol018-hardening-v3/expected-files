@@ -17,6 +17,7 @@
 .github/ol018-hardening-v3/chunk-13
 .github/ol018-hardening-v3/chunks.sha256
 .github/ol018-hardening-v3/cleanup-and-verify.sh
+.github/ol018-hardening-v3/deadline-fix.patch
 .github/ol018-hardening-v3/expected-files
 .github/ol018-hardening-v3/runtime-test-fix-00
 .github/ol018-hardening-v3/runtime-test-fix-01
