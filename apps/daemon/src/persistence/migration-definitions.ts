@@ -1593,6 +1593,126 @@ BEGIN
 END;
 `;
 
+const CANDIDATE_GENERATION_PROVENANCE_SQL = `
+CREATE TABLE candidate_generation_v15_validation (
+  valid INTEGER NOT NULL CHECK (valid = 1)
+) STRICT;
+
+INSERT INTO candidate_generation_v15_validation (valid)
+SELECT CASE WHEN NOT EXISTS (
+  SELECT 1 FROM run_artifacts
+  WHERE role GLOB 'candidate-moment-batch-v1.*'
+) THEN 1 ELSE 0 END;
+
+DROP TABLE candidate_generation_v15_validation;
+
+CREATE TABLE candidate_generations (
+  generation_id TEXT PRIMARY KEY CHECK (generation_id GLOB 'gen_*' AND length(generation_id) = 52 AND substr(generation_id, 5) NOT GLOB '*[^0-9a-f]*'),
+  generation_key TEXT NOT NULL CHECK (generation_key GLOB 'gkey_*' AND length(generation_key) = 53 AND substr(generation_key, 6) NOT GLOB '*[^0-9a-f]*'),
+  run_id TEXT NOT NULL REFERENCES task_runs (run_id) ON DELETE CASCADE,
+  finalization_id TEXT NOT NULL REFERENCES run_finalizations (finalization_id) ON DELETE CASCADE,
+  semantic_input_artifact_id TEXT NOT NULL REFERENCES artifacts (artifact_id) ON DELETE RESTRICT,
+  candidate_artifact_id TEXT REFERENCES artifacts (artifact_id) ON DELETE RESTRICT,
+  candidate_artifact_role TEXT,
+  request_fingerprint TEXT NOT NULL CHECK (request_fingerprint GLOB 'sha256:*' AND length(request_fingerprint) = 71 AND substr(request_fingerprint, 8) NOT GLOB '*[^0-9a-f]*'),
+  provider_config_fingerprint TEXT NOT NULL CHECK (provider_config_fingerprint GLOB 'sha256:*' AND length(provider_config_fingerprint) = 71 AND substr(provider_config_fingerprint, 8) NOT GLOB '*[^0-9a-f]*'),
+  status TEXT NOT NULL CHECK (status IN ('succeeded', 'aborted', 'transport_failed', 'provider_rejected', 'invalid_response')),
+  started_at TEXT NOT NULL CHECK (length(trim(started_at)) > 0),
+  completed_at TEXT NOT NULL CHECK (length(trim(completed_at)) > 0 AND completed_at >= started_at),
+  attempt_count INTEGER NOT NULL CHECK (attempt_count >= 0 AND attempt_count <= 3),
+  record_json TEXT NOT NULL CHECK (json_valid(record_json) AND json_type(record_json) = 'object'),
+  CHECK (
+    (status = 'succeeded'
+      AND candidate_artifact_id IS NOT NULL
+      AND candidate_artifact_role = 'candidate-moment-batch-v1.' || generation_id)
+    OR
+    (status <> 'succeeded'
+      AND candidate_artifact_id IS NULL
+      AND candidate_artifact_role IS NULL)
+  ),
+  FOREIGN KEY (run_id, candidate_artifact_id, candidate_artifact_role)
+    REFERENCES run_artifacts (run_id, artifact_id, role)
+    DEFERRABLE INITIALLY DEFERRED
+) STRICT;
+
+CREATE INDEX candidate_generations_run_idx
+ON candidate_generations (run_id, completed_at, generation_id);
+
+CREATE UNIQUE INDEX candidate_generations_success_key_unique
+ON candidate_generations (generation_key)
+WHERE status = 'succeeded';
+
+CREATE TRIGGER candidate_generations_validate_insert
+BEFORE INSERT ON candidate_generations
+BEGIN
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1
+    FROM run_finalizations rf
+    JOIN task_runs tr ON tr.run_id = rf.run_id
+    WHERE rf.finalization_id = NEW.finalization_id
+      AND rf.run_id = NEW.run_id
+      AND tr.status = rf.terminal_status
+      AND tr.status IN ('Completed', 'Partial', 'Abandoned', 'Failed')
+  ) THEN RAISE(ABORT, 'Candidate generation requires the immutable Run finalization') END;
+
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1
+    FROM run_artifacts ra
+    JOIN artifacts a ON a.artifact_id = ra.artifact_id
+    WHERE ra.run_id = NEW.run_id
+      AND ra.artifact_id = NEW.semantic_input_artifact_id
+      AND ra.role = 'reduced-semantic-analysis-input-v1'
+      AND a.storage_version = 1
+      AND a.kind = 'reduced-semantic-analysis-input-v1'
+      AND a.media_type = 'application/vnd.ownloop.semantic-analysis-input+json'
+      AND a.sensitivity = 'sensitive'
+      AND a.size_bytes > 0
+      AND a.size_bytes <= 524288
+  ) THEN RAISE(ABORT, 'Candidate generation requires verified semantic input metadata') END;
+
+  SELECT CASE WHEN NEW.status = 'succeeded' AND NOT EXISTS (
+    SELECT 1 FROM artifacts a
+    WHERE a.artifact_id = NEW.candidate_artifact_id
+      AND a.storage_version = 1
+      AND a.kind = 'candidate-moment-batch-v1'
+      AND a.media_type = 'application/vnd.ownloop.candidate-moment-batch+json'
+      AND a.sensitivity = 'sensitive'
+      AND a.size_bytes > 0
+      AND a.size_bytes <= 524288
+  ) THEN RAISE(ABORT, 'Candidate generation output artifact metadata is invalid') END;
+END;
+
+CREATE TRIGGER candidate_generations_reject_update
+BEFORE UPDATE ON candidate_generations
+BEGIN
+  SELECT RAISE(ABORT, 'Candidate generation provenance is immutable');
+END;
+
+CREATE TRIGGER run_artifacts_validate_candidate_generation_v1
+BEFORE INSERT ON run_artifacts
+WHEN NEW.role GLOB 'candidate-moment-batch-v1.*'
+BEGIN
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1
+    FROM candidate_generations cg
+    WHERE cg.run_id = NEW.run_id
+      AND cg.candidate_artifact_id = NEW.artifact_id
+      AND cg.candidate_artifact_role = NEW.role
+      AND cg.status = 'succeeded'
+  ) THEN RAISE(ABORT, 'Candidate artifact reference requires successful generation provenance') END;
+END;
+
+CREATE TRIGGER artifacts_preserve_candidate_generation_sensitivity_v1
+BEFORE UPDATE OF sensitivity ON artifacts
+WHEN OLD.storage_version = 1
+  AND OLD.kind = 'candidate-moment-batch-v1'
+  AND OLD.media_type = 'application/vnd.ownloop.candidate-moment-batch+json'
+  AND NEW.sensitivity <> 'sensitive'
+BEGIN
+  SELECT RAISE(ABORT, 'Candidate generation artifact sensitivity is immutable');
+END;
+`;
+
 export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   Object.freeze({
     version: 1,
@@ -1663,5 +1783,10 @@ export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
     version: 14,
     name: "reduced_semantic_analysis_input_artifact",
     sql: REDUCED_SEMANTIC_ANALYSIS_INPUT_ARTIFACT_SQL,
+  }),
+  Object.freeze({
+    version: 15,
+    name: "candidate_generation_provenance",
+    sql: CANDIDATE_GENERATION_PROVENANCE_SQL,
   }),
 ]);

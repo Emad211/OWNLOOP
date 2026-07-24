@@ -257,10 +257,10 @@ function prepareSource(source: AuthoritativeSource): PreparedSemanticAnalysisInp
   }
 }
 
-async function readAndValidate(
+async function readAndValidateValue(
   dependencies: SemanticAnalysisInputDependencies,
   record: RunArtifactRecord,
-): Promise<SemanticAnalysisInputResultV1> {
+): Promise<Readonly<{ artifactId: string; value: DeterministicSemanticAnalysisInputV1 }>> {
   assertSemanticMetadata(record.artifact);
   const content = await dependencies.artifactStore.readPreparedBytes(record.artifact.artifactId);
   if (
@@ -296,15 +296,23 @@ async function readAndValidate(
       "The semantic-analysis input no longer matches accepted source facts.",
     );
   }
-  return safeResult(record.artifact.artifactId, value);
+  return { artifactId: record.artifact.artifactId, value };
+}
+
+export async function readValidatedRunSemanticAnalysisInput(
+  dependencies: SemanticAnalysisInputDependencies,
+  runId: string,
+): Promise<Readonly<{ artifactId: string; value: DeterministicSemanticAnalysisInputV1 }> | null> {
+  const record = semanticRecord(dependencies.persistence, runId);
+  return record === null ? null : readAndValidateValue(dependencies, record);
 }
 
 export async function getRunSemanticAnalysisInput(
   dependencies: SemanticAnalysisInputDependencies,
   runId: string,
 ): Promise<SemanticAnalysisInputResultV1 | null> {
-  const record = semanticRecord(dependencies.persistence, runId);
-  return record === null ? null : readAndValidate(dependencies, record);
+  const validated = await readValidatedRunSemanticAnalysisInput(dependencies, runId);
+  return validated === null ? null : safeResult(validated.artifactId, validated.value);
 }
 
 export async function prepareFinalizedRunSemanticAnalysisInput(

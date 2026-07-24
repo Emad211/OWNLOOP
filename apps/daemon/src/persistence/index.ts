@@ -1,6 +1,7 @@
 import { openConfiguredDatabase, type PersistenceConnectionInfo } from "./database.js";
 import { runMigrations } from "./migrations.js";
 import { ArtifactRepository } from "./repositories/artifacts.js";
+import { CandidateGenerationRepository } from "./repositories/candidate-generations.js";
 import { AgentConversationRepository } from "./repositories/conversations.js";
 import { EventNormalizationRepository } from "./repositories/event-normalizations.js";
 import { EventRepository } from "./repositories/events.js";
@@ -27,6 +28,7 @@ export type PersistenceRepositories = Readonly<{
   runFinalizations: RunFinalizationRepository;
   runSupport: RunSupportRepository;
   artifacts: ArtifactRepository;
+  candidateGenerations: CandidateGenerationRepository;
 }>;
 
 type AsyncTransactionGuard<Result> = [Result] extends [never]
@@ -68,6 +70,7 @@ export function openPersistence(databasePath: string): OwnLoopPersistence {
     runFinalizations: new RunFinalizationRepository(database),
     runSupport: new RunSupportRepository(database),
     artifacts: new ArtifactRepository(database),
+    candidateGenerations: new CandidateGenerationRepository(database),
   };
 
   function withTransaction<Result>(
@@ -218,3 +221,6 @@ export type {
   WorkspaceIdentityBasis,
 } from "./repositories/workspaces.js";
 export { WORKSPACE_IDENTITY_BASES } from "./repositories/workspaces.js";
+
+export type { CandidateGenerationRecordV1 } from "@ownloop/contracts";
+export { CandidateGenerationRepository } from "./repositories/candidate-generations.js";

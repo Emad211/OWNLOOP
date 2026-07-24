@@ -110,3 +110,6 @@ Provider integration begins only after deterministic classification, verificatio
 ## Contribution state
 
 The project is currently maintained by a one-person team. Architecture and scope changes should be recorded through ADRs. Implementation work should follow the dependency order in the v0.1.0 backlog.
+## Current milestone
+
+OL-018 is implementing the first explicit model boundary: a verified OL-017 semantic input is converted into one deterministic, secret-free public generation request, sent through a bounded Responses-compatible adapter, and accepted only as a strict OL-016 Candidate batch. Candidate text remains in a sensitive OL-010 artifact; SQLite stores immutable content-free provenance. Evidence support and ranking are intentionally deferred to OL-019.

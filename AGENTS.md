@@ -84,3 +84,11 @@ Explicitly forbidden:
 - semantic-input tables/caches, `analysis_jobs`, workers, timers, schedulers, routes, UI, cloud, analytics, telemetry, billing, or multi-user authentication.
 
 OL-017 is complete only when an explicitly enabled finalized Run can produce one byte-reproducible, second-pass-redacted, Evidence-ID-addressed OL-010 artifact under fixed budgets, while disabled processing performs no sensitive read or write.
+## Current phase — OL-018 provider Candidate generation
+
+- The only network boundary is the explicit `candidate-generation` processor.
+- Provider secrets are in-memory call values and must never be persisted, logged, fingerprinted, returned, or copied into artifacts.
+- Provider output is untrusted and must pass the strict OL-016 contract without repair.
+- The v0.1 product layer persists at most seven generated Candidates even though the broader OL-016 batch contract is larger.
+- No scheduler, job queue, startup worker, provider registry, fallback routing, repository read, tool call, remote fetch, or provider-side conversation state is permitted.
+- OL-019 remains the sole owner of Evidence resolution, claim support, contradiction checks, deduplication, and ranking.
