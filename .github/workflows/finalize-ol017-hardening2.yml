@@ -43,6 +43,12 @@ jobs:
           git apply --check "$type_fix"
           git apply "$type_fix"
 
+          version_fix=.github/ol017-hardening2/version-type-fix.patch
+          test "$(wc -c < "$version_fix")" -eq 2152
+          echo "2338dde66bd9d22d5bcdfcaf8eaf97d33ddc21020d8c00065d0f8b992c22f0d5  $version_fix" | sha256sum --check
+          git apply --check "$version_fix"
+          git apply "$version_fix"
+
       - name: Set up exact Node.js
         uses: actions/setup-node@v7
         with:
@@ -65,6 +71,7 @@ jobs:
           set -euo pipefail
           git rm .github/ol017-hardening2/part-*
           git rm .github/ol017-hardening2/type-fix.patch
+          git rm .github/ol017-hardening2/version-type-fix.patch
           git rm .github/workflows/finalize-ol017-hardening2.yml
           cat > /tmp/expected-files <<'FILES'
           .github/ol017-hardening2/part-00
@@ -73,6 +80,7 @@ jobs:
           .github/ol017-hardening2/part-03
           .github/ol017-hardening2/part-04
           .github/ol017-hardening2/type-fix.patch
+          .github/ol017-hardening2/version-type-fix.patch
           .github/workflows/export-ol017-review.yml
           .github/workflows/finalize-ol017-hardening2.yml
           apps/daemon/src/persistence/migration-definitions.ts
@@ -100,28 +108,8 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      - name: Capture typecheck
-        shell: bash
-        run: |
-          set +e
-          pnpm typecheck > /tmp/ol017-hardening2-typecheck.log 2>&1
-          printf '%s\n' "$?" > /tmp/ol017-hardening2-typecheck.status
-          exit 0
-
-      - name: Upload typecheck diagnostic
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: ol017-hardening2-typecheck
-          path: |
-            /tmp/ol017-hardening2-typecheck.log
-            /tmp/ol017-hardening2-typecheck.status
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Require typecheck
-        shell: bash
-        run: test "$(cat /tmp/ol017-hardening2-typecheck.status)" -eq 0
+      - name: Typecheck
+        run: pnpm typecheck
 
       - name: Test
         run: pnpm test
