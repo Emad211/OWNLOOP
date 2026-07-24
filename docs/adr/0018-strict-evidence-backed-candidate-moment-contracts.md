@@ -138,6 +138,7 @@ A candidate with the wrong interaction kind is invalid.
 
 Model-authored strings are accepted only when they:
 
+- consist only of valid Unicode scalar values and contain no lone UTF-16 surrogate;
 - are NFC-normalized;
 - contain no NUL or disallowed controls;
 - contain no raw `<` or `>` delimiters;
@@ -183,7 +184,7 @@ The contracts package exposes:
 - `parseCandidateMomentV1`;
 - `parseCandidateMomentBatchV1`.
 
-Parsing first validates a cloned strict value, then recursively freezes the clone and returns an immutable value. It throws the underlying Zod validation error on failure. Input objects are not mutated or frozen.
+Parsing first validates a cloned strict value, then recursively freezes the clone and returns an immutable value. Input objects are not mutated or frozen. The immutable type mapping preserves fixed tuples, including the exact order and length of Decision and Risk options.
 
 ## Consequences
 
