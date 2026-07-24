@@ -53,6 +53,18 @@ Migration v14 preserves migrations 1–13 and adds only artifact-reference invar
 
 No semantic-input table, provider table, job, queue, or mutable cache is added. Artifact materialization may precede the SQLite reference transaction; failed references may leave only an unreferenced GC-eligible object.
 
+## Validation boundary
+
+Validation covers both pure reduction and the real persistence pipeline:
+
+- strict contracts reject extra fields, unsafe or non-canonical text, inconsistent source-version tuples, source identities, aggregates, estimates, limitations, Run/finalization summaries, and verification excerpt links;
+- golden second-pass redaction tests cover credentials, private keys, provider tokens, paths, URLs, email addresses, IP addresses, controls, Unicode, placeholder expansion, and deterministic truncation;
+- deterministic artifact tests verify byte-identical canonical JSON, regenerated fingerprints, exact estimates, priority reduction, retained high-priority evidence, and exclusion of unknown-command output;
+- migration tests cover the immutable 13→14 history, pre-existing row validation, unique role, exact metadata, non-empty size bounds, and terminal-finalization requirements;
+- processor integration executes the real `finalize → classify → verify → evidence graph → semantic input` chain and verifies concurrent idempotency, one-role persistence, file-backed restart, OL-010 tamper rejection, exact-role lookup beyond 1,000 unrelated references, rollback/GC behavior, and deterministic bounded-batch order.
+
+All integration tests use local SQLite and the local content-addressed artifact store. They introduce no provider, network, repository read, background worker, or hidden queue.
+
 ## Explicit non-ownership
 
 OL-017 does not add a provider abstraction, credential handling, prompt template, model call, retry, pricing, Candidate generation/persistence, support validation, contradiction detection, ranking, UI, scheduler, repository/source read, cloud, analytics, telemetry, billing, or multi-user authentication.
