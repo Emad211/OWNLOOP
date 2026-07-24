@@ -22,7 +22,7 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 1
 
-      - name: Verify and apply exact OL-018 patch
+      - name: Verify and apply exact OL-018 patches
         shell: bash
         run: |
           set -euo pipefail
@@ -58,6 +58,12 @@ jobs:
           git apply --check /tmp/ol018-fresh.patch
           git apply /tmp/ol018-fresh.patch
 
+          lint_fix=.github/ol018-fixes/lint.patch
+          test "$(wc -c < "$lint_fix")" -eq 1592
+          echo '1fed1e324ad0be09e4ecc607fb9d27d2722d2c974b2315f2599fe82ec525572b  .github/ol018-fixes/lint.patch' | sha256sum --check
+          git apply --check "$lint_fix"
+          git apply "$lint_fix"
+
       - name: Set up exact Node.js
         uses: actions/setup-node@v7
         with:
@@ -80,10 +86,12 @@ jobs:
           set -euo pipefail
           git rm .github/ol018-fresh/part-*
           git rm .github/ol018-transfer/part-*
+          git rm .github/ol018-fixes/lint.patch
           git rm .github/workflows/recover-ol018-transfer-tail.yml
           git rm .github/workflows/finalize-ol018-implementation.yml
 
           cat > /tmp/expected-files <<'FILES'
+          .github/ol018-fixes/lint.patch
           .github/ol018-fresh/part-00
           .github/ol018-fresh/part-01
           .github/ol018-fresh/part-02
@@ -141,28 +149,8 @@ jobs:
       - name: Check formatting
         run: pnpm format:check
 
-      - name: Capture lint
-        shell: bash
-        run: |
-          set +e
-          pnpm lint > /tmp/ol018-lint.log 2>&1
-          printf '%s\n' "$?" > /tmp/ol018-lint.status
-          exit 0
-
-      - name: Upload lint diagnostic
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: ol018-lint-diagnostic
-          path: |
-            /tmp/ol018-lint.log
-            /tmp/ol018-lint.status
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Require lint
-        shell: bash
-        run: test "$(cat /tmp/ol018-lint.status)" -eq 0
+      - name: Lint
+        run: pnpm lint
 
       - name: Typecheck
         run: pnpm typecheck
