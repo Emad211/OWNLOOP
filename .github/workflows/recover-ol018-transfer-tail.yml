@@ -1,0 +1,82 @@
+name: Recover OL-018 Transfer Tail
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  recover:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'agent/ol-018-provider-candidate-generation'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact branch with history
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Recover and verify exact final transfer part
+        shell: bash
+        run: |
+          set -euo pipefail
+          old_blob=f1f4b23764a15cee4994487741e926684d89296a
+          current=.github/ol018-transfer/part-04
+          recovered=.github/ol018-transfer/part-05
+          test ! -e "$recovered"
+          git cat-file blob "$old_blob" > /tmp/ol018-combined-tail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          old = Path('/tmp/ol018-combined-tail').read_bytes()
+          current = Path('.github/ol018-transfer/part-04').read_bytes()
+          if not old.startswith(current):
+              raise SystemExit('historical transfer blob does not begin with corrected part-04')
+          suffix = old[len(current):]
+          if not suffix:
+              raise SystemExit('historical transfer blob has no recoverable suffix')
+          Path('.github/ol018-transfer/part-05').write_bytes(suffix)
+          PY
+
+          cat .github/ol018-transfer/part-0* > /tmp/ol018-payload.b64
+          test "$(wc -c < /tmp/ol018-payload.b64)" -eq 34004
+          base64 --decode /tmp/ol018-payload.b64 > /tmp/ol018.patch.gz
+          test "$(wc -c < /tmp/ol018.patch.gz)" -eq 25501
+          echo "5cb9e099478c77b6193863ce7712105f92e1c8105c1b2ee4a254df027370f7c5  /tmp/ol018.patch.gz" | sha256sum --check
+          gzip --test /tmp/ol018.patch.gz
+          gzip --decompress --stdout /tmp/ol018.patch.gz > /tmp/ol018.patch
+          test "$(wc -c < /tmp/ol018.patch)" -eq 122395
+          echo "9871f71e55d0e4ed0624d9cf3238e747832a84ffd2c886a77358385af5a21feb  /tmp/ol018.patch" | sha256sum --check
+          git apply --check /tmp/ol018.patch
+
+      - name: Remove recovery workflow and verify scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/recover-ol018-transfer-tail.yml
+          cat > /tmp/expected <<'FILES'
+          .github/ol018-transfer/part-05
+          .github/workflows/recover-ol018-transfer-tail.yml
+          FILES
+          {
+            git diff --name-only
+            git diff --cached --name-only
+            git ls-files --others --exclude-standard
+          } | sort -u > /tmp/actual
+          diff -u /tmp/expected /tmp/actual
+          git diff --check
+
+      - name: Publish verified transfer tail
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Recover verified OL-018 transfer tail"
+          git push origin "HEAD:${{ github.head_ref }}"
