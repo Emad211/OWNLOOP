@@ -48,6 +48,22 @@ function containsDisallowedControl(value: string): boolean {
   return false;
 }
 
+function containsLoneSurrogate(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const nextCodeUnit = value.charCodeAt(index + 1);
+      if (nextCodeUnit < 0xdc00 || nextCodeUnit > 0xdfff) {
+        return true;
+      }
+      index += 1;
+    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function utf8ByteLength(value: string): number {
   let length = 0;
   for (const character of value) {
@@ -72,6 +88,9 @@ function plainTextSchema(options: Readonly<{ maxCodePoints: number; maxBytes: nu
   return z.string().superRefine((value, context) => {
     if (value.trim().length === 0) {
       context.addIssue({ code: "custom", message: "Candidate text cannot be blank." });
+    }
+    if (containsLoneSurrogate(value)) {
+      context.addIssue({ code: "custom", message: "Candidate text must contain valid Unicode." });
     }
     if (value.normalize("NFC") !== value) {
       context.addIssue({ code: "custom", message: "Candidate text must be NFC-normalized." });
@@ -228,13 +247,9 @@ export const CandidateMomentBatchV1Schema = z
   });
 type MutableCandidateMomentBatchV1 = z.infer<typeof CandidateMomentBatchV1Schema>;
 
-type DeepReadonly<T> = T extends (...arguments_: never[]) => unknown
-  ? T
-  : T extends readonly (infer Item)[]
-    ? readonly DeepReadonly<Item>[]
-    : T extends object
-      ? { readonly [Key in keyof T]: DeepReadonly<T[Key]> }
-      : T;
+type DeepReadonly<T> = T extends object
+  ? { readonly [Key in keyof T]: DeepReadonly<T[Key]> }
+  : T;
 
 export type CandidateMomentV1 = DeepReadonly<MutableCandidateMomentV1>;
 export type CandidateMomentBatchV1 = DeepReadonly<MutableCandidateMomentBatchV1>;
