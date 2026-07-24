@@ -54,15 +54,18 @@ describe("candidate moment hardening", () => {
   it("rejects obfuscated and scheme-less URLs without rejecting ordinary dotted text", () => {
     for (const title of [
       "java\nscript:alert(1)",
-      "h t t p s ://example.com/path",
-      "www.example.com/path",
-      "//example.invalid/path",
-      "example.com/path",
-      "owner@example.org",
-      "localhost:3000/path",
-      "localhost/path",
-      "127.0.0.1:3000/path",
-      "127.0.0.1/path",
+      "Review h t t p s : // example.com/path before merge",
+      "Review www.example.com/path before merge",
+      "Review www . example . museum / path before merge",
+      "Review //example.invalid/path before merge",
+      "Review example.com/path before merge",
+      "Review example.museum/path before merge",
+      "Contact owner@example.org before merge",
+      "Contact owner @ example.museum before merge",
+      "Review localhost:3000/path before merge",
+      "Review localhost / path before merge",
+      "Review 127.0.0.1:3000/path before merge",
+      "Review 127.0.0.1 / path before merge",
     ]) {
       expect(() => CandidateMomentV1Schema.parse({ ...decisionCandidate, title })).toThrow();
     }
@@ -71,6 +74,8 @@ describe("candidate moment hardening", () => {
       "Update package.json while preserving version 1.2.3",
       "Keep Node.js compatibility",
       "Compare object.property without navigation",
+      "Record metadata: updated",
+      "Describe database: consistency",
     ]) {
       expect(CandidateMomentV1Schema.parse({ ...decisionCandidate, title }).title).toBe(title);
     }
