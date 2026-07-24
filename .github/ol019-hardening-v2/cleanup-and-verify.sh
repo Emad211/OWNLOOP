@@ -7,6 +7,7 @@ git rm .github/ol019-hardening-v2/chunk-*
 git rm .github/ol019-hardening-v2/chunks.sha256
 git rm .github/ol019-hardening-v2/cleanup-and-verify.sh
 git rm .github/ol019-hardening-v2/expected-files
+git rm .github/ol019-hardening-v2/type-fix.patch
 git rm .github/ol019-hardening-v2/verify-and-apply.sh
 git rm .github/workflows/finalize-ol019-hardening-v2.yml
 
