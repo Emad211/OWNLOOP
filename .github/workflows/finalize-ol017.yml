@@ -37,15 +37,15 @@ jobs:
           git apply --check /tmp/ol017.patch
           git apply /tmp/ol017.patch
 
-      - name: Apply exact contracts typecheck correction
+      - name: Apply exact typecheck corrections
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
 
-          path = Path("packages/contracts/src/semantic-analysis-input.ts")
-          text = path.read_text()
+          contracts = Path("packages/contracts/src/semantic-analysis-input.ts")
+          text = contracts.read_text()
           old = '''function utf8ByteLength(value: string): number {
             return new TextEncoder().encode(value).byteLength;
           }
@@ -72,7 +72,52 @@ jobs:
           '''
           if text.count(old) != 1:
               raise SystemExit("semantic input UTF-8 helper anchor changed")
-          path.write_text(text.replace(old, new, 1))
+          contracts.write_text(text.replace(old, new, 1))
+
+          reducer = Path("apps/daemon/src/semantic-input/reducer.ts")
+          text = reducer.read_text()
+          replacements = [
+              (
+                  '''function buildCandidate(
+            input: SemanticAnalysisBuilderInput,
+            runEvidenceId: string,
+          ''',
+                  '''function buildCandidate(
+            input: SemanticAnalysisBuilderInput,
+            graphOutcome: "complete" | "partial",
+            runEvidenceId: string,
+          ''',
+              ),
+              ('      outcome: input.evidenceGraph.outcome,\n', '      outcome: graphOutcome,\n'),
+              (
+                  '''      input.evidenceGraph.outcome === "complete" && !budgetTruncated ? "ready" : "partial",
+            diagnosticCode: diagnostic(input.evidenceGraph.outcome, budgetTruncated),
+          ''',
+                  '''      graphOutcome === "complete" && !budgetTruncated ? "ready" : "partial",
+            diagnosticCode: diagnostic(graphOutcome, budgetTruncated),
+          ''',
+              ),
+              (
+                  '  if (input.evidenceGraph.outcome === "unavailable") {\n',
+                  '  const graphOutcome = input.evidenceGraph.outcome;\n  if (graphOutcome === "unavailable") {\n',
+              ),
+              (
+                  '''    const prepared = buildCandidate(
+              input,
+              runNode.evidenceId,
+          ''',
+                  '''    const prepared = buildCandidate(
+              input,
+              graphOutcome,
+              runNode.evidenceId,
+          ''',
+              ),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f"semantic reducer anchor changed: {old[:50]!r}")
+              text = text.replace(old, new, 1)
+          reducer.write_text(text)
           PY
 
       - name: Set up exact Node.js
