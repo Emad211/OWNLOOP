@@ -53,7 +53,7 @@ jobs:
       - name: Format OL-017 source
         run: pnpm format
 
-      - name: Remove transfer files and verify scope
+      - name: Remove transfer files and capture scope
         shell: bash
         run: |
           set -euo pipefail
@@ -96,8 +96,24 @@ jobs:
           packages/contracts/tests/semantic-analysis-input.test.ts
           FILES
           { git diff --name-only; git diff --cached --name-only; } | sort -u > /tmp/actual-files
-          diff -u /tmp/expected-files /tmp/actual-files
+          diff -u /tmp/expected-files /tmp/actual-files > /tmp/scope.diff || true
           git diff --check
+
+      - name: Upload scope diagnostic
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ol017-scope-diagnostic
+          path: |
+            /tmp/expected-files
+            /tmp/actual-files
+            /tmp/scope.diff
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Require exact scope
+        shell: bash
+        run: test ! -s /tmp/scope.diff
 
       - name: Validate complete repository
         run: |
