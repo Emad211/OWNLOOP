@@ -5,6 +5,7 @@
 .github/ol019-hardening-v2/chunks.sha256
 .github/ol019-hardening-v2/cleanup-and-verify.sh
 .github/ol019-hardening-v2/expected-files
+.github/ol019-hardening-v2/type-fix.patch
 .github/ol019-hardening-v2/verify-and-apply.sh
 .github/workflows/export-ol019-review.yml
 .github/workflows/finalize-ol019-hardening-v2.yml
