@@ -51,6 +51,7 @@
 .github/ol019-initial/chunks.sha256
 .github/ol019-initial/cleanup-and-verify.sh
 .github/ol019-initial/expected-files
+.github/ol019-initial/test-type-fix.patch
 .github/ol019-initial/type-fix.patch
 .github/ol019-initial/verify-and-apply.sh
 .github/workflows/export-ol019-source.yml
