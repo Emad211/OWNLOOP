@@ -143,10 +143,7 @@ function safeResult(
   });
 }
 
-function semanticRecord(
-  persistence: OwnLoopPersistence,
-  runId: string,
-): RunArtifactRecord | null {
+function semanticRecord(persistence: OwnLoopPersistence, runId: string): RunArtifactRecord | null {
   return persistence.artifacts.getRecordForRunRole(runId, REDUCED_SEMANTIC_ANALYSIS_INPUT_ROLE);
 }
 
