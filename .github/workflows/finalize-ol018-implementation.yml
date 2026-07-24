@@ -64,6 +64,12 @@ jobs:
           git apply --check "$lint_fix"
           git apply "$lint_fix"
 
+          typecheck_fix=.github/ol018-fixes/typecheck.patch
+          test "$(wc -c < "$typecheck_fix")" -eq 1615
+          echo '38d5633fa659d82af7e18deef586c589e35a90f3f87f344c56b7356002202055  .github/ol018-fixes/typecheck.patch' | sha256sum --check
+          git apply --check "$typecheck_fix"
+          git apply "$typecheck_fix"
+
       - name: Set up exact Node.js
         uses: actions/setup-node@v7
         with:
@@ -86,12 +92,14 @@ jobs:
           set -euo pipefail
           git rm .github/ol018-fresh/part-*
           git rm .github/ol018-transfer/part-*
-          git rm .github/ol018-fixes/lint.patch
+          git rm .github/ol018-fixes/*.patch
+          git rm .github/workflows/diagnose-ol018-typecheck.yml
           git rm .github/workflows/recover-ol018-transfer-tail.yml
           git rm .github/workflows/finalize-ol018-implementation.yml
 
           cat > /tmp/expected-files <<'FILES'
           .github/ol018-fixes/lint.patch
+          .github/ol018-fixes/typecheck.patch
           .github/ol018-fresh/part-00
           .github/ol018-fresh/part-01
           .github/ol018-fresh/part-02
@@ -104,6 +112,7 @@ jobs:
           .github/ol018-transfer/part-02
           .github/ol018-transfer/part-03
           .github/ol018-transfer/part-04
+          .github/workflows/diagnose-ol018-typecheck.yml
           .github/workflows/export-ol018-source.yml
           .github/workflows/finalize-ol018-implementation.yml
           .github/workflows/recover-ol018-transfer-tail.yml
