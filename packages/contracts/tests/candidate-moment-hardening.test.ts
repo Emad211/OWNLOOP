@@ -51,6 +51,31 @@ describe("candidate moment hardening", () => {
     ).toThrow();
   });
 
+  it("rejects obfuscated and scheme-less URLs without rejecting ordinary dotted text", () => {
+    for (const title of [
+      "java\nscript:alert(1)",
+      "h t t p s ://example.com/path",
+      "www.example.com/path",
+      "//example.invalid/path",
+      "example.com/path",
+      "owner@example.org",
+      "localhost:3000/path",
+      "localhost/path",
+      "127.0.0.1:3000/path",
+      "127.0.0.1/path",
+    ]) {
+      expect(() => CandidateMomentV1Schema.parse({ ...decisionCandidate, title })).toThrow();
+    }
+
+    for (const title of [
+      "Update package.json while preserving version 1.2.3",
+      "Keep Node.js compatibility",
+      "Compare object.property without navigation",
+    ]) {
+      expect(CandidateMomentV1Schema.parse({ ...decisionCandidate, title }).title).toBe(title);
+    }
+  });
+
   it("preserves the fixed decision option tuple in deeply readonly parser output", () => {
     const parsed = parseCandidateMomentV1(decisionCandidate);
     expect(parsed.type).toBe("decision");
