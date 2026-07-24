@@ -1,0 +1,73 @@
+name: Format OL-017 Processor Hardening
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'agent/ol-017-reduced-semantic-input'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Format focused files
+        run: |
+          pnpm exec biome format --write \
+            apps/daemon/src/semantic-input/processor.ts \
+            apps/daemon/src/semantic-input/processor.test.ts
+
+      - name: Remove workflow and verify scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/format-ol017-processor-hardening.yml
+          cat > /tmp/expected <<'FILES'
+          .github/workflows/format-ol017-processor-hardening.yml
+          apps/daemon/src/semantic-input/processor.test.ts
+          apps/daemon/src/semantic-input/processor.ts
+          FILES
+          { git diff --name-only; git diff --cached --name-only; } | sort -u > /tmp/actual
+          diff -u /tmp/expected /tmp/actual
+          git diff --check
+
+      - name: Validate complete repository
+        run: |
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
+      - name: Publish formatted hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Preserve unavailable semantic-input limitations"
+          git push origin "HEAD:${{ github.head_ref }}"
