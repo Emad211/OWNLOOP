@@ -1,5 +1,6 @@
 name: Finalize OL-019 Initial Implementation
 
+# Owner-authorized rerun after exact Git-blob payload repair.
 on:
   pull_request:
     branches:
