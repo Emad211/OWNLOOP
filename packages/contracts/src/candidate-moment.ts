@@ -53,7 +53,7 @@ function containsLoneSurrogate(value: string): boolean {
     const codeUnit = value.charCodeAt(index);
     if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
       const nextCodeUnit = value.charCodeAt(index + 1);
-      if (nextCodeUnit < 0xdc00 || nextCodeUnit > 0xdfff) {
+      if (!(nextCodeUnit >= 0xdc00 && nextCodeUnit <= 0xdfff)) {
         return true;
       }
       index += 1;
@@ -191,7 +191,12 @@ const sharedCandidateShape = {
   title: CandidateMomentTitleSchema,
   claim: CandidateMomentClaimSchema,
   importance: CandidateMomentImportanceSchema,
-  confidenceBasisPoints: z.number().int().min(0).max(10_000),
+  confidenceBasisPoints: z
+    .number()
+    .int()
+    .min(0)
+    .max(10_000)
+    .refine((value) => !Object.is(value, -0), "Confidence cannot be negative zero."),
   evidenceIds: z
     .array(EvidenceIdSchema)
     .min(1)
