@@ -27,9 +27,15 @@ export type CandidateMomentImportance = z.infer<typeof CandidateMomentImportance
 export const CANDIDATE_DECISION_OPTIONS = ["confirm", "revise", "uncertain"] as const;
 export const CANDIDATE_RISK_OPTIONS = ["acknowledge", "mitigate", "dismiss"] as const;
 
-const dangerousUriPattern = /(?:javascript|vbscript|data)\s*:/iu;
-const ordinaryUrlPattern = /(?:https?|ftp|file)\s*:/iu;
-const mailtoPattern = /mailto\s*:/iu;
+const knownUriSchemePattern = /(?:javascript|vbscript|data|https?|ftp|file|mailto):/iu;
+const domainUrlPattern =
+  /(?:^|[^a-z0-9._-])(?:www\.)?(?:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.)+(?:com|org|net|io|dev|app|ai|co|me|info|biz|edu|gov|cloud|tech|site|online|shop|store|xyz|fr|de|uk|ir)(?::\d{1,5})?(?:[/?#][^\s<>"']*)?(?=$|[^a-z0-9_-])/iu;
+const protocolRelativeUrlPattern =
+  /(?:^|[^a-z0-9_])\/\/(?:localhost(?::\d{1,5})?|(?:[a-z0-9-]+\.)+[a-z]{2,})(?:[/?#]|$)/iu;
+const localhostUrlPattern =
+  /(?:^|[^a-z0-9_])localhost(?::\d{1,5}(?:[/?#][^\s<>"']*)?|[/?#][^\s<>"']*)(?=$|[^a-z0-9_-])/iu;
+const ipv4UrlPattern =
+  /(?:^|[^0-9])(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5}(?:[/?#][^\s<>"']*)?|[/?#][^\s<>"']*)(?=$|[^0-9])/u;
 
 function containsDisallowedControl(value: string): boolean {
   for (const character of value) {
@@ -52,6 +58,9 @@ function containsLoneSurrogate(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
     const codeUnit = value.charCodeAt(index);
     if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      if (index + 1 >= value.length) {
+        return true;
+      }
       const nextCodeUnit = value.charCodeAt(index + 1);
       if (!(nextCodeUnit >= 0xdc00 && nextCodeUnit <= 0xdfff)) {
         return true;
@@ -62,6 +71,17 @@ function containsLoneSurrogate(value: string): boolean {
     }
   }
   return false;
+}
+
+function containsUrlOrUri(value: string): boolean {
+  const compactWhitespace = value.replace(/\s+/gu, "");
+  return (
+    knownUriSchemePattern.test(compactWhitespace) ||
+    domainUrlPattern.test(compactWhitespace) ||
+    protocolRelativeUrlPattern.test(compactWhitespace) ||
+    localhostUrlPattern.test(compactWhitespace) ||
+    ipv4UrlPattern.test(compactWhitespace)
+  );
 }
 
 function utf8ByteLength(value: string): number {
@@ -104,12 +124,8 @@ function plainTextSchema(options: Readonly<{ maxCodePoints: number; maxBytes: nu
         message: "Candidate text contains raw markup delimiters.",
       });
     }
-    if (
-      dangerousUriPattern.test(value) ||
-      ordinaryUrlPattern.test(value) ||
-      mailtoPattern.test(value)
-    ) {
-      context.addIssue({ code: "custom", message: "Candidate text contains a URI." });
+    if (containsUrlOrUri(value)) {
+      context.addIssue({ code: "custom", message: "Candidate text contains a URL or URI." });
     }
     if ([...value].length > options.maxCodePoints) {
       context.addIssue({ code: "custom", message: "Candidate text exceeds its code-point limit." });
