@@ -125,8 +125,28 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      - name: Typecheck
-        run: pnpm typecheck
+      - name: Capture typecheck
+        shell: bash
+        run: |
+          set +e
+          pnpm typecheck > /tmp/ol017-typecheck.log 2>&1
+          printf '%s\n' "$?" > /tmp/ol017-typecheck.status
+          exit 0
+
+      - name: Upload typecheck diagnostic
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ol017-typecheck-diagnostic
+          path: |
+            /tmp/ol017-typecheck.log
+            /tmp/ol017-typecheck.status
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Require typecheck
+        shell: bash
+        run: test "$(cat /tmp/ol017-typecheck.status)" -eq 0
 
       - name: Test
         run: pnpm test
