@@ -1621,6 +1621,19 @@ CREATE TABLE candidate_generations (
   completed_at TEXT NOT NULL CHECK (length(trim(completed_at)) > 0 AND completed_at >= started_at),
   attempt_count INTEGER NOT NULL CHECK (attempt_count >= 0 AND attempt_count <= 3),
   record_json TEXT NOT NULL CHECK (json_valid(record_json) AND json_type(record_json) = 'object'),
+  CHECK (json_extract(record_json, '$.generationId') = generation_id),
+  CHECK (json_extract(record_json, '$.generationKey') = generation_key),
+  CHECK (json_extract(record_json, '$.runId') = run_id),
+  CHECK (json_extract(record_json, '$.finalizationId') = finalization_id),
+  CHECK (json_extract(record_json, '$.semanticInputArtifactId') = semantic_input_artifact_id),
+  CHECK (json_extract(record_json, '$.candidateArtifactId') IS candidate_artifact_id),
+  CHECK (json_extract(record_json, '$.candidateArtifactRole') IS candidate_artifact_role),
+  CHECK (json_extract(record_json, '$.requestFingerprint') = request_fingerprint),
+  CHECK (json_extract(record_json, '$.providerConfigFingerprint') = provider_config_fingerprint),
+  CHECK (json_extract(record_json, '$.status') = status),
+  CHECK (json_extract(record_json, '$.startedAt') = started_at),
+  CHECK (json_extract(record_json, '$.completedAt') = completed_at),
+  CHECK (json_array_length(record_json, '$.attempts') = attempt_count),
   CHECK (
     (status = 'succeeded'
       AND candidate_artifact_id IS NOT NULL

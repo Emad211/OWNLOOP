@@ -8,6 +8,10 @@ const safeModelSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/u
 const sha256FingerprintSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
 const semanticFingerprintSchema = z.string().regex(/^[0-9a-f]{64}$/u);
 const timestampSchema = z.iso.datetime({ offset: true, precision: 3 });
+
+function timestampMillis(value: string): number {
+  return Date.parse(value);
+}
 const providerRequestIdSchema = z
   .string()
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u)
@@ -101,7 +105,7 @@ export const CandidateGenerationAttemptV1Schema = z
     retryDelayMs: z.number().int().min(0).max(60_000),
   })
   .superRefine((value, context) => {
-    if (value.completedAt < value.startedAt) {
+    if (timestampMillis(value.completedAt) < timestampMillis(value.startedAt)) {
       context.addIssue({ code: "custom", message: "Attempt completion precedes start." });
     }
     const requiresHttp = [
@@ -278,7 +282,7 @@ export const CandidateGenerationRecordV1Schema = z
     candidateCounts: CandidateGenerationCandidateCountsV1Schema,
   })
   .superRefine((value, context) => {
-    if (value.completedAt < value.startedAt) {
+    if (timestampMillis(value.completedAt) < timestampMillis(value.startedAt)) {
       context.addIssue({ code: "custom", message: "Generation completion precedes start." });
     }
     for (let index = 0; index < value.attempts.length; index += 1) {
@@ -290,6 +294,54 @@ export const CandidateGenerationRecordV1Schema = z
     if (value.attempts.length > value.providerConfig.retryPolicy.maxAttempts) {
       context.addIssue({ code: "custom", message: "Generation exceeds its retry policy." });
     }
+    const firstAttempt = value.attempts[0];
+    const lastAttempt = value.attempts.at(-1);
+    if (firstAttempt !== undefined && value.startedAt !== firstAttempt.startedAt) {
+      context.addIssue({
+        code: "custom",
+        message: "Generation start differs from its first attempt.",
+      });
+    }
+    if (lastAttempt !== undefined && value.completedAt !== lastAttempt.completedAt) {
+      context.addIssue({
+        code: "custom",
+        message: "Generation completion differs from its last attempt.",
+      });
+    }
+    for (let index = 1; index < value.attempts.length; index += 1) {
+      const previous = value.attempts[index - 1];
+      const current = value.attempts[index];
+      if (
+        previous !== undefined &&
+        current !== undefined &&
+        timestampMillis(current.startedAt) < timestampMillis(previous.completedAt)
+      ) {
+        context.addIssue({ code: "custom", message: "Generation attempts overlap or regress." });
+        break;
+      }
+      if (
+        previous !== undefined &&
+        !["http_transient", "timeout", "transport_error"].includes(previous.outcome)
+      ) {
+        context.addIssue({ code: "custom", message: "Generation retried a permanent attempt." });
+        break;
+      }
+    }
+    if (lastAttempt !== undefined && lastAttempt.retryDelayMs !== 0) {
+      context.addIssue({
+        code: "custom",
+        message: "Final generation attempt cannot retain retry delay.",
+      });
+    }
+    const lastObservedProviderRequestId =
+      [...value.attempts].reverse().find((item) => item.providerRequestId !== null)
+        ?.providerRequestId ?? null;
+    if (value.providerRequestId !== lastObservedProviderRequestId) {
+      context.addIssue({
+        code: "custom",
+        message: "Generation provider request identity differs.",
+      });
+    }
     const hasCandidate =
       value.candidateArtifactId !== null &&
       value.candidateArtifactRole !== null &&
@@ -299,6 +351,15 @@ export const CandidateGenerationRecordV1Schema = z
       (value.candidateArtifactId === null) !== (value.candidateFingerprint === null)
     ) {
       context.addIssue({ code: "custom", message: "Candidate artifact identity is incomplete." });
+    }
+    if (
+      value.candidateArtifactRole !== null &&
+      value.candidateArtifactRole !== `candidate-moment-batch-v1.${value.generationId}`
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Candidate artifact role differs from generation.",
+      });
     }
     if (value.status === "succeeded") {
       if (!hasCandidate || value.diagnosticCode !== "completed" || value.attempts.length < 1) {
@@ -453,6 +514,9 @@ export const CandidateGenerationResultV1Schema = z
         value.usage !== null
       ) {
         context.addIssue({ code: "custom", message: "Failed result contains successful output." });
+      }
+      if (["completed", "disabled", "semantic_input_unavailable"].includes(value.diagnosticCode)) {
+        context.addIssue({ code: "custom", message: "Failed result diagnostic is invalid." });
       }
     }
   });

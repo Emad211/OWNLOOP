@@ -51,6 +51,23 @@ describe("Responses Candidate adapter", () => {
     expect(transport).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects JSON-prefixed non-JSON media types", async () => {
+    const transport = vi.fn<CandidateGenerationTransport>(async () => ({
+      ...completed(JSON.stringify({ schemaVersion: 1, candidates: [] })),
+      headers: { "content-type": "application/jsonp" },
+    }));
+    const result = await generateCandidateBatchWithResponsesAdapter(
+      { transport },
+      request(),
+      TEST_PROVIDER,
+    );
+    expect(result).toMatchObject({
+      status: "invalid_response",
+      diagnosticCode: "invalid_content_type",
+    });
+    expect(transport).toHaveBeenCalledTimes(1);
+  });
+
   it("does not repair Markdown-fenced Candidate output or retry schema failures", async () => {
     const transport = vi.fn<CandidateGenerationTransport>(async () =>
       completed('```json\n{"schemaVersion":1,"candidates":[]}\n```'),

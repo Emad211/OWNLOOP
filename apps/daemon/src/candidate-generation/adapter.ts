@@ -276,8 +276,8 @@ export async function generateCandidateBatchWithResponsesAdapter(
         );
         return failure("provider_rejected", "http_permanent_failure", attempts, lastRequestId);
       }
-      const contentType = response.headers["content-type"]?.toLowerCase() ?? "";
-      if (!contentType.startsWith("application/json")) {
+      const contentType = response.headers["content-type"]?.trim().toLowerCase();
+      if (contentType === undefined || !/^application\/json(?:\s*;|$)/u.test(contentType)) {
         attempts.push(
           attempt({
             attemptNumber,

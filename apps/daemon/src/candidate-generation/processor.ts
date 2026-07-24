@@ -232,6 +232,18 @@ export async function readValidatedCandidateGeneration(
       );
     }
     const content = await dependencies.artifactStore.readPreparedBytes(record.candidateArtifactId);
+    if (
+      content.artifactId !== record.candidateArtifactId ||
+      content.kind !== CANDIDATE_GENERATION_ARTIFACT_KIND ||
+      content.mediaType !== CANDIDATE_GENERATION_ARTIFACT_MEDIA_TYPE ||
+      content.sensitivity !== CANDIDATE_GENERATION_ARTIFACT_SENSITIVITY ||
+      content.sizeBytes !== artifact.artifact.sizeBytes
+    ) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The Candidate batch read metadata differs.",
+      );
+    }
     const candidate = parseCanonicalCandidateMomentBatch(content.bytes);
     const expectedCounts = counts(candidate.value);
     if (
@@ -404,7 +416,9 @@ export async function generateEligibleFinalizedRunCandidateBatches(
   const runIds = dependencies.persistence.candidateGenerations.listSemanticInputRunIds(limit);
   const results: CandidateGenerationResultV1[] = [];
   for (const runId of runIds) {
-    results.push(await generateFinalizedRunCandidateBatch(dependencies, runId, options));
+    const result = await generateFinalizedRunCandidateBatch(dependencies, runId, options);
+    results.push(result);
+    if (result.diagnosticCode === "aborted") break;
   }
   return results;
 }

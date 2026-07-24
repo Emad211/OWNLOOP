@@ -1,9 +1,0 @@
-icProviderAddress(address: string): boolean {
-   const family = isIP(address);
--  if (family === 4) return !BLOCKED_NETWORKS.check(address, "ipv4");
--  if (family === 6) return !BLOCKED_NETWORKS.check(address, "ipv6");
-+  if (family === 4) return !BLOCKED_IPV4_NETWORKS.check(address, "ipv4");
-+  if (family === 6) return !BLOCKED_IPV6_NETWORKS.check(address, "ipv6");
-   return false;
- }
- 
