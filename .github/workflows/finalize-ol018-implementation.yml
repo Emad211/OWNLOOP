@@ -1,5 +1,6 @@
 name: Finalize OL-018 Implementation
 
+# Owner-authorized execution after checksum-verified part correction.
 on:
   pull_request:
     branches:
