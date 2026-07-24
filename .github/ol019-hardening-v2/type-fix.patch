@@ -1,0 +1,12 @@
+diff --git a/packages/contracts/src/candidate-validation.ts b/packages/contracts/src/candidate-validation.ts
+index ab26753..c17b6e8 100644
+--- a/packages/contracts/src/candidate-validation.ts
++++ b/packages/contracts/src/candidate-validation.ts
+@@ -446,6 +446,7 @@ export const CandidateValidationReportV1Schema = z
+         representativeIndex === null ? undefined : value.items[representativeIndex];
+       if (
+         groupId === null ||
++        representativeIndex === null ||
+         representative === undefined ||
+         representative.decision === "rejected" ||
+         representative.reasons.includes("duplicate_candidate")
