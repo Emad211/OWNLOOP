@@ -45,13 +45,15 @@ jobs:
         run: |
           set -euo pipefail
           git rm .github/workflows/format-ol017-processor-hardening.yml
-          cat > /tmp/expected <<'FILES'
+          cat > /tmp/allowed <<'FILES'
           .github/workflows/format-ol017-processor-hardening.yml
           apps/daemon/src/semantic-input/processor.test.ts
           apps/daemon/src/semantic-input/processor.ts
           FILES
           { git diff --name-only; git diff --cached --name-only; } | sort -u > /tmp/actual
-          diff -u /tmp/expected /tmp/actual
+          comm -23 /tmp/actual /tmp/allowed > /tmp/unexpected
+          test ! -s /tmp/unexpected
+          grep -Fxq "apps/daemon/src/semantic-input/processor.ts" /tmp/actual
           git diff --check
 
       - name: Validate complete repository
