@@ -1,4 +1,4 @@
-name: Reconstruct OL-018 Partial Patch
+name: Diagnose OL-018 Partial Patch
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  reconstruct:
+  diagnose:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.head_ref == 'agent/ol-018-provider-candidate-generation'
@@ -21,59 +21,88 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
 
-      - name: Reconstruct verified prefix and partial patch
+      - name: Diagnose candidate reconstruction
         shell: bash
         run: |
-          set -euo pipefail
+          set -u
           out=/tmp/ol018-reconstruction
           mkdir -p "$out"
           old_blob=f1f4b23764a15cee4994487741e926684d89296a
-          git cat-file blob "$old_blob" > "$out/historical-part04-plus-prefix"
-
-          cp .github/ol018-transfer/part-04 "$out/correct-part-03"
-          head -c 6000 "$out/historical-part04-plus-prefix" > "$out/correct-part-04"
-          tail -c +6001 "$out/historical-part04-plus-prefix" > "$out/part-05-known-prefix"
-
-          test "$(wc -c < "$out/correct-part-03")" -eq 6000
-          test "$(wc -c < "$out/correct-part-04")" -eq 6000
-          test "$(wc -c < "$out/part-05-known-prefix")" -eq 264
-
-          cat .github/ol018-transfer/part-00 \
-              .github/ol018-transfer/part-01 \
-              .github/ol018-transfer/part-02 \
-              "$out/correct-part-03" \
-              "$out/correct-part-04" \
-              "$out/part-05-known-prefix" > "$out/known-prefix.b64"
-          test "$(wc -c < "$out/known-prefix.b64")" -eq 30264
-          base64 --decode "$out/known-prefix.b64" > "$out/partial.patch.gz"
+          git cat-file blob "$old_blob" > "$out/historical"
+          cp .github/ol018-transfer/part-04 "$out/current-part04"
+          head -c 6000 "$out/historical" > "$out/historical-first6000"
+          tail -c +6001 "$out/historical" > "$out/historical-tail"
 
           python3 - <<'PY'
           from pathlib import Path
+          import base64
           import hashlib
           import zlib
 
+          root = Path('.')
           out = Path('/tmp/ol018-reconstruction')
-          compressed = (out / 'partial.patch.gz').read_bytes()
-          decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
-          raw = decoder.decompress(compressed)
-          (out / 'partial.patch').write_bytes(raw)
-          report = [
-              f'known_base64_size={(out / "known-prefix.b64").stat().st_size}',
-              f'partial_gzip_size={len(compressed)}',
-              f'partial_gzip_sha256={hashlib.sha256(compressed).hexdigest()}',
-              f'partial_raw_size={len(raw)}',
-              f'partial_raw_sha256={hashlib.sha256(raw).hexdigest()}',
-              f'gzip_eof={str(decoder.eof).lower()}',
-              f'missing_base64_size={34004 - (out / "known-prefix.b64").stat().st_size}',
-          ]
+          report: list[str] = []
+          for name in ['part-00', 'part-01', 'part-02', 'part-03', 'part-04']:
+              data = (root / '.github' / 'ol018-transfer' / name).read_bytes()
+              report.append(f'{name}_size={len(data)}')
+              report.append(f'{name}_sha256={hashlib.sha256(data).hexdigest()}')
+          historical = (out / 'historical').read_bytes()
+          current04 = (out / 'current-part04').read_bytes()
+          first6000 = (out / 'historical-first6000').read_bytes()
+          historical_tail = (out / 'historical-tail').read_bytes()
+          report.extend([
+              f'historical_size={len(historical)}',
+              f'historical_sha256={hashlib.sha256(historical).hexdigest()}',
+              f'current04_git_blob_match={str(len(current04) == 6000).lower()}',
+              f'historical_first6000_size={len(first6000)}',
+              f'historical_tail_size={len(historical_tail)}',
+          ])
+
+          candidates = {
+              'assumption_a': b''.join([
+                  (root / '.github/ol018-transfer/part-00').read_bytes(),
+                  (root / '.github/ol018-transfer/part-01').read_bytes(),
+                  (root / '.github/ol018-transfer/part-02').read_bytes(),
+                  current04,
+                  first6000,
+                  historical_tail,
+              ]),
+              'repository_order': b''.join(
+                  (root / '.github/ol018-transfer' / f'part-0{i}').read_bytes()
+                  for i in range(5)
+              ),
+          }
+          for label, payload in candidates.items():
+              (out / f'{label}.b64').write_bytes(payload)
+              report.append(f'{label}_b64_size={len(payload)}')
+              try:
+                  compressed = base64.b64decode(payload, validate=True)
+                  (out / f'{label}.gz').write_bytes(compressed)
+                  report.append(f'{label}_base64=success')
+                  report.append(f'{label}_gzip_size={len(compressed)}')
+                  report.append(f'{label}_gzip_sha256={hashlib.sha256(compressed).hexdigest()}')
+                  decoder = zlib.decompressobj(16 + zlib.MAX_WBITS)
+                  try:
+                      raw = decoder.decompress(compressed)
+                      (out / f'{label}.patch').write_bytes(raw)
+                      report.append(f'{label}_zlib=success')
+                      report.append(f'{label}_raw_size={len(raw)}')
+                      report.append(f'{label}_raw_sha256={hashlib.sha256(raw).hexdigest()}')
+                      report.append(f'{label}_gzip_eof={str(decoder.eof).lower()}')
+                  except Exception as error:
+                      report.append(f'{label}_zlib=failure:{type(error).__name__}:{error}')
+              except Exception as error:
+                  report.append(f'{label}_base64=failure:{type(error).__name__}:{error}')
+
           (out / 'report.txt').write_text('\n'.join(report) + '\n', encoding='utf-8')
           print('\n'.join(report))
           PY
 
-      - name: Upload reconstruction
+      - name: Upload diagnostic
+        if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: ol018-partial-patch-reconstruction
+          name: ol018-partial-patch-diagnostic
           path: /tmp/ol018-reconstruction
           if-no-files-found: error
           retention-days: 1
