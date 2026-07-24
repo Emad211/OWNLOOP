@@ -1517,6 +1517,80 @@ BEGIN
 END;
 `;
 
+const REDUCED_SEMANTIC_ANALYSIS_INPUT_ARTIFACT_SQL = `
+CREATE TABLE reduced_semantic_analysis_input_v14_validation (
+  valid INTEGER NOT NULL CHECK (valid = 1)
+) STRICT;
+
+INSERT INTO reduced_semantic_analysis_input_v14_validation (valid)
+SELECT CASE WHEN
+  NOT EXISTS (
+    SELECT 1
+    FROM run_artifacts ra
+    LEFT JOIN artifacts a ON a.artifact_id = ra.artifact_id
+    LEFT JOIN run_finalizations rf ON rf.run_id = ra.run_id
+    LEFT JOIN task_runs tr ON tr.run_id = ra.run_id
+    WHERE ra.role = 'reduced-semantic-analysis-input-v1'
+      AND (
+        a.artifact_id IS NULL
+        OR a.storage_version <> 1
+        OR a.kind <> 'reduced-semantic-analysis-input-v1'
+        OR a.media_type <> 'application/vnd.ownloop.semantic-analysis-input+json'
+        OR a.sensitivity <> 'sensitive'
+        OR a.size_bytes > 524288
+        OR rf.run_id IS NULL
+        OR tr.status NOT IN ('Completed', 'Partial', 'Abandoned', 'Failed')
+      )
+  )
+  AND NOT EXISTS (
+    SELECT ra.run_id
+    FROM run_artifacts ra
+    WHERE ra.role = 'reduced-semantic-analysis-input-v1'
+    GROUP BY ra.run_id
+    HAVING count(*) > 1
+  )
+THEN 1 ELSE 0 END;
+
+DROP TABLE reduced_semantic_analysis_input_v14_validation;
+
+CREATE UNIQUE INDEX run_artifacts_reduced_semantic_analysis_input_v1_unique
+ON run_artifacts (run_id)
+WHERE role = 'reduced-semantic-analysis-input-v1';
+
+CREATE TRIGGER run_artifacts_validate_reduced_semantic_analysis_input_v1
+BEFORE INSERT ON run_artifacts
+WHEN NEW.role = 'reduced-semantic-analysis-input-v1'
+BEGIN
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1 FROM artifacts a
+    WHERE a.artifact_id = NEW.artifact_id
+      AND a.storage_version = 1
+      AND a.kind = 'reduced-semantic-analysis-input-v1'
+      AND a.media_type = 'application/vnd.ownloop.semantic-analysis-input+json'
+      AND a.sensitivity = 'sensitive'
+      AND a.size_bytes <= 524288
+  ) THEN RAISE(ABORT, 'invalid reduced semantic analysis input artifact metadata') END;
+
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1
+    FROM run_finalizations rf
+    JOIN task_runs tr ON tr.run_id = rf.run_id
+    WHERE rf.run_id = NEW.run_id
+      AND tr.status IN ('Completed', 'Partial', 'Abandoned', 'Failed')
+  ) THEN RAISE(ABORT, 'reduced semantic analysis input requires a finalized Run') END;
+END;
+
+CREATE TRIGGER artifacts_preserve_reduced_semantic_analysis_input_sensitivity_v1
+BEFORE UPDATE OF sensitivity ON artifacts
+WHEN OLD.storage_version = 1
+  AND OLD.kind = 'reduced-semantic-analysis-input-v1'
+  AND OLD.media_type = 'application/vnd.ownloop.semantic-analysis-input+json'
+  AND NEW.sensitivity <> 'sensitive'
+BEGIN
+  SELECT RAISE(ABORT, 'reduced semantic analysis input sensitivity is immutable');
+END;
+`;
+
 export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   Object.freeze({
     version: 1,
@@ -1582,5 +1656,10 @@ export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
     version: 13,
     name: "deterministic_evidence_graph_artifact",
     sql: DETERMINISTIC_EVIDENCE_GRAPH_ARTIFACT_SQL,
+  }),
+  Object.freeze({
+    version: 14,
+    name: "reduced_semantic_analysis_input_artifact",
+    sql: REDUCED_SEMANTIC_ANALYSIS_INPUT_ARTIFACT_SQL,
   }),
 ]);

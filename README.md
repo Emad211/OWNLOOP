@@ -8,12 +8,12 @@ The project observes a coding-agent Task Run, captures verifiable changes and ev
 
 ## Current status
 
-- Stage: v0.1 evidence-backed Candidate Moment contract
+- Stage: v0.1 deterministic reduced semantic-analysis input
 - Product scope: proposed v0.1
 - First coding-agent adapter: Claude Code
 - First project languages: JavaScript and TypeScript
 - Runtime model: local single-user prototype
-- Repository state: trustworthy deterministic evidence foundation plus strict Candidate Moment contracts in development
+- Repository state: trustworthy deterministic evidence foundation plus strict Candidate contracts and reduced semantic-input construction in development
 
 ## Local setup
 
@@ -55,7 +55,7 @@ pnpm build
 
 Use `pnpm format` to apply formatting.
 
-The shared packages provide strict ingress, Event, Raw Replay, change-classification, verification-evidence, Evidence Graph, and evidence-backed Candidate Moment contracts. The daemon modules expose authenticated ingress, evidence capture, finalization, replay projection, contained same-origin static delivery, deterministic evidence processors, and Run-scoped evidence resolution. The Claude Code hook adapter remains fail-open and outside the agent critical path.
+The shared packages provide strict ingress, Event, Raw Replay, change-classification, verification-evidence, Evidence Graph, Candidate Moment, and reduced semantic-analysis input contracts. The daemon modules expose authenticated ingress, evidence capture, finalization, replay projection, contained same-origin static delivery, deterministic evidence processors, and Run-scoped evidence resolution. The Claude Code hook adapter remains fail-open and outside the agent critical path.
 
 ## Design principles
 
@@ -83,6 +83,7 @@ The shared packages provide strict ingress, Event, Raw Replay, change-classifica
 - [ADR-0016: Deterministic Verification Evidence Extraction](docs/adr/0016-deterministic-verification-evidence-extraction.md)
 - [ADR-0017: Deterministic Locally Resolvable Evidence Graph](docs/adr/0017-deterministic-locally-resolvable-evidence-graph.md)
 - [ADR-0018: Strict Evidence-Backed Candidate-Moment Contracts](docs/adr/0018-strict-evidence-backed-candidate-moment-contracts.md)
+- [ADR-0019: Deterministic Reduced Semantic-Analysis Input](docs/adr/0019-deterministic-reduced-semantic-analysis-input.md)
 
 ### Architecture
 
@@ -101,9 +102,10 @@ Claude Code hook
 → deterministic verification evidence
 → deterministic locally resolvable Evidence Graph
 → strict evidence-backed Candidate Moment contract
+→ deterministic reduced and redacted semantic-analysis input
 ```
 
-AI candidate generation begins only after deterministic classification, verification extraction, Evidence Graph validation, and strict candidate contracts are trustworthy.
+Provider integration begins only after deterministic classification, verification extraction, Evidence Graph validation, strict Candidate contracts, and privacy-bounded semantic input are trustworthy.
 
 ## Contribution state
 
