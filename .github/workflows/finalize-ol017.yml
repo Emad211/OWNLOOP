@@ -95,7 +95,11 @@ jobs:
           packages/contracts/src/semantic-analysis-input.ts
           packages/contracts/tests/semantic-analysis-input.test.ts
           FILES
-          { git diff --name-only; git diff --cached --name-only; } | sort -u > /tmp/actual-files
+          {
+            git diff --name-only
+            git diff --cached --name-only
+            git ls-files --others --exclude-standard
+          } | sort -u > /tmp/actual-files
           diff -u /tmp/expected-files /tmp/actual-files > /tmp/scope.diff || true
           git diff --check
 
