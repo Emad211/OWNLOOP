@@ -18,6 +18,7 @@
 .github/ol018-hardening-v3/chunks.sha256
 .github/ol018-hardening-v3/cleanup-and-verify.sh
 .github/ol018-hardening-v3/expected-files
+.github/ol018-hardening-v3/type-fix.patch
 .github/ol018-hardening-v3/verify-and-apply.sh
 .github/workflows/export-ol018-review.yml
 .github/workflows/finalize-ol018-hardening-v3.yml
