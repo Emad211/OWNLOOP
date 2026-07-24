@@ -7,6 +7,7 @@ git rm .github/ol019-initial/chunk-*
 git rm .github/ol019-initial/chunks.sha256
 git rm .github/ol019-initial/cleanup-and-verify.sh
 git rm .github/ol019-initial/expected-files
+git rm .github/ol019-initial/type-fix.patch
 git rm .github/ol019-initial/verify-and-apply.sh
 git rm .github/workflows/finalize-ol019-initial.yml
 
