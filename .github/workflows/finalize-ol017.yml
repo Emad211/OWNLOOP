@@ -119,13 +119,20 @@ jobs:
         shell: bash
         run: test ! -s /tmp/scope.diff
 
-      - name: Validate complete repository
-        run: |
-          pnpm format:check
-          pnpm lint
-          pnpm typecheck
-          pnpm test
-          pnpm build
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
 
       - name: Publish OL-017 implementation
         shell: bash
