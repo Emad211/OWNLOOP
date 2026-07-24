@@ -1,11 +1,18 @@
 import { CANDIDATE_MOMENT_SCHEMA_VERSION } from "@ownloop/contracts";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { readValidatedRunEvidenceGraph } from "../evidence-graph/index.js";
 import type { SemanticAnalysisInputDependencies } from "./processor.js";
 import {
   prepareEligibleFinalizedRunSemanticAnalysisInputs,
   prepareFinalizedRunSemanticAnalysisInput,
 } from "./processor.js";
+
+vi.mock("../evidence-graph/index.js", () => ({
+  readValidatedRunEvidenceGraph: vi.fn(),
+}));
+
+const mockedReadValidatedRunEvidenceGraph = vi.mocked(readValidatedRunEvidenceGraph);
 
 function unreadableDependencies(): SemanticAnalysisInputDependencies {
   const forbidden = new Proxy(
@@ -22,7 +29,36 @@ function unreadableDependencies(): SemanticAnalysisInputDependencies {
   } as SemanticAnalysisInputDependencies;
 }
 
+function unavailableGraphDependencies(): SemanticAnalysisInputDependencies {
+  const forbiddenArtifactStore = new Proxy(
+    {},
+    {
+      get() {
+        throw new Error("unavailable Evidence Graph triggered an artifact read");
+      },
+    },
+  );
+  return {
+    persistence: {
+      taskRuns: {
+        get: () => ({ status: "Partial" }),
+      },
+      runFinalizations: {
+        getByRun: () => ({ finalizationId: "finalization-1" }),
+      },
+      artifacts: {
+        getRecordForRunRole: () => null,
+      },
+    },
+    artifactStore: forbiddenArtifactStore,
+  } as unknown as SemanticAnalysisInputDependencies;
+}
+
 describe("semantic-analysis input processor", () => {
+  beforeEach(() => {
+    mockedReadValidatedRunEvidenceGraph.mockReset();
+  });
+
   it("returns disabled before any sensitive read or write", async () => {
     await expect(
       prepareFinalizedRunSemanticAnalysisInput(unreadableDependencies(), "run-1", {
@@ -54,5 +90,28 @@ describe("semantic-analysis input processor", () => {
         enabled: false,
       }),
     ).resolves.toEqual([]);
+  });
+
+  it("preserves controlled Evidence Graph limitations for unavailable input", async () => {
+    mockedReadValidatedRunEvidenceGraph.mockResolvedValueOnce({
+      artifactId: "graph-artifact",
+      value: {
+        outcome: "unavailable",
+        limitations: ["verification_unavailable", "evidence_gaps_present"],
+      },
+    } as never);
+
+    await expect(
+      prepareFinalizedRunSemanticAnalysisInput(unavailableGraphDependencies(), "run-1", {
+        enabled: true,
+      }),
+    ).resolves.toMatchObject({
+      runId: "run-1",
+      outcome: "unavailable",
+      diagnosticCode: "source_unavailable",
+      limitations: ["verification_unavailable", "evidence_gaps_present"],
+      artifactId: null,
+    });
+    expect(mockedReadValidatedRunEvidenceGraph).toHaveBeenCalledTimes(1);
   });
 });
