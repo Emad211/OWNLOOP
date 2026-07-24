@@ -1,0 +1,21 @@
+--- a/apps/daemon/src/candidate-generation/processor-batch.test.ts
++++ b/apps/daemon/src/candidate-generation/processor-batch.test.ts
+@@ -1,19 +1,19 @@
+ import { beforeEach, describe, expect, it, vi } from "vitest";
+ 
+-import { readValidatedRunSemanticAnalysisInputValue } from "../semantic-input/index.js";
++import { readValidatedRunSemanticAnalysisInput } from "../semantic-input/index.js";
+ import { generateCandidateBatchWithResponsesAdapter } from "./adapter.js";
+ import { generateEligibleFinalizedRunCandidateBatches } from "./processor.js";
+ import { preparedSemanticInput, TEST_PROVIDER } from "./test-fixture.js";
+ 
+ vi.mock("../semantic-input/index.js", () => ({
+-  readValidatedRunSemanticAnalysisInputValue: vi.fn(),
++  readValidatedRunSemanticAnalysisInput: vi.fn(),
+ }));
+ vi.mock("./adapter.js", async (importOriginal) => {
+   const actual = await importOriginal<typeof import("./adapter.js")>();
+   return { ...actual, generateCandidateBatchWithResponsesAdapter: vi.fn() };
+ });
+ 
+-c
