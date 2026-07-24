@@ -4,7 +4,7 @@ These instructions apply to the entire repository.
 
 ## Product boundary
 
-OwnLoop is a local-first Human Ownership Layer for AI-generated software. The accepted direction is defined by the product scope, C4 architecture, backlog amendments, and ADR-0001 through ADR-0017.
+OwnLoop is a local-first Human Ownership Layer for AI-generated software. The accepted direction is defined by the product scope, C4 architecture, backlog amendments, and ADR-0001 through ADR-0018.
 
 Read the relevant documents before changing code. Do not silently reinterpret an accepted decision. Architectural changes require a new ADR.
 
@@ -13,13 +13,14 @@ Read the relevant documents before changing code. Do not silently reinterpret an
 - Work on exactly one issue at a time and keep the Pull Request independently reviewable.
 - Do not modify unrelated files or add speculative behavior.
 - Never commit secrets, credentials, installation tokens, `.env` contents, database files, raw Git output, prepared artifact bytes, source-file content, machine-specific roots, or exception stacks.
-- Do not weaken strict contracts, runtime validation, type checking, linting, tests, database constraints, append-only evidence, artifact verification, transactionality, idempotency, or version discipline.
-- OL-015 may consume only accepted persisted Run relationships and validated OL-013/OL-014 artifacts.
-- Graph edges must be persisted or artifact-backed; timestamp, text, filename, tool-name, and similarity inference are forbidden.
-- Diff hunks are not retained. Do not create hunk nodes or hunk-level support claims.
-- Evidence IDs must remain stable, opaque, Run-scoped, and free of paths, hashes, commands, output, prompts, sessions, digests, and storage paths.
-- Graph artifacts and safe resolution responses must remain privacy-bounded and deterministic.
-- Do not add graph tables, caches, schedulers, repository/source reads, Git/command execution, AI/model calls, CORS, or a second listener.
+- Do not weaken strict contracts, runtime validation, type checking, linting, tests, evidence-addressing, immutability, or version discipline.
+- OL-016 is contracts-only and must remain pure, provider-independent, and free of persistence or execution behavior.
+- Every Candidate Moment requires one or more strict OL-015 Evidence IDs; missing evidence is malformed input.
+- Candidate type and interaction kind must remain compatible and finite.
+- Model-authored strings must remain NFC-normalized, bounded plain text without controls, raw markup, URLs, dangerous URI schemes, callbacks, commands, or executable fields.
+- Malformed or extra model output is rejected rather than repaired, normalized, stripped, logged, or silently widened.
+- Confidence is a structured generator signal, not proof, probability, support validation, or permission to bypass OL-019.
+- Do not resolve Evidence IDs, call providers/models, construct prompts, persist candidates, add routes/UI, or introduce scheduling in OL-016.
 
 ## Technical baseline
 
@@ -33,18 +34,15 @@ Read the relevant documents before changing code. Do not silently reinterpret an
 - CI: GitHub Actions
 - Formatting/linting: Biome
 
-No new runtime dependency is authorized for OL-015.
+No new runtime dependency is authorized for OL-016.
 
 ## Repository placement
 
-- strict graph and resolution contracts belong in `packages/contracts/`;
-- pure construction, canonical artifacts, explicit processors, and resolution belong in `apps/daemon/src/evidence-graph/`;
-- SQL remains inside migration definitions and existing persistence repositories;
-- authenticated resolution extends the existing Replay server;
-- UI changes are factual evidence navigation only;
-- architectural policy belongs in ADR-0017.
+- strict Candidate Moment contracts and pure parsers belong in `packages/contracts/`;
+- architectural policy belongs in ADR-0018;
+- no daemon, persistence, API, UI, artifact, provider, or prompt module is authorized for OL-016.
 
-Do not create a graph database/table, mutable edge cache, new package/service/listener, scheduler, or visualization dependency.
+Do not create a new package, migration, artifact role, service, listener, scheduler, or runtime dependency.
 
 ## Quality gates
 
@@ -58,13 +56,13 @@ pnpm test
 pnpm build
 ```
 
-Focused OL-015 tests must prove strict graph/resolution contracts, stable IDs and canonical bytes, persisted/artifact-backed relationships only, explicit limitations, migration v13, idempotency/concurrency, rollback/orphan cleanup, restart/tamper detection, Run-scoped authenticated resolution, Raw Replay evidence IDs, accessible UI navigation, and no repository/AI boundary.
+Focused OL-016 tests must prove all four strict Candidate types, mandatory unique Evidence IDs, type-compatible finite interactions, fixed decision/risk options, bounded check choices, plain-text/URI/HTML/control safety, confidence/importance/count/byte bounds, extra-field rejection, immutable clone helpers, package-root exports, and no I/O/persistence/provider boundary.
 
 Never claim a check passed unless it completed successfully.
 
 ## Git and Pull Request discipline
 
-- Base implementation on `agent/ol-015-evidence-graph` from current `main`.
+- Base implementation on `agent/ol-016-candidate-moment-contracts` from current `main`.
 - Make focused commits and leave the worktree clean.
 - Do not push directly to `main`.
 - Keep the PR draft until clean-checkout CI and final review pass.
@@ -73,17 +71,17 @@ Never claim a check passed unless it completed successfully.
 
 ## Current phase restriction
 
-The active issue is `OL-015: Build a deterministic locally resolvable evidence graph` (#44).
+The active issue is `OL-016: Define strict evidence-backed candidate-moment contracts` (#46).
 
-Before implementing, read Issue #44, ADR-0009 and ADR-0011 through ADR-0017, the Event, reconciliation, finalization, OL-013, OL-014, artifact-store, migration, Replay server, and web viewer code.
+Before implementing, read Issue #46, ADR-0017, ADR-0018, the OL-015 Evidence ID contract, and current `@ownloop/contracts` strict-schema conventions.
 
 Explicitly forbidden:
 
-- invented diff-hunk evidence or unsupported absence claims;
-- relationships inferred from timestamp, text, filenames, tool names, or similarity;
-- repository/source/AST/package-content reads or Git/command execution;
-- raw paths, hashes, commands, output, sessions, artifact storage metadata, or exceptions in Graph/public resolution;
-- graph/node/edge tables, mutable caches, arbitrary graph traversal APIs, background workers, or startup processing;
-- semantic claim generation, candidate Moments, AI, cloud, analytics, telemetry, billing, or multi-user authentication.
+- candidates without Evidence IDs or free-form citations/paths/URLs as substitutes;
+- candidate/interaction mismatches or model-defined executable actions;
+- raw HTML, CSS, JavaScript, dangerous URI schemes, callbacks, tool calls, shell commands, or hidden metadata;
+- Evidence resolution, support/contradiction validation, deduplication, ranking, or rejection decisions;
+- provider/model integration, prompts, credentials, costs, retries, or provenance records;
+- database migrations, artifacts, daemon processors, API routes, UI screens, schedulers, cloud, analytics, telemetry, billing, or multi-user authentication.
 
-OL-015 is complete only when accepted Run facts and deterministic artifacts are connected by stable locally resolvable evidence IDs, every relationship is source-backed, limitations remain explicit, and Raw Replay navigates to authoritative evidence without widening privacy or execution boundaries.
+OL-016 is complete only when untrusted candidate JSON is constrained to a strict, immutable, evidence-addressed, provider-independent four-type contract and every malformed or executable shape fails closed without adding persistence or runtime behavior.
