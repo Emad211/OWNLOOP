@@ -8,6 +8,7 @@ git rm .github/ol018-hardening-v3/chunk-*
 git rm .github/ol018-hardening-v3/chunks.sha256
 git rm .github/ol018-hardening-v3/cleanup-and-verify.sh
 git rm .github/ol018-hardening-v3/expected-files
+git rm .github/ol018-hardening-v3/test-fix-*
 git rm .github/ol018-hardening-v3/type-fix.patch
 git rm .github/ol018-hardening-v3/verify-and-apply.sh
 git rm .github/workflows/finalize-ol018-hardening-v3.yml
