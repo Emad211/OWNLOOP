@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   APP_NAME,
+  CANDIDATE_GENERATION_SCHEMA_VERSION,
   CANDIDATE_MOMENT_SCHEMA_VERSION,
   CHANGE_CLASSIFIER_VERSION,
+  CandidateGenerationRecordV1Schema,
+  CandidateGenerationResultV1Schema,
   CandidateMomentBatchV1Schema,
   CandidateMomentV1Schema,
   DeterministicChangeClassificationV1Schema,
@@ -20,6 +23,12 @@ describe("bootstrap contract", () => {
   it("exports deterministic change-classification contracts from the package root", () => {
     expect(CHANGE_CLASSIFIER_VERSION).toBe("0.1.0");
     expect(DeterministicChangeClassificationV1Schema).toBeDefined();
+  });
+
+  it("exports Candidate generation contracts from the package root", () => {
+    expect(CANDIDATE_GENERATION_SCHEMA_VERSION).toBe(1);
+    expect(CandidateGenerationRecordV1Schema).toBeDefined();
+    expect(CandidateGenerationResultV1Schema).toBeDefined();
   });
 
   it("exports candidate-moment contracts and parsers from the package root", () => {

@@ -1,6 +1,7 @@
 import { APP_NAME } from "@ownloop/contracts";
 
 export * from "./artifact-store/index.js";
+export * from "./candidate-generation/index.js";
 export * from "./change-classification/index.js";
 export * from "./evidence-graph/index.js";
 export * from "./finalization/index.js";

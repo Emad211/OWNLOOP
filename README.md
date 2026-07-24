@@ -8,12 +8,12 @@ The project observes a coding-agent Task Run, captures verifiable changes and ev
 
 ## Current status
 
-- Stage: v0.1 deterministic reduced semantic-analysis input
+- Stage: v0.1 provider-backed Candidate generation
 - Product scope: proposed v0.1
 - First coding-agent adapter: Claude Code
 - First project languages: JavaScript and TypeScript
 - Runtime model: local single-user prototype
-- Repository state: trustworthy deterministic evidence foundation plus strict Candidate contracts and reduced semantic-input construction in development
+- Repository state: trustworthy deterministic evidence foundation, strict Candidate contracts, privacy-bounded semantic input, and explicit provider-backed Candidate proposal generation
 
 ## Local setup
 
@@ -39,7 +39,7 @@ pnpm dev
 The React page renders the Raw Replay connection shell. Authenticated Run data is available when a
 caller constructs the existing loopback server with persistence, the OL-010 artifact store, and the
 optional built web root. Production startup configuration remains explicit; the daemon entrypoint does
-not invent database, token, artifact-root, or listener settings.
+not invent database, token, artifact-root, listener, or provider settings.
 
 ## Verification
 
@@ -55,7 +55,7 @@ pnpm build
 
 Use `pnpm format` to apply formatting.
 
-The shared packages provide strict ingress, Event, Raw Replay, change-classification, verification-evidence, Evidence Graph, Candidate Moment, and reduced semantic-analysis input contracts. The daemon modules expose authenticated ingress, evidence capture, finalization, replay projection, contained same-origin static delivery, deterministic evidence processors, and Run-scoped evidence resolution. The Claude Code hook adapter remains fail-open and outside the agent critical path.
+The shared packages provide strict ingress, Event, Raw Replay, change-classification, verification-evidence, Evidence Graph, Candidate Moment, reduced semantic-analysis input, and Candidate-generation provenance contracts. The daemon modules expose authenticated ingress, evidence capture, finalization, replay projection, contained same-origin static delivery, deterministic evidence processors, Run-scoped evidence resolution, privacy-bounded semantic-input preparation, and explicit provider-backed Candidate generation/read-back. The Claude Code hook adapter remains fail-open and outside the agent critical path.
 
 ## Design principles
 
@@ -84,6 +84,7 @@ The shared packages provide strict ingress, Event, Raw Replay, change-classifica
 - [ADR-0017: Deterministic Locally Resolvable Evidence Graph](docs/adr/0017-deterministic-locally-resolvable-evidence-graph.md)
 - [ADR-0018: Strict Evidence-Backed Candidate-Moment Contracts](docs/adr/0018-strict-evidence-backed-candidate-moment-contracts.md)
 - [ADR-0019: Deterministic Reduced Semantic-Analysis Input](docs/adr/0019-deterministic-reduced-semantic-analysis-input.md)
+- [ADR-0020: Provider-Backed Candidate Generation Boundary](docs/adr/0020-provider-backed-candidate-generation-boundary.md)
 
 ### Architecture
 
@@ -103,10 +104,15 @@ Claude Code hook
 → deterministic locally resolvable Evidence Graph
 → strict evidence-backed Candidate Moment contract
 → deterministic reduced and redacted semantic-analysis input
+→ explicit provider-backed Candidate proposal generation
 ```
 
-Provider integration begins only after deterministic classification, verification extraction, Evidence Graph validation, strict Candidate contracts, and privacy-bounded semantic input are trustworthy.
+Candidate generation is an explicit, disabled-by-default proposal boundary. Provider output is never treated as evidence. OL-019 remains responsible for resolving Evidence IDs, validating support, detecting contradiction and unsupported absence claims, deduplicating, and ranking Candidates before any Ownership Moment is accepted.
 
 ## Contribution state
 
 The project is currently maintained by a one-person team. Architecture and scope changes should be recorded through ADRs. Implementation work should follow the dependency order in the v0.1.0 backlog.
+
+## Current milestone
+
+OL-018 implements the first explicit model boundary: a verified OL-017 semantic input is converted into one deterministic, secret-free public generation request, sent through a bounded Responses-compatible adapter, and accepted only as a strict OL-016 Candidate batch. Candidate text remains in a sensitive OL-010 artifact; SQLite stores immutable content-free provenance. The network boundary enforces public DNS resolution, pinned TLS hostname verification, wall-clock deadlines, no connection reuse, strict response limits, and bounded retries. Evidence support and ranking are intentionally deferred to OL-019.

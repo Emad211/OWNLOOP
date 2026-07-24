@@ -12,6 +12,7 @@ const REQUIRED_TABLES = [
   "agent_conversations",
   "analysis_jobs",
   "artifacts",
+  "candidate_generations",
   "event_deduplication",
   "events",
   "evidence_gaps",
@@ -1109,7 +1110,7 @@ describe("SQLite migrations", () => {
     try {
       runMigrations(opened.database, MIGRATIONS.slice(0, 13));
       expect(readAppliedMigrations(opened.database)).toHaveLength(13);
-      runMigrations(opened.database);
+      runMigrations(opened.database, MIGRATIONS.slice(0, 14));
       expect(readAppliedMigrations(opened.database)).toHaveLength(14);
       expect(
         opened.database
@@ -1313,6 +1314,266 @@ describe("SQLite migrations", () => {
       expect(() => runMigrations(opened.database, definitions)).toThrowError(
         expect.objectContaining<Partial<MigrationError>>({ code }),
       );
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("upgrades migration 14 to Candidate generation migration 15", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 14));
+      expect(readAppliedMigrations(opened.database)).toHaveLength(14);
+      runMigrations(opened.database);
+      expect(readAppliedMigrations(opened.database)).toHaveLength(15);
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'candidate_generations'",
+          )
+          .get(),
+      ).toBeDefined();
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("rejects pre-existing Candidate artifact roles during migration 15", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 14));
+      seedVersion8PartialFinalization(
+        opened.database,
+        "preexisting-v15-role",
+        "normal",
+        "baseline_missing",
+      );
+      opened.database
+        .prepare(
+          `INSERT INTO artifacts (
+             artifact_id, digest, storage_path, size_bytes, kind, sensitivity,
+             storage_version, media_type, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "candidate-preexisting",
+          `sha256:${"f".repeat(64)}`,
+          `objects/sha256/ff/${"f".repeat(62)}`,
+          10,
+          "candidate-moment-batch-v1",
+          "sensitive",
+          1,
+          "application/vnd.ownloop.candidate-moment-batch+json",
+          "2026-07-24T12:00:00.000Z",
+        );
+      opened.database
+        .prepare(
+          `INSERT INTO run_artifacts (run_id, artifact_id, role, created_at)
+           VALUES (?, ?, ?, ?)`,
+        )
+        .run(
+          "run-preexisting-v15-role",
+          "candidate-preexisting",
+          `candidate-moment-batch-v1.gen_${"1".repeat(48)}`,
+          "2026-07-24T12:00:00.000Z",
+        );
+      expect(() => runMigrations(opened.database)).toThrow();
+      expect(readAppliedMigrations(opened.database)).toHaveLength(14);
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("enforces Candidate generation source, artifact, uniqueness, and immutability", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database);
+      seedVersion8PartialFinalization(opened.database, "valid-v15", "normal", "baseline_missing");
+      const at = "2026-07-24T12:00:00.000Z";
+      for (const [artifactId, character, kind, mediaType] of [
+        [
+          "semantic-v15",
+          "1",
+          "reduced-semantic-analysis-input-v1",
+          "application/vnd.ownloop.semantic-analysis-input+json",
+        ],
+        [
+          "candidate-v15",
+          "2",
+          "candidate-moment-batch-v1",
+          "application/vnd.ownloop.candidate-moment-batch+json",
+        ],
+      ] as const) {
+        opened.database
+          .prepare(
+            `INSERT INTO artifacts (
+               artifact_id, digest, storage_path, size_bytes, kind, sensitivity,
+               storage_version, media_type, created_at
+             ) VALUES (?, ?, ?, ?, ?, 'sensitive', 1, ?, ?)`,
+          )
+          .run(
+            artifactId,
+            `sha256:${character.repeat(64)}`,
+            `objects/sha256/${character.repeat(2)}/${character.repeat(62)}`,
+            10,
+            kind,
+            mediaType,
+            at,
+          );
+      }
+      opened.database
+        .prepare(
+          `INSERT INTO run_artifacts (run_id, artifact_id, role, created_at)
+           VALUES (?, ?, 'reduced-semantic-analysis-input-v1', ?)`,
+        )
+        .run("run-valid-v15", "semantic-v15", at);
+
+      const generationId = `gen_${"3".repeat(48)}`;
+      const generationKey = `gkey_${"4".repeat(48)}`;
+      const role = `candidate-moment-batch-v1.${generationId}`;
+      const recordJson = (input: {
+        generationId: string;
+        generationKey: string;
+        candidateArtifactId: string | null;
+        candidateArtifactRole: string | null;
+        requestFingerprint: string;
+        providerConfigFingerprint: string;
+        status: "succeeded" | "transport_failed";
+        attemptCount?: number;
+      }) =>
+        JSON.stringify({
+          generationId: input.generationId,
+          generationKey: input.generationKey,
+          runId: "run-valid-v15",
+          finalizationId: "finalization-valid-v15",
+          semanticInputArtifactId: "semantic-v15",
+          candidateArtifactId: input.candidateArtifactId,
+          candidateArtifactRole: input.candidateArtifactRole,
+          requestFingerprint: input.requestFingerprint,
+          providerConfigFingerprint: input.providerConfigFingerprint,
+          status: input.status,
+          startedAt: at,
+          completedAt: at,
+          attempts: Array.from({ length: input.attemptCount ?? 1 }, (_, index) => ({
+            attemptNumber: index + 1,
+          })),
+        });
+      const requestFingerprint = `sha256:${"5".repeat(64)}`;
+      const providerConfigFingerprint = `sha256:${"6".repeat(64)}`;
+      opened.database.exec("BEGIN IMMEDIATE");
+      opened.database
+        .prepare(
+          `INSERT INTO candidate_generations (
+             generation_id, generation_key, run_id, finalization_id,
+             semantic_input_artifact_id, candidate_artifact_id, candidate_artifact_role,
+             request_fingerprint, provider_config_fingerprint, status,
+             started_at, completed_at, attempt_count, record_json
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'succeeded', ?, ?, 1, ?)`,
+        )
+        .run(
+          generationId,
+          generationKey,
+          "run-valid-v15",
+          "finalization-valid-v15",
+          "semantic-v15",
+          "candidate-v15",
+          role,
+          requestFingerprint,
+          providerConfigFingerprint,
+          at,
+          at,
+          recordJson({
+            generationId,
+            generationKey,
+            candidateArtifactId: "candidate-v15",
+            candidateArtifactRole: role,
+            requestFingerprint,
+            providerConfigFingerprint,
+            status: "succeeded",
+          }),
+        );
+      opened.database
+        .prepare(
+          `INSERT INTO run_artifacts (run_id, artifact_id, role, created_at)
+           VALUES (?, ?, ?, ?)`,
+        )
+        .run("run-valid-v15", "candidate-v15", role, at);
+      opened.database.exec("COMMIT");
+
+      expect(() =>
+        opened.database
+          .prepare("UPDATE candidate_generations SET completed_at = ? WHERE generation_id = ?")
+          .run("2026-07-24T12:01:00.000Z", generationId),
+      ).toThrow();
+      expect(() =>
+        opened.database
+          .prepare("UPDATE artifacts SET sensitivity = 'normal' WHERE artifact_id = ?")
+          .run("candidate-v15"),
+      ).toThrow();
+      expect(() =>
+        opened.database
+          .prepare(
+            `INSERT INTO candidate_generations (
+               generation_id, generation_key, run_id, finalization_id,
+               semantic_input_artifact_id, candidate_artifact_id, candidate_artifact_role,
+               request_fingerprint, provider_config_fingerprint, status,
+               started_at, completed_at, attempt_count, record_json
+             ) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, 'transport_failed', ?, ?, 1, ?)`,
+          )
+          .run(
+            `gen_${"7".repeat(48)}`,
+            generationKey,
+            "run-valid-v15",
+            "finalization-valid-v15",
+            "semantic-v15",
+            `sha256:${"8".repeat(64)}`,
+            `sha256:${"9".repeat(64)}`,
+            at,
+            at,
+            recordJson({
+              generationId: `gen_${"7".repeat(48)}`,
+              generationKey,
+              candidateArtifactId: null,
+              candidateArtifactRole: null,
+              requestFingerprint: `sha256:${"8".repeat(64)}`,
+              providerConfigFingerprint: `sha256:${"9".repeat(64)}`,
+              status: "transport_failed",
+            }),
+          ),
+      ).not.toThrow();
+
+      expect(() =>
+        opened.database
+          .prepare(
+            `INSERT INTO candidate_generations (
+               generation_id, generation_key, run_id, finalization_id,
+               semantic_input_artifact_id, candidate_artifact_id, candidate_artifact_role,
+               request_fingerprint, provider_config_fingerprint, status,
+               started_at, completed_at, attempt_count, record_json
+             ) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, 'transport_failed', ?, ?, 2, ?)`,
+          )
+          .run(
+            `gen_${"8".repeat(48)}`,
+            `gkey_${"8".repeat(48)}`,
+            "run-valid-v15",
+            "finalization-valid-v15",
+            "semantic-v15",
+            `sha256:${"a".repeat(64)}`,
+            `sha256:${"b".repeat(64)}`,
+            at,
+            at,
+            recordJson({
+              generationId: `gen_${"8".repeat(48)}`,
+              generationKey: `gkey_${"8".repeat(48)}`,
+              candidateArtifactId: null,
+              candidateArtifactRole: null,
+              requestFingerprint: `sha256:${"a".repeat(64)}`,
+              providerConfigFingerprint: `sha256:${"b".repeat(64)}`,
+              status: "transport_failed",
+              attemptCount: 1,
+            }),
+          ),
+      ).toThrow();
     } finally {
       opened.database.close();
     }
