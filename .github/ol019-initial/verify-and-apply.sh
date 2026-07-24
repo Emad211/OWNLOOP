@@ -28,3 +28,9 @@ test "$(wc -c < "$type_fix")" -eq 3382
 echo '501adebd1708ff24a7072af83480f0c5a26e50f1055fef125a8ab1b9f666a04a  .github/ol019-initial/type-fix.patch' | sha256sum --check
 git apply --check "$type_fix"
 git apply "$type_fix"
+
+test_fix=.github/ol019-initial/test-type-fix.patch
+test "$(wc -c < "$test_fix")" -eq 2532
+echo '4ff232be26f8bc1bb3f640b1b0c2018a285cb95d4b72050e426e01c1e02b5474  .github/ol019-initial/test-type-fix.patch' | sha256sum --check
+git apply --check "$test_fix"
+git apply "$test_fix"
