@@ -42,6 +42,15 @@ describe("candidate moment hardening", () => {
     ).toBe("Confirm the evidence-backed behavior 😀");
   });
 
+  it("rejects negative zero confidence instead of canonicalizing it to zero", () => {
+    expect(() =>
+      CandidateMomentV1Schema.parse({
+        ...decisionCandidate,
+        confidenceBasisPoints: -0,
+      }),
+    ).toThrow();
+  });
+
   it("preserves the fixed decision option tuple in deeply readonly parser output", () => {
     const parsed = parseCandidateMomentV1(decisionCandidate);
     expect(parsed.type).toBe("decision");
