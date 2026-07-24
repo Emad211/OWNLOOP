@@ -37,6 +37,20 @@ jobs:
       - name: Format exact source
         run: pnpm format
 
+      - name: Capture focused candidate tests
+        shell: bash
+        run: |
+          set +e
+          pnpm exec vitest run \
+            packages/contracts/tests/candidate-moment.test.ts \
+            packages/contracts/tests/candidate-moment-hardening.test.ts \
+            packages/contracts/tests/index.test.ts \
+            --reporter=verbose \
+            > /tmp/ownloop-ol016-focused-tests.log 2>&1
+          status=$?
+          printf '%s\n' "$status" > /tmp/ownloop-ol016-focused-tests.status
+          exit 0
+
       - name: Build formatted source archive
         shell: bash
         run: |
@@ -52,12 +66,14 @@ jobs:
             -czf /tmp/ownloop-ol016-formatted-source.tar.gz .
           sha256sum /tmp/ownloop-ol016-formatted-source.tar.gz > /tmp/ownloop-ol016-formatted-source.sha256
 
-      - name: Upload formatted source
+      - name: Upload formatted source and focused test log
         uses: actions/upload-artifact@v6
         with:
-          name: ownloop-ol016-formatted-source
+          name: ownloop-ol016-diagnostics
           path: |
             /tmp/ownloop-ol016-formatted-source.tar.gz
             /tmp/ownloop-ol016-formatted-source.sha256
+            /tmp/ownloop-ol016-focused-tests.log
+            /tmp/ownloop-ol016-focused-tests.status
           if-no-files-found: error
           retention-days: 1
