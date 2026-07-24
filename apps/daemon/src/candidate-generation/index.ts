@@ -5,3 +5,4 @@ export * from "./endpoint.js";
 export * from "./request.js";
 export * from "./schema.js";
 export * from "./transport.js";
+export * from "./processor.js";
