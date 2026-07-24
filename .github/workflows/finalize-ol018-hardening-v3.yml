@@ -1,5 +1,6 @@
 name: Finalize OL-018 Hardening V3
 
+# Owner-authorized execution after exact Git-blob restoration of runtime fixes.
 on:
   pull_request:
     branches:
