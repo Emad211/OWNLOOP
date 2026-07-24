@@ -21,7 +21,7 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 1
 
-      - name: Verify and apply OL-017 hardening patch
+      - name: Verify and apply OL-017 hardening patches
         shell: bash
         run: |
           set -euo pipefail
@@ -36,6 +36,12 @@ jobs:
           echo "2463d2387eb22fe002adc9ab99250089f3d73636e0f918946b2c2aa70add124d  /tmp/ol017-hardening2.patch" | sha256sum --check
           git apply --check /tmp/ol017-hardening2.patch
           git apply /tmp/ol017-hardening2.patch
+
+          type_fix=.github/ol017-hardening2/type-fix.patch
+          test "$(wc -c < "$type_fix")" -eq 998
+          echo "624e16cab5797e43e486f6655213ed0a8b7e5a821f07060c27659ddd9e82d19b  $type_fix" | sha256sum --check
+          git apply --check "$type_fix"
+          git apply "$type_fix"
 
       - name: Set up exact Node.js
         uses: actions/setup-node@v7
@@ -58,6 +64,7 @@ jobs:
         run: |
           set -euo pipefail
           git rm .github/ol017-hardening2/part-*
+          git rm .github/ol017-hardening2/type-fix.patch
           git rm .github/workflows/finalize-ol017-hardening2.yml
           cat > /tmp/expected-files <<'FILES'
           .github/ol017-hardening2/part-00
@@ -65,6 +72,7 @@ jobs:
           .github/ol017-hardening2/part-02
           .github/ol017-hardening2/part-03
           .github/ol017-hardening2/part-04
+          .github/ol017-hardening2/type-fix.patch
           .github/workflows/export-ol017-review.yml
           .github/workflows/finalize-ol017-hardening2.yml
           apps/daemon/src/persistence/migration-definitions.ts
@@ -92,28 +100,8 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      - name: Capture typecheck
-        shell: bash
-        run: |
-          set +e
-          pnpm typecheck > /tmp/ol017-hardening2-typecheck.log 2>&1
-          printf '%s\n' "$?" > /tmp/ol017-hardening2-typecheck.status
-          exit 0
-
-      - name: Upload typecheck diagnostic
-        if: always()
-        uses: actions/upload-artifact@v6
-        with:
-          name: ol017-hardening2-typecheck
-          path: |
-            /tmp/ol017-hardening2-typecheck.log
-            /tmp/ol017-hardening2-typecheck.status
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Require typecheck
-        shell: bash
-        run: test "$(cat /tmp/ol017-hardening2-typecheck.status)" -eq 0
+      - name: Typecheck
+        run: pnpm typecheck
 
       - name: Test
         run: pnpm test
