@@ -4,10 +4,12 @@ import {
   APP_NAME,
   CANDIDATE_GENERATION_SCHEMA_VERSION,
   CANDIDATE_MOMENT_SCHEMA_VERSION,
+  CANDIDATE_VALIDATION_SCHEMA_VERSION,
   CHANGE_CLASSIFIER_VERSION,
   CandidateGenerationRecordV1Schema,
   CandidateGenerationResultV1Schema,
   CandidateMomentBatchV1Schema,
+  CandidateValidationReportV1Schema,
   CandidateMomentV1Schema,
   DeterministicChangeClassificationV1Schema,
   formatBootstrapName,
@@ -29,6 +31,11 @@ describe("bootstrap contract", () => {
     expect(CANDIDATE_GENERATION_SCHEMA_VERSION).toBe(1);
     expect(CandidateGenerationRecordV1Schema).toBeDefined();
     expect(CandidateGenerationResultV1Schema).toBeDefined();
+  });
+
+  it("exports Candidate validation contracts from the package root", () => {
+    expect(CANDIDATE_VALIDATION_SCHEMA_VERSION).toBe(1);
+    expect(CandidateValidationReportV1Schema).toBeDefined();
   });
 
   it("exports candidate-moment contracts and parsers from the package root", () => {

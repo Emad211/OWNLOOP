@@ -13,6 +13,7 @@ const REQUIRED_TABLES = [
   "analysis_jobs",
   "artifacts",
   "candidate_generations",
+  "candidate_validations",
   "event_deduplication",
   "events",
   "evidence_gaps",
@@ -1324,7 +1325,7 @@ describe("SQLite migrations", () => {
     try {
       runMigrations(opened.database, MIGRATIONS.slice(0, 14));
       expect(readAppliedMigrations(opened.database)).toHaveLength(14);
-      runMigrations(opened.database);
+      runMigrations(opened.database, MIGRATIONS.slice(0, 15));
       expect(readAppliedMigrations(opened.database)).toHaveLength(15);
       expect(
         opened.database
@@ -1572,6 +1573,274 @@ describe("SQLite migrations", () => {
               status: "transport_failed",
               attemptCount: 1,
             }),
+          ),
+      ).toThrow();
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("upgrades migration 15 to Candidate validation migration 16", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 15));
+      expect(readAppliedMigrations(opened.database)).toHaveLength(15);
+      runMigrations(opened.database);
+      expect(readAppliedMigrations(opened.database)).toHaveLength(16);
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'candidate_validations'",
+          )
+          .get(),
+      ).toBeDefined();
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("rejects pre-existing validation report roles during migration 16", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 15));
+      seedVersion8PartialFinalization(
+        opened.database,
+        "preexisting-v16-role",
+        "normal",
+        "baseline_missing",
+      );
+      opened.database
+        .prepare(
+          `INSERT INTO artifacts (
+             artifact_id, digest, storage_path, size_bytes, kind, sensitivity,
+             storage_version, media_type, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "validation-preexisting",
+          `sha256:${"e".repeat(64)}`,
+          `objects/sha256/ee/${"e".repeat(62)}`,
+          10,
+          "candidate-validation-report-v1",
+          "sensitive",
+          1,
+          "application/vnd.ownloop.candidate-validation-report+json",
+          "2026-07-24T12:00:00.000Z",
+        );
+      opened.database
+        .prepare(
+          `INSERT INTO run_artifacts (run_id, artifact_id, role, created_at)
+           VALUES (?, ?, 'candidate-validation-report-v1', ?)`,
+        )
+        .run("run-preexisting-v16-role", "validation-preexisting", "2026-07-24T12:00:00.000Z");
+      expect(() => runMigrations(opened.database)).toThrow();
+      expect(readAppliedMigrations(opened.database)).toHaveLength(15);
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("enforces Candidate validation source, report, record, and immutability invariants", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database);
+      seedVersion8PartialFinalization(opened.database, "valid-v16", "normal", "baseline_missing");
+      const at = "2026-07-24T12:00:00.000Z";
+      for (const [artifactId, character, kind, mediaType] of [
+        [
+          "semantic-v16",
+          "1",
+          "reduced-semantic-analysis-input-v1",
+          "application/vnd.ownloop.semantic-analysis-input+json",
+        ],
+        [
+          "candidate-v16",
+          "2",
+          "candidate-moment-batch-v1",
+          "application/vnd.ownloop.candidate-moment-batch+json",
+        ],
+        [
+          "graph-v16",
+          "3",
+          "deterministic-evidence-graph-v1",
+          "application/vnd.ownloop.evidence-graph+json",
+        ],
+        [
+          "report-v16",
+          "4",
+          "candidate-validation-report-v1",
+          "application/vnd.ownloop.candidate-validation-report+json",
+        ],
+      ] as const) {
+        opened.database
+          .prepare(
+            `INSERT INTO artifacts (
+               artifact_id, digest, storage_path, size_bytes, kind, sensitivity,
+               storage_version, media_type, created_at
+             ) VALUES (?, ?, ?, 10, ?, 'sensitive', 1, ?, ?)`,
+          )
+          .run(
+            artifactId,
+            `sha256:${character.repeat(64)}`,
+            `objects/sha256/${character.repeat(2)}/${character.repeat(62)}`,
+            kind,
+            mediaType,
+            at,
+          );
+      }
+      opened.database
+        .prepare(
+          `INSERT INTO run_artifacts (run_id, artifact_id, role, created_at)
+           VALUES (?, ?, 'reduced-semantic-analysis-input-v1', ?),
+                  (?, ?, 'deterministic-evidence-graph-v1', ?)`,
+        )
+        .run("run-valid-v16", "semantic-v16", at, "run-valid-v16", "graph-v16", at);
+
+      const generationId = `gen_${"5".repeat(48)}`;
+      const generationKey = `gkey_${"6".repeat(48)}`;
+      const candidateRole = `candidate-moment-batch-v1.${generationId}`;
+      const candidateFingerprint = `sha256:${"7".repeat(64)}`;
+      const requestFingerprint = `sha256:${"8".repeat(64)}`;
+      const providerConfigFingerprint = `sha256:${"9".repeat(64)}`;
+      const generationJson = JSON.stringify({
+        generationId,
+        generationKey,
+        runId: "run-valid-v16",
+        finalizationId: "finalization-valid-v16",
+        semanticInputArtifactId: "semantic-v16",
+        candidateArtifactId: "candidate-v16",
+        candidateArtifactRole: candidateRole,
+        candidateFingerprint,
+        requestFingerprint,
+        providerConfigFingerprint,
+        status: "succeeded",
+        startedAt: at,
+        completedAt: at,
+        attempts: [{ attemptNumber: 1 }],
+      });
+      opened.database.exec("BEGIN IMMEDIATE");
+      opened.database
+        .prepare(
+          `INSERT INTO candidate_generations (
+             generation_id, generation_key, run_id, finalization_id,
+             semantic_input_artifact_id, candidate_artifact_id, candidate_artifact_role,
+             request_fingerprint, provider_config_fingerprint, status,
+             started_at, completed_at, attempt_count, record_json
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'succeeded', ?, ?, 1, ?)`,
+        )
+        .run(
+          generationId,
+          generationKey,
+          "run-valid-v16",
+          "finalization-valid-v16",
+          "semantic-v16",
+          "candidate-v16",
+          candidateRole,
+          requestFingerprint,
+          providerConfigFingerprint,
+          at,
+          at,
+          generationJson,
+        );
+      opened.database
+        .prepare(
+          `INSERT INTO run_artifacts (run_id, artifact_id, role, created_at)
+           VALUES (?, ?, ?, ?)`,
+        )
+        .run("run-valid-v16", "candidate-v16", candidateRole, at);
+      opened.database.exec("COMMIT");
+
+      const validationId = `val_${"a".repeat(48)}`;
+      const validationKey = `vkey_${"b".repeat(48)}`;
+      const sourceCandidateFingerprint = candidateFingerprint;
+      const graphFingerprint = "c".repeat(64);
+      const reportFingerprint = `sha256:${"d".repeat(64)}`;
+      const recordJson = JSON.stringify({
+        validationId,
+        validationKey,
+        runId: "run-valid-v16",
+        finalizationId: "finalization-valid-v16",
+        generationId,
+        sourceCandidateArtifactId: "candidate-v16",
+        sourceCandidateFingerprint,
+        evidenceGraphArtifactId: "graph-v16",
+        evidenceGraphInputFingerprint: graphFingerprint,
+        reportArtifactId: "report-v16",
+        reportArtifactRole: "candidate-validation-report-v1",
+        reportFingerprint,
+        outcome: "ready",
+        counts: { selected: 1 },
+        createdAt: at,
+      });
+      opened.database.exec("BEGIN IMMEDIATE");
+      opened.database
+        .prepare(
+          `INSERT INTO candidate_validations (
+             validation_id, validation_key, run_id, finalization_id, generation_id,
+             source_candidate_artifact_id, source_candidate_fingerprint,
+             evidence_graph_artifact_id, evidence_graph_input_fingerprint,
+             report_artifact_id, report_artifact_role, report_fingerprint,
+             outcome, selected_count, created_at, record_json
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidate-validation-report-v1', ?, 'ready', 1, ?, ?)`,
+        )
+        .run(
+          validationId,
+          validationKey,
+          "run-valid-v16",
+          "finalization-valid-v16",
+          generationId,
+          "candidate-v16",
+          sourceCandidateFingerprint,
+          "graph-v16",
+          graphFingerprint,
+          "report-v16",
+          reportFingerprint,
+          at,
+          recordJson,
+        );
+      opened.database
+        .prepare(
+          `INSERT INTO run_artifacts (run_id, artifact_id, role, created_at)
+           VALUES (?, ?, 'candidate-validation-report-v1', ?)`,
+        )
+        .run("run-valid-v16", "report-v16", at);
+      opened.database.exec("COMMIT");
+
+      expect(() =>
+        opened.database
+          .prepare("UPDATE candidate_validations SET selected_count = 0 WHERE validation_id = ?")
+          .run(validationId),
+      ).toThrow();
+      expect(() =>
+        opened.database
+          .prepare("UPDATE artifacts SET sensitivity = 'normal' WHERE artifact_id = ?")
+          .run("report-v16"),
+      ).toThrow();
+      expect(() =>
+        opened.database
+          .prepare(
+            `INSERT INTO candidate_validations (
+               validation_id, validation_key, run_id, finalization_id, generation_id,
+               source_candidate_artifact_id, source_candidate_fingerprint,
+               evidence_graph_artifact_id, evidence_graph_input_fingerprint,
+               report_artifact_id, report_artifact_role, report_fingerprint,
+               outcome, selected_count, created_at, record_json
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidate-validation-report-v1', ?, 'ready', 0, ?, ?)`,
+          )
+          .run(
+            `val_${"e".repeat(48)}`,
+            `vkey_${"e".repeat(48)}`,
+            "run-valid-v16",
+            "finalization-valid-v16",
+            generationId,
+            "candidate-v16",
+            sourceCandidateFingerprint,
+            "graph-v16",
+            graphFingerprint,
+            "report-v16",
+            reportFingerprint,
+            at,
+            recordJson,
           ),
       ).toThrow();
     } finally {

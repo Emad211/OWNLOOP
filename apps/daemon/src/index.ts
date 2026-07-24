@@ -16,3 +16,4 @@ export * from "./semantic-input/index.js";
 export * from "./verification-extraction/index.js";
 
 console.log(`${APP_NAME} daemon bootstrap started.`);
+export * from "./candidate-validation/index.js";

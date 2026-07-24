@@ -1726,6 +1726,159 @@ BEGIN
 END;
 `;
 
+const CANDIDATE_VALIDATION_PROVENANCE_SQL = `
+CREATE TABLE candidate_validation_v16_validation (
+  valid INTEGER NOT NULL CHECK (valid = 1)
+) STRICT;
+
+INSERT INTO candidate_validation_v16_validation (valid)
+SELECT CASE WHEN NOT EXISTS (
+  SELECT 1 FROM run_artifacts
+  WHERE role = 'candidate-validation-report-v1'
+) THEN 1 ELSE 0 END;
+
+DROP TABLE candidate_validation_v16_validation;
+
+CREATE TABLE candidate_validations (
+  validation_id TEXT PRIMARY KEY CHECK (
+    validation_id GLOB 'val_*'
+    AND length(validation_id) = 52
+    AND substr(validation_id, 5) NOT GLOB '*[^0-9a-f]*'
+  ),
+  validation_key TEXT NOT NULL UNIQUE CHECK (
+    validation_key GLOB 'vkey_*'
+    AND length(validation_key) = 53
+    AND substr(validation_key, 6) NOT GLOB '*[^0-9a-f]*'
+  ),
+  run_id TEXT NOT NULL REFERENCES task_runs (run_id) ON DELETE CASCADE,
+  finalization_id TEXT NOT NULL REFERENCES run_finalizations (finalization_id) ON DELETE CASCADE,
+  generation_id TEXT NOT NULL REFERENCES candidate_generations (generation_id) ON DELETE CASCADE,
+  source_candidate_artifact_id TEXT NOT NULL REFERENCES artifacts (artifact_id) ON DELETE RESTRICT,
+  source_candidate_fingerprint TEXT NOT NULL CHECK (
+    source_candidate_fingerprint GLOB 'sha256:*'
+    AND length(source_candidate_fingerprint) = 71
+    AND substr(source_candidate_fingerprint, 8) NOT GLOB '*[^0-9a-f]*'
+  ),
+  evidence_graph_artifact_id TEXT NOT NULL REFERENCES artifacts (artifact_id) ON DELETE RESTRICT,
+  evidence_graph_input_fingerprint TEXT NOT NULL CHECK (
+    length(evidence_graph_input_fingerprint) = 64
+    AND evidence_graph_input_fingerprint NOT GLOB '*[^0-9a-f]*'
+  ),
+  report_artifact_id TEXT NOT NULL REFERENCES artifacts (artifact_id) ON DELETE RESTRICT,
+  report_artifact_role TEXT NOT NULL CHECK (report_artifact_role = 'candidate-validation-report-v1'),
+  report_fingerprint TEXT NOT NULL CHECK (
+    report_fingerprint GLOB 'sha256:*'
+    AND length(report_fingerprint) = 71
+    AND substr(report_fingerprint, 8) NOT GLOB '*[^0-9a-f]*'
+  ),
+  outcome TEXT NOT NULL CHECK (outcome IN ('ready', 'partial')),
+  selected_count INTEGER NOT NULL CHECK (selected_count >= 0 AND selected_count <= 7),
+  created_at TEXT NOT NULL CHECK (length(trim(created_at)) > 0),
+  record_json TEXT NOT NULL CHECK (json_valid(record_json) AND json_type(record_json) = 'object'),
+  CHECK (json_extract(record_json, '$.validationId') = validation_id),
+  CHECK (json_extract(record_json, '$.validationKey') = validation_key),
+  CHECK (json_extract(record_json, '$.runId') = run_id),
+  CHECK (json_extract(record_json, '$.finalizationId') = finalization_id),
+  CHECK (json_extract(record_json, '$.generationId') = generation_id),
+  CHECK (json_extract(record_json, '$.sourceCandidateArtifactId') = source_candidate_artifact_id),
+  CHECK (json_extract(record_json, '$.sourceCandidateFingerprint') = source_candidate_fingerprint),
+  CHECK (json_extract(record_json, '$.evidenceGraphArtifactId') = evidence_graph_artifact_id),
+  CHECK (json_extract(record_json, '$.evidenceGraphInputFingerprint') = evidence_graph_input_fingerprint),
+  CHECK (json_extract(record_json, '$.reportArtifactId') = report_artifact_id),
+  CHECK (json_extract(record_json, '$.reportArtifactRole') = report_artifact_role),
+  CHECK (json_extract(record_json, '$.reportFingerprint') = report_fingerprint),
+  CHECK (json_extract(record_json, '$.outcome') = outcome),
+  CHECK (json_extract(record_json, '$.counts.selected') = selected_count),
+  CHECK (json_extract(record_json, '$.createdAt') = created_at),
+  FOREIGN KEY (run_id, report_artifact_id, report_artifact_role)
+    REFERENCES run_artifacts (run_id, artifact_id, role)
+    DEFERRABLE INITIALLY DEFERRED
+) STRICT;
+
+CREATE INDEX candidate_validations_run_idx
+ON candidate_validations (run_id, created_at, validation_id);
+
+CREATE TRIGGER candidate_validations_validate_insert
+BEFORE INSERT ON candidate_validations
+BEGIN
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1
+    FROM candidate_generations cg
+    WHERE cg.generation_id = NEW.generation_id
+      AND cg.status = 'succeeded'
+      AND cg.run_id = NEW.run_id
+      AND cg.finalization_id = NEW.finalization_id
+      AND cg.candidate_artifact_id = NEW.source_candidate_artifact_id
+      AND json_extract(cg.record_json, '$.candidateFingerprint') = NEW.source_candidate_fingerprint
+  ) THEN RAISE(ABORT, 'Candidate validation requires exact successful generation provenance') END;
+
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1
+    FROM run_finalizations rf
+    JOIN task_runs tr ON tr.run_id = rf.run_id
+    WHERE rf.finalization_id = NEW.finalization_id
+      AND rf.run_id = NEW.run_id
+      AND tr.status = rf.terminal_status
+      AND tr.status IN ('Completed', 'Partial', 'Abandoned', 'Failed')
+  ) THEN RAISE(ABORT, 'Candidate validation requires immutable Run finalization') END;
+
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1
+    FROM run_artifacts ra
+    JOIN artifacts a ON a.artifact_id = ra.artifact_id
+    WHERE ra.run_id = NEW.run_id
+      AND ra.artifact_id = NEW.evidence_graph_artifact_id
+      AND ra.role = 'deterministic-evidence-graph-v1'
+      AND a.storage_version = 1
+      AND a.kind = 'deterministic-evidence-graph-v1'
+      AND a.media_type = 'application/vnd.ownloop.evidence-graph+json'
+      AND a.sensitivity = 'sensitive'
+      AND a.size_bytes > 0
+      AND a.size_bytes <= 8388608
+  ) THEN RAISE(ABORT, 'Candidate validation requires exact Evidence Graph metadata') END;
+
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1 FROM artifacts a
+    WHERE a.artifact_id = NEW.report_artifact_id
+      AND a.storage_version = 1
+      AND a.kind = 'candidate-validation-report-v1'
+      AND a.media_type = 'application/vnd.ownloop.candidate-validation-report+json'
+      AND a.sensitivity = 'sensitive'
+      AND a.size_bytes > 0
+      AND a.size_bytes <= 524288
+  ) THEN RAISE(ABORT, 'Candidate validation report artifact metadata is invalid') END;
+END;
+
+CREATE TRIGGER candidate_validations_reject_update
+BEFORE UPDATE ON candidate_validations
+BEGIN
+  SELECT RAISE(ABORT, 'Candidate validation provenance is immutable');
+END;
+
+CREATE TRIGGER run_artifacts_validate_candidate_validation_v1
+BEFORE INSERT ON run_artifacts
+WHEN NEW.role = 'candidate-validation-report-v1'
+BEGIN
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1
+    FROM candidate_validations cv
+    WHERE cv.run_id = NEW.run_id
+      AND cv.report_artifact_id = NEW.artifact_id
+      AND cv.report_artifact_role = NEW.role
+  ) THEN RAISE(ABORT, 'Validation report reference requires validation provenance') END;
+END;
+
+CREATE TRIGGER artifacts_preserve_candidate_validation_sensitivity_v1
+BEFORE UPDATE OF sensitivity ON artifacts
+WHEN OLD.storage_version = 1
+  AND OLD.kind = 'candidate-validation-report-v1'
+  AND OLD.media_type = 'application/vnd.ownloop.candidate-validation-report+json'
+  AND NEW.sensitivity <> 'sensitive'
+BEGIN
+  SELECT RAISE(ABORT, 'Candidate validation report sensitivity is immutable');
+END;
+`;
+
 export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   Object.freeze({
     version: 1,
@@ -1801,5 +1954,10 @@ export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
     version: 15,
     name: "candidate_generation_provenance",
     sql: CANDIDATE_GENERATION_PROVENANCE_SQL,
+  }),
+  Object.freeze({
+    version: 16,
+    name: "candidate_validation_provenance",
+    sql: CANDIDATE_VALIDATION_PROVENANCE_SQL,
   }),
 ]);

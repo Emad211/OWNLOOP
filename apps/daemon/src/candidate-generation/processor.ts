@@ -8,10 +8,12 @@ import {
   CANDIDATE_GENERATOR_VERSION,
   CANDIDATE_MOMENT_SCHEMA_VERSION,
   type CandidateGenerationCandidateCountsV1,
+  type CandidateMomentBatchV1,
   CandidateGenerationRecordV1Schema,
   type CandidateGenerationRecordV1,
   CandidateGenerationResultV1Schema,
   type CandidateGenerationResultV1,
+  type DeterministicSemanticAnalysisInputV1,
 } from "@ownloop/contracts";
 
 import type { LocalArtifactStore } from "../artifact-store/index.js";
@@ -167,6 +169,8 @@ export async function readValidatedCandidateGeneration(
 ): Promise<Readonly<{
   record: CandidateGenerationRecordV1;
   result: CandidateGenerationResultV1;
+  candidate: CandidateMomentBatchV1 | null;
+  semanticInput: DeterministicSemanticAnalysisInputV1;
 }> | null> {
   const record = dependencies.persistence.candidateGenerations.get(generationIdValue);
   if (record === null) return null;
@@ -203,6 +207,7 @@ export async function readValidatedCandidateGeneration(
       "The Candidate generation request identity differs.",
     );
   }
+  let candidateValue: CandidateMomentBatchV1 | null = null;
   if (record.status === "succeeded") {
     if (
       record.candidateArtifactId === null ||
@@ -245,6 +250,7 @@ export async function readValidatedCandidateGeneration(
       );
     }
     const candidate = parseCanonicalCandidateMomentBatch(content.bytes);
+    candidateValue = candidate.value;
     const expectedCounts = counts(candidate.value);
     if (
       candidate.fingerprint !== record.candidateFingerprint ||
@@ -256,7 +262,12 @@ export async function readValidatedCandidateGeneration(
       );
     }
   }
-  return { record, result: safeResult(record) };
+  return {
+    record,
+    result: safeResult(record),
+    candidate: candidateValue,
+    semanticInput: semantic.value,
+  };
 }
 
 export async function getCandidateGeneration(
