@@ -43,6 +43,12 @@ jobs:
           git apply --check "$type_fix"
           git apply "$type_fix"
 
+          migration_test_fix=.github/ol017-transfer/migration-test-fix.patch
+          test "$(wc -c < "$migration_test_fix")" -eq 635
+          echo "8948499770830ffb3fcb8f2ea25cb7b55d57a1ed114473693fa2ffb7d63538ae  $migration_test_fix" | sha256sum --check
+          git apply --check "$migration_test_fix"
+          git apply "$migration_test_fix"
+
       - name: Set up exact Node.js
         uses: actions/setup-node@v7
         with:
@@ -65,8 +71,10 @@ jobs:
           set -euo pipefail
           git rm .github/ol017-transfer/part-*
           git rm .github/ol017-transfer/type-fix.patch
+          git rm .github/ol017-transfer/migration-test-fix.patch
           git rm .github/workflows/finalize-ol017.yml
           cat > /tmp/expected-files <<'FILES'
+          .github/ol017-transfer/migration-test-fix.patch
           .github/ol017-transfer/part-00
           .github/ol017-transfer/part-01
           .github/ol017-transfer/part-02
