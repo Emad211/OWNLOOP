@@ -1,0 +1,14 @@
+diff --git a/apps/daemon/src/candidate-generation/transport.ts b/apps/daemon/src/candidate-generation/transport.ts
+index 2603bce..9849a46 100644
+--- a/apps/daemon/src/candidate-generation/transport.ts
++++ b/apps/daemon/src/candidate-generation/transport.ts
+@@ -235,8 +235,8 @@ export function createNodeHttpsCandidateGenerationTransport(
+         return;
+       }
+       deadlineTimer = setTimeout(() => {
+-        request.destroy();
+         fail("timeout");
++        request.destroy();
+       }, remaining);
+       request.on("error", () =>
+         fail(input.signal?.aborted ? "aborted" : "network_error"),
