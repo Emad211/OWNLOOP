@@ -35,4 +35,6 @@ POST   /v1/settings/apply-retention
 DELETE /v1/replay/runs/:runId
 ```
 
+Authentication runs before settings, persistence, artifact, or secret-memory access. Settings writes commit the complete persisted document before applying memory-only secret cleanup, so a stale compare-and-swap conflict cannot silently change the loaded provider key. Retention and deletion recheck Run status at the write boundary before any cascade or artifact collection is reported.
+
 Settings routes do not contact a provider, start analysis, create background work, or introduce a second listener or CORS surface.
