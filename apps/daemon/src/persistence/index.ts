@@ -2,6 +2,7 @@ import { openConfiguredDatabase, type PersistenceConnectionInfo } from "./databa
 import { runMigrations } from "./migrations.js";
 import { ArtifactRepository } from "./repositories/artifacts.js";
 import { CandidateGenerationRepository } from "./repositories/candidate-generations.js";
+import { CandidateValidationRepository } from "./repositories/candidate-validations.js";
 import { AgentConversationRepository } from "./repositories/conversations.js";
 import { EventNormalizationRepository } from "./repositories/event-normalizations.js";
 import { EventRepository } from "./repositories/events.js";
@@ -29,6 +30,7 @@ export type PersistenceRepositories = Readonly<{
   runSupport: RunSupportRepository;
   artifacts: ArtifactRepository;
   candidateGenerations: CandidateGenerationRepository;
+  candidateValidations: CandidateValidationRepository;
 }>;
 
 type AsyncTransactionGuard<Result> = [Result] extends [never]
@@ -71,6 +73,7 @@ export function openPersistence(databasePath: string): OwnLoopPersistence {
     runSupport: new RunSupportRepository(database),
     artifacts: new ArtifactRepository(database),
     candidateGenerations: new CandidateGenerationRepository(database),
+    candidateValidations: new CandidateValidationRepository(database),
   };
 
   function withTransaction<Result>(

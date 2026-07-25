@@ -4,45 +4,40 @@ These instructions apply to the entire repository.
 
 ## Product boundary
 
-OwnLoop is a local-first Human Ownership Layer for AI-generated software. The accepted direction is defined by the product scope, C4 architecture, backlog amendments, and ADR-0001 through ADR-0019.
+OwnLoop is a local-first Human Ownership Layer for AI-generated software. Accepted direction is defined by the product scope, dependency-ordered backlog, and ADR-0001 through ADR-0021.
 
-Read the relevant documents before changing code. Do not silently reinterpret an accepted decision. Architectural changes require a new ADR.
+Read the relevant documents before changing code. Do not silently reinterpret an accepted decision. Architectural changes require an ADR.
 
 ## Development policy
 
-- Work on exactly one issue at a time and keep the Pull Request independently reviewable.
+- Work on exactly one issue and keep the Pull Request independently reviewable.
 - Do not modify unrelated files or add speculative behavior.
-- Never commit secrets, credentials, `.env` contents, database files, raw Git output, prepared artifact bytes, source-file content, machine roots, or exception stacks.
-- Do not weaken strict contracts, canonical bytes, evidence ownership, artifact verification, migration history, transactionality, idempotency, or bounded processing.
-- OL-017 may read only the persisted ingress-redacted goal, validated OL-015 graph, validated OL-014 verification artifact, and controlled versions.
-- `enabled: false` must return before any sensitive read or write.
-- Every model-visible factual item must retain graph-owned Evidence IDs.
-- Second-pass redaction must fail closed and must not expose paths, URLs, emails, IPs, credentials, commands, source content, or artifact storage metadata.
-- Budget reduction must be deterministic and must not convert missing evidence into a claim.
-- Do not call providers/models, construct provider prompts, persist Candidates, add jobs/queues/schedulers, or read repository/source/transcript content.
+- Never commit secrets, credentials, `.env` contents, databases, raw Git output, prepared artifact bytes, source content, machine roots, provider responses, exception messages, or stacks.
+- Do not weaken strict contracts, canonical bytes, Evidence ownership, artifact verification, migration history, transactionality, idempotency, bounded processing, or fail-closed read-back.
+- Provider confidence and importance are bounded ranking signals, never proof.
+- Missing evidence must not be converted into an absence claim.
+- Unsupported semantic prose must be rejected rather than interpreted with a hidden model or heuristic similarity.
 
 ## Technical baseline
 
-- Runtime: Node.js 24.18.0 LTS
-- Language: TypeScript 6.0.3 strict mode
-- Package manager: pnpm 11.4.0
-- Runtime validation: Zod 4.4.3
-- Persistence: built-in `node:sqlite`
-- Artifact store: local SHA-256 content-addressed storage
-- Tests: Vitest
-- CI: GitHub Actions
-- Formatting/linting: Biome
+- Node.js 24.18.0
+- TypeScript 6.0.3 strict mode
+- pnpm 11.4.0
+- Zod 4.4.3
+- built-in `node:sqlite`
+- local SHA-256 content-addressed artifact storage
+- Vitest, GitHub Actions, Biome
 
-No new runtime dependency is authorized for OL-017.
+No new runtime dependency is authorized for OL-019.
 
-## Repository placement
+## OL-019 placement
 
-- strict semantic-input and safe-result contracts belong in `packages/contracts/`;
-- pure redaction, reduction, canonical artifact, processor, and read-back logic belong in `apps/daemon/src/semantic-input/`;
-- migration v14 may add only artifact-reference invariants in the existing persistence boundary;
-- architectural policy belongs in ADR-0019.
+- contracts/report/provenance belong in `packages/contracts/src/candidate-validation.ts`;
+- pure validation, canonical artifact, processor, and read-back belong in `apps/daemon/src/candidate-validation/`;
+- immutable provenance belongs in the existing SQLite persistence boundary through migration v16;
+- architecture policy belongs in ADR-0021.
 
-Do not create a new package, semantic-input table/cache, provider service, listener, worker, job queue, scheduler, or runtime dependency.
+Do not create a new package, background worker, job queue, scheduler, model judge, embedding index, vector store, route, UI, mutable validation cache, or runtime dependency.
 
 ## Quality gates
 
@@ -56,39 +51,28 @@ pnpm test
 pnpm build
 ```
 
-Focused OL-017 tests must prove strict contracts, second-pass redaction, evidence ownership, deterministic canonical bytes and estimates, fixed priority reduction, disabled no-read behavior, migration v14 invariants, OL-010 persistence/read-back, restart/tamper detection, bounded batch order, and no repository/network/provider boundary.
+Focused OL-019 tests must prove strict contracts, exact Evidence resolution, type support, conservative claim grammar, contradiction and absence rejection, duplicate grouping, integer ranking, maximum-seven selection, deterministic canonical report bytes, migration v16 invariants, persistence/read-back, concurrency, restart, tamper detection, orphan GC, exact lookup, bounded batch order, and no repository/network/model boundary.
 
 Never claim a check passed unless it completed successfully.
 
 ## Git and Pull Request discipline
 
-- Base implementation on `agent/ol-017-reduced-semantic-input` from current `main`.
-- Make focused commits and leave the worktree clean.
+- Base implementation on `agent/ol-019-candidate-validation` from the exact OL-018 merge commit.
+- Make focused commits and leave the final diff free of transfer/export workflows.
 - Do not push directly to `main`.
 - Keep the PR draft until clean-checkout CI and final review pass.
-- Remove all temporary export/transfer workflows before review.
 - Merge only with the exact reviewed head SHA.
 
 ## Current phase restriction
 
-The active issue is `OL-017: Build deterministic reduced and redacted semantic-analysis input` (#49).
-
-Before implementing, read Issue #49, ADR-0015 through ADR-0019, OL-010 artifact storage, OL-011 finalization, OL-014 verification, OL-015 Evidence Graph, and OL-016 Candidate contracts.
+The active issue is `OL-019: Validate, deduplicate, rank, and select Candidate Moments` (#56).
 
 Explicitly forbidden:
 
-- repository/worktree/source/AST/package-content reads, Git commands, raw transcript, raw Hook receipts, arbitrary Event payloads, commands, patches, or hunks;
-- provider/model calls, provider-specific prompts, credentials, pricing, retries, or generation records;
-- Candidate generation/persistence, support validation, contradiction detection, deduplication, or ranking;
-- unbounded or non-deterministic reduction, inferred relationships, or facts without Evidence IDs;
-- semantic-input tables/caches, `analysis_jobs`, workers, timers, schedulers, routes, UI, cloud, analytics, telemetry, billing, or multi-user authentication.
+- provider/model calls, embeddings, vector similarity, model-based judging, broad natural-language entailment, or Candidate rewriting;
+- repository/worktree/source/AST/package-content reads, raw transcript, raw Hook receipts, arbitrary Event payloads, commands, patches, or hunks;
+- inferred Evidence relationships from path, time, wording, or similarity;
+- absence/completeness/security/correctness claims without an explicit future graph-owned absence fact;
+- mutable validation state, `analysis_jobs`, workers, timers, schedulers, routes, UI, cloud, analytics, telemetry, billing, or multi-user authentication.
 
-OL-017 is complete only when an explicitly enabled finalized Run can produce one byte-reproducible, second-pass-redacted, Evidence-ID-addressed OL-010 artifact under fixed budgets, while disabled processing performs no sensitive read or write.
-## Current phase — OL-018 provider Candidate generation
-
-- The only network boundary is the explicit `candidate-generation` processor.
-- Provider secrets are in-memory call values and must never be persisted, logged, fingerprinted, returned, or copied into artifacts.
-- Provider output is untrusted and must pass the strict OL-016 contract without repair.
-- The v0.1 product layer persists at most seven generated Candidates even though the broader OL-016 batch contract is larger.
-- No scheduler, job queue, startup worker, provider registry, fallback routing, repository read, tool call, remote fetch, or provider-side conversation state is permitted.
-- OL-019 remains the sole owner of Evidence resolution, claim support, contradiction checks, deduplication, and ranking.
+OL-019 is complete only when verified OL-018 Candidates are deterministically rejected, deduplicated, ranked, and selected from exact OL-015 Evidence, with byte-reproducible OL-010 report bytes and strict restart/tamper validation.
