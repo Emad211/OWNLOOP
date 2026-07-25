@@ -2,6 +2,7 @@ import { createHash, createSecretKey } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import {
   NORMALIZED_EVENT_SCHEMA_VERSION,
@@ -35,12 +36,19 @@ import {
 } from "../candidate-generation/index.js";
 import { TEST_API_KEY, TEST_PROVIDER } from "../candidate-generation/test-fixture.js";
 import {
+  readMomentInteractionState,
+  recordMomentInteraction,
+} from "../moment-interactions/index.js";
+import { projectValidationOwnershipMoments } from "../ownership-moments/index.js";
+import {
   createLoopbackIngressServer,
   generateInstallationToken,
   startLoopbackIngressServer,
 } from "../ingress/index.js";
 import {
   CANDIDATE_MOMENT_SCHEMA_VERSION,
+  MomentInteractionReceiptV1Schema,
+  MomentInteractionStateResponseV1Schema,
   OwnershipMomentsProjectionV1Schema,
 } from "@ownloop/contracts";
 
@@ -466,6 +474,25 @@ describe("Candidate validation processor integration", () => {
     ).toHaveLength(1);
     const report = await context.artifactStore.readPreparedBytes(first.reportArtifactId);
     expect(decoder.decode(report.bytes)).not.toContain("File modified");
+    const momentProjection = await projectValidationOwnershipMoments(
+      generated.deps,
+      ids(RUN_A).runId,
+      first.validationId,
+    );
+    const restartMoment = momentProjection?.moments[0];
+    if (restartMoment === undefined) throw new Error("Restart Moment is missing.");
+    await recordMomentInteraction(
+      generated.deps,
+      ids(RUN_A).runId,
+      restartMoment.displayId,
+      {
+        schemaVersion: 1,
+        interactionId: `ix_${"a".repeat(48)}`,
+        validationId: first.validationId,
+        action: { kind: "acknowledgement_set", value: true },
+      },
+      { clock: () => new Date("2026-07-25T15:00:00.000Z") },
+    );
     context.persistence.close();
     const databaseBytes = await readFile(databasePath);
     expect(databaseBytes.includes(Buffer.from(TEST_API_KEY))).toBe(false);
@@ -483,6 +510,13 @@ describe("Candidate validation processor integration", () => {
         sequentialGenerationIds(),
       );
       expect(await getCandidateValidation(restartedDeps, first.validationId)).toEqual(first);
+      expect(
+        await readMomentInteractionState(restartedDeps, ids(RUN_A).runId, first.validationId),
+      ).toMatchObject({
+        totalInteractionCount: 1,
+        totalOwnershipRecordCount: 1,
+        states: [{ acknowledgement: true, interactionCount: 1, ownershipRecordCount: 1 }],
+      });
     } finally {
       persistence.close();
     }
@@ -642,6 +676,400 @@ describe("Candidate validation processor integration", () => {
     } finally {
       await server.close();
       context.persistence.close();
+    }
+  });
+
+  it("persists authenticated append-only Moment interactions with exact idempotency", async () => {
+    const context = await createContext([RUN_A]);
+    const generated = await generateForValidation(context, RUN_A, sequentialGenerationIds());
+    const validated = await validateCandidateGeneration(
+      generated.deps,
+      generated.result.generationId!,
+    );
+    if (validated === null || validated.validationId === null) {
+      throw new Error("Validation ID is missing.");
+    }
+    const projection = await projectValidationOwnershipMoments(
+      generated.deps,
+      ids(RUN_A).runId,
+      validated.validationId,
+    );
+    const moment = projection?.moments[0];
+    if (projection === null || moment === undefined) throw new Error("Moment is missing.");
+    const token = generateInstallationToken();
+    const server = createLoopbackIngressServer({
+      persistence: context.persistence,
+      installationToken: token,
+      hmacKey: createSecretKey(Buffer.alloc(32, 9)),
+      clock: () => new Date("2026-07-25T15:00:00.000Z"),
+      replay: {
+        persistence: context.persistence,
+        artifactStore: context.artifactStore,
+      },
+    });
+    const address = await startLoopbackIngressServer(server, 0);
+    const stateUrl = `${address.url}/v1/replay/runs/${ids(RUN_A).runId}/moment-interactions?validationId=${validated.validationId}`;
+    const writeUrl = `${address.url}/v1/replay/runs/${ids(RUN_A).runId}/moments/${moment.displayId}/interactions`;
+    const headers = {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    };
+    try {
+      const unauthorized = await fetch(stateUrl);
+      expect(unauthorized.status).toBe(401);
+      expect(unauthorized.headers.get("cache-control")).toBe("no-store");
+      const unauthorizedWrite = await fetch(writeUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ privatePath: "/private/repository" }),
+      });
+      expect(unauthorizedWrite.status).toBe(401);
+      expect(
+        context.persistence.momentInteractions.countInteractions(
+          ids(RUN_A).runId,
+          validated.validationId,
+        ),
+      ).toBe(0);
+
+      const initial = await fetch(stateUrl, { headers: { authorization: `Bearer ${token}` } });
+      expect(initial.status).toBe(200);
+      expect(MomentInteractionStateResponseV1Schema.parse(await initial.json())).toMatchObject({
+        totalInteractionCount: 0,
+        totalOwnershipRecordCount: 0,
+        states: [{ momentId: moment.displayId, interactionCount: 0 }],
+      });
+
+      const interactionId = `ix_${"1".repeat(48)}`;
+      const request = {
+        schemaVersion: 1,
+        interactionId,
+        validationId: validated.validationId,
+        action: { kind: "moment_viewed" },
+      } as const;
+      const first = await fetch(writeUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(request),
+      });
+      expect(first.status).toBe(201);
+      expect(first.headers.get("cache-control")).toBe("no-store");
+      expect(MomentInteractionReceiptV1Schema.parse(await first.json())).toMatchObject({
+        interactionId,
+        idempotentReplay: false,
+        ownershipRecordId: null,
+        state: { viewCount: 1, interactionCount: 1 },
+      });
+
+      const retries = await Promise.all(
+        Array.from({ length: 8 }, () =>
+          fetch(writeUrl, { method: "POST", headers, body: JSON.stringify(request) }),
+        ),
+      );
+      expect(retries.every((response) => response.status === 200)).toBe(true);
+      for (const response of retries) {
+        expect(MomentInteractionReceiptV1Schema.parse(await response.json())).toMatchObject({
+          interactionId,
+          idempotentReplay: true,
+          state: { viewCount: 1, interactionCount: 1 },
+        });
+      }
+
+      const conflict = await fetch(writeUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ ...request, action: { kind: "usefulness_set", value: "useful" } }),
+      });
+      expect(conflict.status).toBe(409);
+      expect(await conflict.text()).not.toContain("File modified");
+
+      const acknowledgement = await fetch(writeUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          ...request,
+          interactionId: `ix_${"2".repeat(48)}`,
+          action: { kind: "acknowledgement_set", value: true },
+        }),
+      });
+      expect(acknowledgement.status).toBe(201);
+      expect(MomentInteractionReceiptV1Schema.parse(await acknowledgement.json())).toMatchObject({
+        ownershipRecordId: expect.stringMatching(/^or_[0-9a-f]{48}$/u),
+        state: { acknowledgement: true, interactionCount: 2, ownershipRecordCount: 1 },
+      });
+
+      const foreignEvidence = await fetch(writeUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          ...request,
+          interactionId: `ix_${"3".repeat(48)}`,
+          action: { kind: "evidence_viewed", evidenceId: `ev_${"9".repeat(48)}` },
+        }),
+      });
+      expect(foreignEvidence.status).toBe(400);
+
+      const wrongContentType = await fetch(writeUrl, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "text/plain" },
+        body: JSON.stringify(request),
+      });
+      expect(wrongContentType.status).toBe(415);
+      const malformed = await fetch(writeUrl, {
+        method: "POST",
+        headers,
+        body: "{not-json",
+      });
+      expect(malformed.status).toBe(400);
+      expect(await malformed.text()).not.toContain("not-json");
+      const tooLarge = await fetch(writeUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ padding: "x".repeat(5_000) }),
+      });
+      expect(tooLarge.status).toBe(413);
+
+      for (const method of ["PUT", "PATCH", "DELETE"] as const) {
+        expect(
+          (await fetch(writeUrl, { method, headers: { authorization: `Bearer ${token}` } })).status,
+        ).toBe(404);
+      }
+
+      const finalState = MomentInteractionStateResponseV1Schema.parse(
+        await (await fetch(stateUrl, { headers: { authorization: `Bearer ${token}` } })).json(),
+      );
+      expect(finalState).toMatchObject({
+        totalInteractionCount: 2,
+        totalOwnershipRecordCount: 1,
+        states: [
+          {
+            momentId: moment.displayId,
+            viewCount: 1,
+            acknowledgement: true,
+            interactionCount: 2,
+            ownershipRecordCount: 1,
+          },
+        ],
+      });
+      expect(JSON.stringify(finalState)).not.toContain("File modified");
+      expect(JSON.stringify(finalState)).not.toContain(TEST_API_KEY);
+    } finally {
+      await server.close();
+      context.persistence.close();
+    }
+  });
+
+  it("rolls back both rows when bounded Ownership Record insertion fails", async () => {
+    const context = await createContext([RUN_A]);
+    try {
+      const generated = await generateForValidation(context, RUN_A, sequentialGenerationIds());
+      const validated = await validateCandidateGeneration(
+        generated.deps,
+        generated.result.generationId!,
+      );
+      if (validated === null || validated.validationId === null) {
+        throw new Error("Validation ID is missing.");
+      }
+      const projection = await projectValidationOwnershipMoments(
+        generated.deps,
+        ids(RUN_A).runId,
+        validated.validationId,
+      );
+      const moment = projection?.moments[0];
+      if (moment === undefined) throw new Error("Moment is missing.");
+      const failingPersistence = new Proxy(context.persistence, {
+        get(target, property, receiver) {
+          if (property === "withTransaction") {
+            return (operation: (repositories: unknown) => unknown) =>
+              target.withTransaction((repositories) => {
+                const momentInteractions = new Proxy(repositories.momentInteractions, {
+                  get(repository, repositoryProperty, repositoryReceiver) {
+                    if (repositoryProperty === "insertOwnershipRecord") {
+                      return () => {
+                        throw new Error("forced Ownership Record failure");
+                      };
+                    }
+                    const value = Reflect.get(repository, repositoryProperty, repositoryReceiver);
+                    return typeof value === "function" ? value.bind(repository) : value;
+                  },
+                });
+                return operation({ ...repositories, momentInteractions });
+              });
+          }
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }) as OwnLoopPersistence;
+      const interactionId = `ix_${"4".repeat(48)}`;
+      await expect(
+        recordMomentInteraction(
+          { persistence: failingPersistence, artifactStore: context.artifactStore },
+          ids(RUN_A).runId,
+          moment.displayId,
+          {
+            schemaVersion: 1,
+            interactionId,
+            validationId: validated.validationId,
+            action: { kind: "acknowledgement_set", value: true },
+          },
+          { clock: () => new Date("2026-07-25T15:10:00.000Z") },
+        ),
+      ).rejects.toThrow("forced Ownership Record failure");
+      expect(context.persistence.momentInteractions.getInteraction(interactionId)).toBeNull();
+      expect(
+        context.persistence.momentInteractions.getOwnershipRecordForInteraction(interactionId),
+      ).toBeNull();
+    } finally {
+      context.persistence.close();
+    }
+  });
+
+  it("detects direct SQL tamper and cascades only the deleted Run", async () => {
+    const directory = await temporaryDirectory("ownloop-moment-interaction-tamper-");
+    const databasePath = join(directory, "ownloop.sqlite");
+    const context = await createContext([RUN_A, RUN_B], databasePath);
+    const generator = sequentialGenerationIds();
+    const generatedA = await generateForValidation(context, RUN_A, generator);
+    const generatedB = await generateForValidation(context, RUN_B, generator);
+    const validatedA = await validateCandidateGeneration(
+      generatedA.deps,
+      generatedA.result.generationId!,
+    );
+    const validatedB = await validateCandidateGeneration(
+      generatedB.deps,
+      generatedB.result.generationId!,
+    );
+    if (
+      validatedA?.validationId === null ||
+      validatedA === null ||
+      validatedB?.validationId === null ||
+      validatedB === null
+    ) {
+      throw new Error("Validation IDs are missing.");
+    }
+    const projectionA = await projectValidationOwnershipMoments(
+      generatedA.deps,
+      ids(RUN_A).runId,
+      validatedA.validationId,
+    );
+    const projectionB = await projectValidationOwnershipMoments(
+      generatedB.deps,
+      ids(RUN_B).runId,
+      validatedB.validationId,
+    );
+    const momentA = projectionA?.moments[0];
+    const momentB = projectionB?.moments[0];
+    if (momentA === undefined || momentB === undefined) throw new Error("Moments are missing.");
+    await recordMomentInteraction(
+      generatedA.deps,
+      ids(RUN_A).runId,
+      momentA.displayId,
+      {
+        schemaVersion: 1,
+        interactionId: `ix_${"5".repeat(48)}`,
+        validationId: validatedA.validationId,
+        action: { kind: "acknowledgement_set", value: true },
+      },
+      { clock: () => new Date("2026-07-25T15:20:00.000Z") },
+    );
+    await recordMomentInteraction(
+      generatedB.deps,
+      ids(RUN_B).runId,
+      momentB.displayId,
+      {
+        schemaVersion: 1,
+        interactionId: `ix_${"6".repeat(48)}`,
+        validationId: validatedB.validationId,
+        action: { kind: "moment_viewed" },
+      },
+      { clock: () => new Date("2026-07-25T15:20:00.000Z") },
+    );
+    context.persistence.close();
+
+    const database = new DatabaseSync(databasePath);
+    database.exec("PRAGMA foreign_keys = ON");
+    expect(() =>
+      database
+        .prepare("UPDATE moment_interactions SET actor = 'local_user' WHERE interaction_id = ?")
+        .run(`ix_${"5".repeat(48)}`),
+    ).toThrow(/append-only/u);
+    expect(() =>
+      database
+        .prepare("DELETE FROM ownership_records WHERE interaction_id = ?")
+        .run(`ix_${"5".repeat(48)}`),
+    ).toThrow(/Task Run/u);
+    expect(() =>
+      database
+        .prepare("DELETE FROM moment_interactions WHERE interaction_id = ?")
+        .run(`ix_${"5".repeat(48)}`),
+    ).toThrow();
+    expect(() =>
+      database
+        .prepare("DELETE FROM candidate_validations WHERE validation_id = ?")
+        .run(validatedA.validationId),
+    ).toThrow(/retained/u);
+    expect(() =>
+      database
+        .prepare(
+          `INSERT INTO moment_interactions (
+           interaction_id, actor, run_id, validation_id, moment_id, source_index,
+           source_candidate_fingerprint, moment_type, action_kind, evidence_id, value_code,
+           request_fingerprint, schema_version, created_at
+         ) SELECT ?, actor, run_id, validation_id, moment_id, source_index + 1,
+           source_candidate_fingerprint, moment_type, 'moment_viewed', NULL, NULL,
+           request_fingerprint, schema_version, created_at
+         FROM moment_interactions WHERE interaction_id = ?`,
+        )
+        .run(`ix_${"7".repeat(48)}`, `ix_${"5".repeat(48)}`),
+    ).toThrow(/identity/u);
+    database
+      .prepare(
+        `INSERT INTO moment_interactions (
+         interaction_id, actor, run_id, validation_id, moment_id, source_index,
+         source_candidate_fingerprint, moment_type, action_kind, evidence_id, value_code,
+         request_fingerprint, schema_version, created_at
+       ) SELECT ?, actor, run_id, validation_id, moment_id, source_index,
+         source_candidate_fingerprint, moment_type, 'evidence_viewed', ?, NULL,
+         ?, schema_version, '2026-07-25T15:21:00.000Z'
+       FROM moment_interactions WHERE interaction_id = ?`,
+      )
+      .run(
+        `ix_${"8".repeat(48)}`,
+        `ev_${"9".repeat(48)}`,
+        `sha256:${"9".repeat(64)}`,
+        `ix_${"5".repeat(48)}`,
+      );
+    database.close();
+
+    const persistence = openPersistence(databasePath);
+    const artifactStore = await createLocalArtifactStore({
+      artifactRoot: context.artifactRoot,
+      persistence,
+    });
+    try {
+      await expect(
+        readMomentInteractionState(
+          { persistence, artifactStore },
+          ids(RUN_A).runId,
+          validatedA.validationId,
+        ),
+      ).rejects.toMatchObject({ code: "invalid_persisted_row" });
+      expect(
+        await readMomentInteractionState(
+          { persistence, artifactStore },
+          ids(RUN_B).runId,
+          validatedB.validationId,
+        ),
+      ).toMatchObject({ totalInteractionCount: 1, states: [{ viewCount: 1 }] });
+      expect(persistence.taskRuns.delete(ids(RUN_A).runId)).toBe(true);
+      expect(
+        persistence.momentInteractions.countInteractions(ids(RUN_A).runId, validatedA.validationId),
+      ).toBe(0);
+      expect(
+        persistence.momentInteractions.countInteractions(ids(RUN_B).runId, validatedB.validationId),
+      ).toBe(1);
+      expect(persistence.candidateValidations.get(validatedB.validationId)).not.toBeNull();
+    } finally {
+      persistence.close();
     }
   });
 

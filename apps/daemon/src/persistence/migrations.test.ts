@@ -22,6 +22,8 @@ const REQUIRED_TABLES = [
   "git_reconciliation_entries",
   "git_reconciliations",
   "ingress_receipts",
+  "moment_interactions",
+  "ownership_records",
   "receipt_event_normalizations",
   "receipt_lifecycle_resolutions",
   "receipt_normalized_events",
@@ -1585,7 +1587,7 @@ describe("SQLite migrations", () => {
     try {
       runMigrations(opened.database, MIGRATIONS.slice(0, 15));
       expect(readAppliedMigrations(opened.database)).toHaveLength(15);
-      runMigrations(opened.database);
+      runMigrations(opened.database, MIGRATIONS.slice(0, 16));
       expect(readAppliedMigrations(opened.database)).toHaveLength(16);
       expect(
         opened.database
@@ -1843,6 +1845,46 @@ describe("SQLite migrations", () => {
             recordJson,
           ),
       ).toThrow();
+    } finally {
+      opened.database.close();
+    }
+  });
+});
+
+describe("migration v17 Moment interactions", () => {
+  it("upgrades 16 to 17 with strict append-only interaction tables", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 16));
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='moment_interactions'",
+          )
+          .get(),
+      ).toBeUndefined();
+      runMigrations(opened.database);
+      expect(readAppliedMigrations(opened.database)).toHaveLength(17);
+      expect(
+        opened.database
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='moment_interactions'",
+          )
+          .get(),
+      ).toBeDefined();
+      expect(
+        opened.database
+          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='ownership_records'")
+          .get(),
+      ).toBeDefined();
+      const triggers = opened.database
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE '%v17' ORDER BY name",
+        )
+        .all()
+        .map((row) => row.name);
+      expect(triggers).toContain("moment_interactions_reject_update_v17");
+      expect(triggers).toContain("ownership_records_reject_update_v17");
     } finally {
       opened.database.close();
     }

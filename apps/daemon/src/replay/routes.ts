@@ -1,5 +1,7 @@
 import {
   EvidenceResolutionV1Schema,
+  MomentInteractionReceiptV1Schema,
+  MomentInteractionStateResponseV1Schema,
   OwnershipMomentsProjectionV1Schema,
   RAW_REPLAY_SCHEMA_VERSION,
   RawRunReplayV1Schema,
@@ -11,6 +13,14 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 import { isArtifactStoreError, type LocalArtifactStore } from "../artifact-store/index.js";
+import {
+  MOMENT_INTERACTION_BODY_LIMIT_BYTES,
+  MOMENT_INTERACTION_STATE_ROUTE,
+  MOMENT_INTERACTION_WRITE_ROUTE,
+  MomentInteractionError,
+  readMomentInteractionState,
+  recordMomentInteraction,
+} from "../moment-interactions/index.js";
 import { OWNERSHIP_MOMENTS_ROUTE, projectRunOwnershipMoments } from "../ownership-moments/index.js";
 import { readValidatedRunEvidenceGraph, resolveRunEvidence } from "../evidence-graph/index.js";
 import type { InstallationTokenVerifier } from "../ingress/index.js";
@@ -38,6 +48,10 @@ type ReplayListQuery = Readonly<{
   cursor?: string | readonly string[];
 }>;
 
+type MomentInteractionQuery = Readonly<{
+  validationId?: string | readonly string[];
+}>;
+
 function singleQueryValue(
   value: string | readonly string[] | undefined,
 ): string | undefined | false {
@@ -48,6 +62,7 @@ export type ReplayRouteDependencies = Readonly<{
   persistence: OwnLoopPersistence;
   artifactStore: Pick<LocalArtifactStore, "readPreparedBytes">;
   tokenVerifier: InstallationTokenVerifier;
+  clock?: () => Date;
 }>;
 
 function unauthorized(reply: FastifyReply): void {
@@ -71,6 +86,52 @@ function contentFreeFailure(reply: FastifyReply, error: unknown): void {
   const code = error instanceof PersistenceError ? "projection_failed" : "internal_error";
   const status = error instanceof PersistenceError ? 503 : 500;
   void reply.code(status).header("Cache-Control", "no-store").send(replayError(code));
+}
+
+function isJsonRequest(request: FastifyRequest): boolean {
+  const values = request.raw.headersDistinct["content-type"];
+  if (values === undefined || values.length !== 1) return false;
+  return values[0]?.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
+}
+
+function interactionFailure(reply: FastifyReply, error: unknown): void {
+  if (typeof error === "object" && error !== null && "name" in error && error.name === "ZodError") {
+    void reply
+      .code(400)
+      .header("Cache-Control", "no-store")
+      .send(replayError("interaction_rejected"));
+    return;
+  }
+  if (error instanceof MomentInteractionError) {
+    switch (error.code) {
+      case "interaction_conflict":
+        void reply
+          .code(409)
+          .header("Cache-Control", "no-store")
+          .send(replayError("interaction_conflict"));
+        return;
+      case "action_not_allowed":
+        void reply
+          .code(400)
+          .header("Cache-Control", "no-store")
+          .send(replayError("interaction_rejected"));
+        return;
+      default:
+        void reply
+          .code(404)
+          .header("Cache-Control", "no-store")
+          .send(replayError("interaction_not_found"));
+        return;
+    }
+  }
+  if (error instanceof PersistenceError) {
+    void reply
+      .code(503)
+      .header("Cache-Control", "no-store")
+      .send(replayError("interaction_unavailable"));
+    return;
+  }
+  void reply.code(500).header("Cache-Control", "no-store").send(replayError("internal_error"));
 }
 
 export function registerReplayRoutes(
@@ -162,6 +223,72 @@ export function registerReplayRoutes(
           .send(OwnershipMomentsProjectionV1Schema.parse(projection));
       } catch (error) {
         contentFreeFailure(reply, error);
+      }
+    },
+  );
+
+  server.get<{ Params: { runId: string }; Querystring: MomentInteractionQuery }>(
+    MOMENT_INTERACTION_STATE_ROUTE,
+    { onRequest },
+    async (request, reply) => {
+      const runId = request.params.runId;
+      const validationId = singleQueryValue(request.query.validationId);
+      if (
+        !SAFE_ID_PATTERN.test(runId) ||
+        validationId === false ||
+        validationId === undefined ||
+        !/^val_[0-9a-f]{48}$/u.test(validationId)
+      ) {
+        void reply.code(400).header("Cache-Control", "no-store").send(replayError("invalid_query"));
+        return;
+      }
+      try {
+        const state = await readMomentInteractionState(dependencies, runId, validationId);
+        void reply
+          .header("Cache-Control", "no-store")
+          .send(MomentInteractionStateResponseV1Schema.parse(state));
+      } catch (error) {
+        interactionFailure(reply, error);
+      }
+    },
+  );
+
+  server.post<{ Params: { runId: string; momentId: string }; Body: unknown }>(
+    MOMENT_INTERACTION_WRITE_ROUTE,
+    {
+      onRequest(request, reply, done) {
+        authenticate(dependencies.tokenVerifier, request, reply, () => {
+          if (!isJsonRequest(request)) {
+            void reply
+              .code(415)
+              .header("Cache-Control", "no-store")
+              .send(replayError("interaction_rejected"));
+            return;
+          }
+          done();
+        });
+      },
+      bodyLimit: MOMENT_INTERACTION_BODY_LIMIT_BYTES,
+    },
+    async (request, reply) => {
+      const { runId, momentId } = request.params;
+      if (!SAFE_ID_PATTERN.test(runId) || !/^mom_[0-9a-f]{48}$/u.test(momentId)) {
+        void reply
+          .code(404)
+          .header("Cache-Control", "no-store")
+          .send(replayError("interaction_not_found"));
+        return;
+      }
+      try {
+        const receipt = await recordMomentInteraction(dependencies, runId, momentId, request.body, {
+          ...(dependencies.clock === undefined ? {} : { clock: dependencies.clock }),
+        });
+        void reply
+          .code(receipt.idempotentReplay ? 200 : 201)
+          .header("Cache-Control", "no-store")
+          .send(MomentInteractionReceiptV1Schema.parse(receipt));
+      } catch (error) {
+        interactionFailure(reply, error);
       }
     },
   );

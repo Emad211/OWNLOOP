@@ -4,7 +4,7 @@ These instructions apply to the entire repository.
 
 ## Product boundary
 
-OwnLoop is a local-first Human Ownership Layer for AI-generated software. Accepted direction is defined by the product scope, dependency-ordered backlog, and ADR-0001 through ADR-0022.
+OwnLoop is a local-first Human Ownership Layer for AI-generated software. Accepted direction is defined by the product scope, dependency-ordered backlog, and ADR-0001 through ADR-0023.
 
 Read the relevant documents before changing code. Do not silently reinterpret an accepted decision. Architectural changes require an ADR.
 
@@ -13,10 +13,9 @@ Read the relevant documents before changing code. Do not silently reinterpret an
 - Work on exactly one issue and keep the Pull Request independently reviewable.
 - Do not modify unrelated files or add speculative behavior.
 - Never commit secrets, credentials, `.env` contents, databases, raw Git output, prepared artifact bytes, source content, machine roots, provider responses, exception messages, or stacks.
-- Do not weaken strict contracts, canonical bytes, Evidence ownership, artifact verification, migration history, transactionality, idempotency, bounded processing, or fail-closed read-back.
-- Provider confidence and importance are bounded ranking signals, never proof.
-- Missing evidence must not be converted into an absence claim.
-- Unsupported semantic prose must be rejected rather than interpreted with a hidden model or heuristic similarity.
+- Do not weaken strict contracts, canonical identities, Evidence ownership, artifact verification, migration history, transactionality, idempotency, append-only history, bounded reads, or fail-closed read-back.
+- A recorded interaction proves only that the explicit action was stored. It does not prove comprehension, correctness, agreement, authorship, safety, or legal ownership.
+- Provider confidence and importance remain proposal/ranking signals, never proof.
 
 ## Technical baseline
 
@@ -28,18 +27,18 @@ Read the relevant documents before changing code. Do not silently reinterpret an
 - local SHA-256 content-addressed artifact storage
 - Vitest, GitHub Actions, Biome
 
-No new runtime dependency is authorized for OL-020.
+No new runtime dependency is authorized for OL-021.
 
-## OL-020 placement
+## OL-021 placement
 
-- strict browser projection contracts belong in `packages/contracts/src/ownership-moments.ts`;
-- read-only verified source joining belongs in `apps/daemon/src/ownership-moments/`;
-- current-policy validation lookup remains inside the existing persistence repository;
-- the authenticated GET route extends the existing Replay server;
-- accessible page-memory-only rendering belongs in `apps/web/`;
-- architecture policy belongs in ADR-0022.
+- strict action, request, receipt, history, state, and Ownership Record contracts belong in `packages/contracts/src/moment-interactions.ts`;
+- exact-Moment verification and interaction processing belong in `apps/daemon/src/moment-interactions/`;
+- migration v17 and append-only relational access belong in the existing persistence boundary;
+- authenticated GET/POST routes extend the existing Replay server;
+- durable hydration and interaction controls belong in `apps/web/`;
+- architecture policy belongs in ADR-0023.
 
-Do not create a migration, table, artifact, write endpoint, processor trigger, background worker, scheduler, browser storage, new listener, CORS surface, model call, or runtime dependency.
+Do not create an interaction artifact, mutable Moment/current-state table, free-form text field, account system, new listener, CORS surface, background worker, scheduler, provider call, browser storage, or runtime dependency.
 
 ## Quality gates
 
@@ -53,13 +52,13 @@ pnpm test
 pnpm build
 ```
 
-Focused OL-020 tests must prove strict projection contracts, current-policy latest-validation selection, exact OL-018/019/015 joins, selected-only wording, maximum-seven and zero-Moment states, read-only authenticated routes, Run-scoped Evidence navigation, page-memory interactions and resets, proposal/support/signal separation, browser privacy, accessibility, full regression, and production builds.
+Focused OL-021 tests must prove strict contracts, migration 16→17, append-only history, exact validation/Moment/Evidence/choice verification, idempotent retries and conflicting reuse, atomic interaction/record writes, concurrency, restart durability, direct-SQL tamper detection, bounded recent history, deterministic current-state reduction, Run-scoped cascade deletion, authenticated GET/POST behavior, durable UI hydration, honest pending/saved/error states, and absence of browser storage or sensitive text.
 
 Never claim a check passed unless it completed successfully.
 
 ## Git and Pull Request discipline
 
-- Base implementation on `agent/ol-020-ownership-moments` from the exact OL-019 merge commit.
+- Base implementation on `agent/ol-021-moment-interactions` from the exact OL-020 merge commit.
 - Make focused commits and leave the final diff free of transfer/export workflows.
 - Do not push directly to `main`.
 - Keep the PR draft until clean-checkout CI and final review pass.
@@ -67,15 +66,15 @@ Never claim a check passed unless it completed successfully.
 
 ## Current phase restriction
 
-The active issue is `OL-020: Render finite Ownership Moments with local evidence navigation` (#58).
+The active issue is `OL-021: Persist append-only Moment interactions and bounded ownership records` (#63).
 
 Explicitly forbidden:
 
-- rendering rejected, duplicate, or valid-unselected Candidate prose;
-- treating provider confidence/importance as Evidence, proof, correctness, agreement, comprehension, or ownership;
-- Candidate generation, validation, reranking, rewriting, or any other processing side effect from a GET route;
-- persistence migrations, Moment/interaction tables, artifact creation, write endpoints, browser storage, workers, timers, or schedulers;
-- repository/worktree/source/AST/package-content reads, raw provider responses, semantic input, transcripts, commands, output excerpts, paths, artifact storage metadata, exceptions, or stacks;
-- a new listener, CORS, cloud, analytics, telemetry, billing, or multi-user authentication.
+- free-form notes, comments, arbitrary JSON, account/profile/device identity, or remote user identity;
+- claiming that acknowledgement, response, answer, feedback, or views prove understanding, agreement, correctness, authorship, safety, learning, or ownership;
+- interaction UPDATE, individual-row deletion, standalone history purge, mutable current-state rows, or browser persistence;
+- Candidate generation, validation, ranking, rewriting, graph mutation, repository/source reads, provider/model calls, or artifact creation from an interaction route;
+- raw Candidate prose, provider content, repository paths, commands, output, tokens, artifact storage metadata, exceptions, or stacks in interaction persistence or responses;
+- a new listener, CORS, workers, timers, schedulers, cloud, analytics, telemetry, billing, or multi-user authentication.
 
-OL-020 is complete only when one exact verified current-policy OL-019 validation can be joined with its verified OL-018 source Candidates and OL-015 Evidence Graph into a finite selected-only projection, rendered accessibly with Run-scoped Evidence navigation and explicitly unsaved page-memory interactions.
+OL-021 is complete only when explicit actions against exact verified OL-020 Moments are stored as immutable append-only history, qualifying actions create bounded no-comprehension Ownership Records atomically, current state rehydrates deterministically, and full Run deletion remains the only deletion boundary.

@@ -1,8 +1,8 @@
 # ADR-0023: Persist Append-Only Moment Interactions Without Claiming Comprehension
 
-**Status:** Proposed  
-**Date:** 2026-07-25  
-**Decision owner:** Project founder  
+**Status:** Proposed
+**Date:** 2026-07-25
+**Decision owner:** Project founder
 **Related documents:**
 
 - `docs/adr/0017-deterministic-locally-resolvable-evidence-graph.md`
@@ -98,7 +98,7 @@ Migration v17 preserves migrations 1 through 16 and creates strict tables:
 
 Stores controlled interaction identity, exact source identity, action/value columns, server UTC timestamp, contract version, and canonical request fingerprint.
 
-It is append-only through repository design and an UPDATE-rejecting trigger. It has no DELETE-blocking trigger so parent Run cascade deletion remains possible.
+It is append-only through repository design, an UPDATE-rejecting trigger, and a conditional direct-DELETE guard. Direct row deletion is rejected while the parent Task Run exists; the guard deliberately permits foreign-key cascade after full Task Run deletion begins.
 
 ### `ownership_records`
 
@@ -113,7 +113,9 @@ Moment and Evidence views create no Ownership Record.
 
 Each record carries the assertion code `interaction_recorded` and an explicit no-comprehension constraint. It contains no arbitrary statement text.
 
-Both tables cascade from Task Run deletion. Deleting one Run cannot affect another Run.
+Migration constraints also enforce the broad Moment-type/action matrix, exact Run/validation ownership, stable source identity for every row sharing a Moment display ID, canonical UTC timestamps, and exact interaction-to-record agreement. Verified read-back compares persisted Evidence-view IDs and Check-choice IDs with the exact regenerated OL-020 Moment and fails closed on disagreement.
+
+Both tables cascade from Task Run deletion. Candidate validations with interaction history cannot be deleted independently while their Task Run remains. Deleting one Run cannot affect another Run.
 
 ## Current state
 
@@ -124,7 +126,7 @@ created_at ASC,
 interaction_id ASC
 ```
 
-Counts retain all views/history, while acknowledgement, response, answer, and usefulness reflect the latest corresponding action.
+Counts retain all views/history, while acknowledgement, response, answer, and usefulness reflect the latest corresponding action. Current state is computed with indexed aggregate and latest-value queries; only the recent history returned to the browser is bounded to 100 interactions and 100 Ownership Records, with exact total counts and truncation flags.
 
 ## API
 
@@ -171,7 +173,7 @@ No browser storage or URL serialization is used.
 ### Negative
 
 - one page load may append several view rows;
-- current state requires reduction over bounded history;
+- current state requires indexed reduction over append-only history;
 - v0.1 has one controlled local actor only;
 - individual history rows cannot be edited or deleted.
 
