@@ -1,0 +1,54 @@
+name: Export OL-015 Toolchain
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'agent/ol-015-evidence-graph'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 1
+
+      - name: Set up exact Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.18.0
+
+      - name: Install frozen dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Export exact source and runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ol015-toolchain/repo /tmp/ol015-toolchain/node
+          tar --exclude=.git -cf - . | tar -xf - -C /tmp/ol015-toolchain/repo
+          cp -a "$(dirname "$(dirname "$(command -v node)")")"/. /tmp/ol015-toolchain/node/
+          (cd /tmp/ol015-toolchain && tar -czf /tmp/ownloop-ol015-toolchain.tar.gz repo node)
+          sha256sum /tmp/ownloop-ol015-toolchain.tar.gz > /tmp/ownloop-ol015-toolchain.sha256
+
+      - name: Upload toolchain
+        uses: actions/upload-artifact@v6
+        with:
+          name: ownloop-ol015-toolchain
+          path: |
+            /tmp/ownloop-ol015-toolchain.tar.gz
+            /tmp/ownloop-ol015-toolchain.sha256
+          if-no-files-found: error
+          retention-days: 1
