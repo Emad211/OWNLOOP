@@ -1,6 +1,6 @@
 # ADR-0023: Persist Append-Only Moment Interactions Without Claiming Comprehension
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-07-25
 **Decision owner:** Project founder
 **Related documents:**
