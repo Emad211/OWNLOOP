@@ -24,6 +24,7 @@ immutable current-policy validation
 - The route calls verified read APIs only and never generates, validates, ranks, persists, or emits anything.
 - Evidence navigation reuses the existing authenticated Run-scoped resolver.
 - Browser responses, acknowledgement, answers, and usefulness feedback remain unsaved React state and reset on Run/validation change, disconnect, unauthorized response, remount, or refresh.
+- Raw Replay remains independently readable: ordinary Run detail contains no Candidate wording and does not depend on the Moment projection succeeding.
 
 ## Public API
 
@@ -31,7 +32,7 @@ immutable current-policy validation
 GET /v1/replay/runs/:runId/moments
 ```
 
-The response is `no-store`, strict, same-origin, authenticated, and contains at most seven selected Moments. Raw Candidate/report artifacts are not downloadable through this route.
+The response is `no-store`, strict, same-origin, authenticated, and contains at most seven selected Moments. Raw Candidate/report artifacts are not downloadable through this route. Candidate wording is loaded only from this dedicated endpoint after all source read-back checks pass.
 
 ## Non-ownership
 
