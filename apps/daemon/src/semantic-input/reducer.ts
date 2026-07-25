@@ -11,7 +11,6 @@ import {
   DeterministicSemanticAnalysisInputV1Schema,
   type DeterministicVerificationEvidenceV1,
   EVIDENCE_GRAPH_BUILDER_VERSION,
-  EVIDENCE_GRAPH_LIMITATIONS,
   EVIDENCE_GRAPH_SCHEMA_VERSION,
   EVIDENCE_GRAPH_TAXONOMY_VERSION,
   type EvidenceGraphLimitation,

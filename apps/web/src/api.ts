@@ -2,6 +2,8 @@ import {
   type EvidenceResolutionV1,
   EvidenceResolutionV1Schema,
   type FinalDiffManifestV1,
+  type OwnershipMomentsProjectionV1,
+  OwnershipMomentsProjectionV1Schema,
   FinalDiffManifestV1Schema,
   type RawRunReplayV1,
   RawRunReplayV1Schema,
@@ -35,6 +37,7 @@ export class ReplayApiError extends Error {
 export type ReplayApiClient = Readonly<{
   listRuns(cursor?: string | null): Promise<ReplayRunListResponseV1>;
   getRun(runId: string): Promise<RawRunReplayV1>;
+  getMoments(runId: string): Promise<OwnershipMomentsProjectionV1>;
   loadFinalManifest(artifactId: string): Promise<FinalDiffManifestV1>;
   resolveEvidence(runId: string, evidenceId: string): Promise<EvidenceResolutionV1>;
 }>;
@@ -121,6 +124,19 @@ export function createReplayApiClient(
       }
       const result = RawRunReplayV1Schema.safeParse(
         await requestJson(`/v1/replay/runs/${encodeURIComponent(runId)}`),
+      );
+      if (!result.success) {
+        throw new ReplayApiError("invalid_response");
+      }
+      return result.data;
+    },
+
+    async getMoments(runId: string): Promise<OwnershipMomentsProjectionV1> {
+      if (!SAFE_ID_PATTERN.test(runId)) {
+        throw new ReplayApiError("not_found");
+      }
+      const result = OwnershipMomentsProjectionV1Schema.safeParse(
+        await requestJson(`/v1/replay/runs/${encodeURIComponent(runId)}/moments`),
       );
       if (!result.success) {
         throw new ReplayApiError("invalid_response");

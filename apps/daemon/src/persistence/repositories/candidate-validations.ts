@@ -174,6 +174,19 @@ export class CandidateValidationRepository {
       .map(parseRecordJson);
   }
 
+  getLatestForRun(runId: string): CandidateValidationRecordV1 | null {
+    const row = this.#database
+      .prepare(
+        `${SELECT_RECORD}
+         WHERE run_id = ?
+           AND ${CURRENT_VALIDATION_VERSION_PREDICATE}
+         ORDER BY created_at DESC, validation_id DESC
+         LIMIT 1`,
+      )
+      .get(runId, ...CURRENT_VALIDATION_VERSION_PARAMETERS);
+    return row === undefined ? null : parseRecordJson(row);
+  }
+
   listUnvalidatedGenerationIds(limit: number): readonly string[] {
     if (!Number.isInteger(limit) || limit < 1 || limit > 25) return [];
     return this.#database

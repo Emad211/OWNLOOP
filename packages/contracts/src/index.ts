@@ -503,3 +503,29 @@ export {
   parseCandidateValidationReportV1,
   parseCandidateValidationResultV1,
 } from "./candidate-validation.js";
+
+export type {
+  OwnershipMomentDisplayId,
+  OwnershipMomentProjectionItemV1,
+  OwnershipMomentsDiagnosticCode,
+  OwnershipMomentsLimitation,
+  OwnershipMomentsOutcome,
+  OwnershipMomentsPolicyVersionsV1,
+  OwnershipMomentsProjectionV1,
+} from "./ownership-moments.js";
+export {
+  OWNERSHIP_MOMENTS_DIAGNOSTIC_CODES,
+  OWNERSHIP_MOMENTS_LIMITATIONS,
+  OWNERSHIP_MOMENTS_MAX_ITEMS,
+  OWNERSHIP_MOMENTS_OUTCOMES,
+  OWNERSHIP_MOMENTS_PROJECTION_VERSION,
+  OWNERSHIP_MOMENTS_SCHEMA_VERSION,
+  OwnershipMomentDisplayIdSchema,
+  OwnershipMomentProjectionItemV1Schema,
+  OwnershipMomentsDiagnosticCodeSchema,
+  OwnershipMomentsLimitationSchema,
+  OwnershipMomentsOutcomeSchema,
+  OwnershipMomentsPolicyVersionsV1Schema,
+  OwnershipMomentsProjectionV1Schema,
+  parseOwnershipMomentsProjectionV1,
+} from "./ownership-moments.js";

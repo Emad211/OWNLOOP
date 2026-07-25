@@ -58,6 +58,46 @@ describe("replay browser API client", () => {
     await expect(client.listRuns()).rejects.toMatchObject({ code: "invalid_response" });
   });
 
+  it("loads Moments through the current Run-scoped read-only route", async () => {
+    const calls: string[] = [];
+    const projection = {
+      ok: true,
+      schemaVersion: 1,
+      projectionVersion: "0.1.0",
+      runId: "run-1",
+      outcome: "not_available",
+      diagnosticCode: "validation_not_available",
+      limitations: [],
+      finalizationId: null,
+      generationId: null,
+      validationId: null,
+      validationKey: null,
+      sourceCandidateArtifactId: null,
+      sourceCandidateFingerprint: null,
+      reportArtifactId: null,
+      reportFingerprint: null,
+      evidenceGraphArtifactId: null,
+      evidenceGraphInputFingerprint: null,
+      sourceVersions: null,
+      policyVersions: null,
+      selectedCount: 0,
+      moments: [],
+    } as const;
+    const client = createReplayApiClient(TOKEN, {
+      fetcher: async (input, init) => {
+        calls.push(input instanceof URL ? input.toString() : String(input));
+        expect(init?.method).toBe("GET");
+        return new Response(JSON.stringify(projection), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    expect(await client.getMoments("run-1")).toEqual(projection);
+    expect(calls).toEqual([`${PAGE_ORIGIN}/v1/replay/runs/run-1/moments`]);
+    await expect(client.getMoments("../run")).rejects.toMatchObject({ code: "not_found" });
+  });
+
   it("resolves evidence only through the current Run-scoped loopback route", async () => {
     const evidenceId = `ev_${"a".repeat(48)}`;
     const calls: string[] = [];

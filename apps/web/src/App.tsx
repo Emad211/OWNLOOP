@@ -1,5 +1,8 @@
 import type {
+  CandidateValidationFactV1,
   FinalDiffManifestV1,
+  OwnershipMomentProjectionItemV1,
+  OwnershipMomentsProjectionV1,
   RawRunReplayV1,
   ReplayArtifactReferenceV1,
   ReplayRunSummaryV1,
@@ -11,6 +14,7 @@ import { createReplayApiClient, type ReplayApiClient, ReplayApiError } from "./a
 const SAFE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
 
 type LoadState = "disconnected" | "loading" | "ready" | "empty" | "error";
+type MomentLoadState = "idle" | "loading" | "ready" | "error";
 
 type ViewerProps = Readonly<{
   state: LoadState;
@@ -18,6 +22,9 @@ type ViewerProps = Readonly<{
   runs: readonly ReplayRunSummaryV1[];
   replay: RawRunReplayV1 | null;
   manifest: FinalDiffManifestV1 | null;
+  moments: OwnershipMomentsProjectionV1 | null;
+  momentState: MomentLoadState;
+  momentStatusMessage: string;
   selectedRunId: string | null;
   nextCursor: string | null;
   onSelectRun(runId: string): void;
@@ -168,6 +175,241 @@ function EvidenceBanner({ replay }: Readonly<{ replay: RawRunReplayV1 }>) {
           ? "No persisted evidence gap is attached to this Run."
           : `${gaps} persisted evidence gap${gaps === 1 ? "" : "s"} must be reviewed.`}
       </p>
+    </section>
+  );
+}
+
+function factKey(fact: CandidateValidationFactV1): string {
+  const evidence = fact.evidenceIds.join(",");
+  switch (fact.kind) {
+    case "verification_status":
+      return `${fact.kind}:${fact.verificationKind}:${fact.observedStatus}:${evidence}`;
+    case "evidence_gap":
+      return `${fact.kind}:${fact.gapCode}:${evidence}`;
+    case "decision_observed":
+      return `${fact.kind}:${fact.eventType}:${evidence}`;
+    default:
+      return `${fact.kind}:${String(fact.value)}:${evidence}`;
+  }
+}
+
+function factText(fact: CandidateValidationFactV1): string {
+  switch (fact.kind) {
+    case "verification_status":
+      return `${fact.verificationKind} verification: ${fact.observedStatus}`;
+    case "evidence_gap":
+      return `Evidence gap: ${fact.gapCode}`;
+    case "decision_observed":
+      return `Decision observation: ${fact.eventType}`;
+    case "source_partial":
+      return "Source evidence is partial";
+    default:
+      return `${fact.kind.replaceAll("_", " ")}: ${fact.value.replaceAll("_", " ")}`;
+  }
+}
+
+function MomentInteraction({ moment }: Readonly<{ moment: OwnershipMomentProjectionItemV1 }>) {
+  const [response, setResponse] = useState<string | boolean | null>(null);
+  const [usefulness, setUsefulness] = useState<"useful" | "not_useful" | "unset">("unset");
+  const interaction = moment.candidate.suggestedInteraction;
+  const name = `${moment.displayId}-interaction`;
+  const responseStatus =
+    response === null
+      ? "No page response selected."
+      : response === true
+        ? "Acknowledged in this page."
+        : typeof response === "string"
+          ? `Page response: ${response.replaceAll("_", " ")}.`
+          : "Not acknowledged in this page.";
+  const usefulnessStatus =
+    usefulness === "unset"
+      ? "No usefulness feedback selected."
+      : `Usefulness feedback: ${usefulness.replaceAll("_", " ")}.`;
+  return (
+    <div className="moment-interaction">
+      <p className="eyebrow">Unsaved page response</p>
+      {interaction.kind === "acknowledge" ? (
+        <button
+          type="button"
+          className="button secondary"
+          aria-pressed={response === true}
+          onClick={() => setResponse(response === true ? null : true)}
+        >
+          {response === true ? "Acknowledged in this page" : "Acknowledge for this page"}
+        </button>
+      ) : null}
+      {interaction.kind === "decision_response" || interaction.kind === "risk_response" ? (
+        <fieldset>
+          <legend>{interaction.prompt}</legend>
+          {interaction.options.map((option) => (
+            <label key={option}>
+              <input
+                type="radio"
+                name={name}
+                value={option}
+                checked={response === option}
+                onChange={() => setResponse(option)}
+              />
+              {option.replaceAll("_", " ")}
+            </label>
+          ))}
+        </fieldset>
+      ) : null}
+      {interaction.kind === "check_answer" ? (
+        <fieldset>
+          <legend>{interaction.question}</legend>
+          {interaction.choices.map((choice) => (
+            <label key={choice.id}>
+              <input
+                type="radio"
+                name={name}
+                value={choice.id}
+                checked={response === choice.id}
+                onChange={() => setResponse(choice.id)}
+              />
+              {choice.label}
+            </label>
+          ))}
+        </fieldset>
+      ) : null}
+      <fieldset>
+        <legend>Was this Moment useful?</legend>
+        {(["unset", "useful", "not_useful"] as const).map((value) => (
+          <label key={value}>
+            <input
+              type="radio"
+              name={`${moment.displayId}-usefulness`}
+              value={value}
+              checked={usefulness === value}
+              onChange={() => setUsefulness(value)}
+            />
+            {value === "unset" ? "No feedback" : value === "useful" ? "Useful" : "Not useful"}
+          </label>
+        ))}
+      </fieldset>
+      <p className="moment-unsaved-note" role="status" aria-live="polite">
+        {responseStatus} {usefulnessStatus} Responses are held only in page memory and are not saved
+        yet.
+      </p>
+    </div>
+  );
+}
+
+function OwnershipMomentCard(
+  props: Readonly<{
+    moment: OwnershipMomentProjectionItemV1;
+    onResolveEvidence(evidenceId: string): void;
+  }>,
+) {
+  const { moment } = props;
+  return (
+    <li className={`moment-card moment-${moment.candidate.type}`}>
+      <header>
+        <span className="moment-rank">#{moment.selectedRank}</span>
+        <span className="moment-type">{moment.candidate.type}</span>
+      </header>
+      <section className="moment-proposal" aria-label="AI-proposed validated statement">
+        <p className="eyebrow">AI-proposed, deterministically validated statement</p>
+        <h3>{moment.candidate.title}</h3>
+        <p>{moment.candidate.claim}</p>
+      </section>
+      <section className="moment-support" aria-label="Persisted supporting facts">
+        <p className="eyebrow">Persisted supporting facts</p>
+        {moment.facts.length === 0 ? (
+          <p>No controlled fact summary is available.</p>
+        ) : (
+          <ul>
+            {moment.facts.map((fact) => (
+              <li key={factKey(fact)}>{factText(fact)}</li>
+            ))}
+          </ul>
+        )}
+        <div className="moment-evidence-actions">
+          {moment.evidenceIds.map((evidenceId) => (
+            <button
+              key={evidenceId}
+              type="button"
+              className="button evidence-action"
+              onClick={() => props.onResolveEvidence(evidenceId)}
+            >
+              View evidence {evidenceId.slice(-6)}
+            </button>
+          ))}
+        </div>
+      </section>
+      <section className="moment-signals" aria-label="Proposal ranking signals">
+        <p className="eyebrow">Proposal signals — not proof</p>
+        <dl>
+          <div>
+            <dt>Importance</dt>
+            <dd>{moment.candidate.importance}</dd>
+          </div>
+          <div>
+            <dt>Provider confidence signal</dt>
+            <dd>{moment.candidate.confidenceBasisPoints} / 10000</dd>
+          </div>
+          <div>
+            <dt>Deterministic validation score</dt>
+            <dd>{moment.score.total}</dd>
+          </div>
+        </dl>
+      </section>
+      <MomentInteraction moment={moment} />
+    </li>
+  );
+}
+
+function OwnershipMomentsSection(
+  props: Readonly<{
+    state: MomentLoadState;
+    statusMessage: string;
+    projection: OwnershipMomentsProjectionV1 | null;
+    onResolveEvidence(evidenceId: string): void;
+  }>,
+) {
+  return (
+    <section id="ownership-moments" tabIndex={-1} className="content-section moments-section">
+      <div className="section-heading">
+        <p className="eyebrow">Finite validated proposals</p>
+        <h2>Ownership Moments</h2>
+      </div>
+      {props.state === "loading" ? <p aria-live="polite">Loading selected Moments…</p> : null}
+      {props.state === "error" ? (
+        <p className="warning-note" role="alert">
+          {props.statusMessage}
+        </p>
+      ) : null}
+      {props.projection?.outcome === "not_available" ? (
+        <p className="empty-note">
+          No current validated Moment selection is available. Nothing was generated by this read.
+        </p>
+      ) : null}
+      {props.projection !== null && props.projection.limitations.length > 0 ? (
+        <div className="warning-note">
+          <strong>Partial source limitations</strong>
+          <ul>
+            {props.projection.limitations.map((limitation) => (
+              <li key={limitation}>{limitation.replaceAll("_", " ")}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {props.projection !== null &&
+      props.projection.outcome !== "not_available" &&
+      props.projection.moments.length === 0 ? (
+        <p className="empty-note">The verified validation selected zero Moments.</p>
+      ) : null}
+      {props.projection !== null && props.projection.moments.length > 0 ? (
+        <ol className="moment-list">
+          {props.projection.moments.map((moment) => (
+            <OwnershipMomentCard
+              key={moment.displayId}
+              moment={moment}
+              onResolveEvidence={props.onResolveEvidence}
+            />
+          ))}
+        </ol>
+      ) : null}
     </section>
   );
 }
@@ -416,6 +658,9 @@ function ReplayDetail(
   props: Readonly<{
     replay: RawRunReplayV1;
     manifest: FinalDiffManifestV1 | null;
+    moments: OwnershipMomentsProjectionV1 | null;
+    momentState: MomentLoadState;
+    momentStatusMessage: string;
     onLoadArtifact(artifact: ReplayArtifactReferenceV1): void;
     onResolveEvidence(evidenceId: string): void;
   }>,
@@ -430,6 +675,13 @@ function ReplayDetail(
         <span className={statusClass(props.replay.run.status)}>{props.replay.run.status}</span>
       </header>
       <EvidenceBanner replay={props.replay} />
+      <OwnershipMomentsSection
+        key={`${props.replay.run.runId}:${props.moments?.validationId ?? "none"}`}
+        state={props.momentState}
+        statusMessage={props.momentStatusMessage}
+        projection={props.moments}
+        onResolveEvidence={props.onResolveEvidence}
+      />
       {props.replay.evidenceGraph !== null && props.replay.evidenceGraph !== undefined ? (
         <section className={`evidence-graph-summary outcome-${props.replay.evidenceGraph.outcome}`}>
           <div>
@@ -542,6 +794,9 @@ export function ReplayViewer(props: ViewerProps) {
             <ReplayDetail
               replay={props.replay}
               manifest={props.manifest}
+              moments={props.moments}
+              momentState={props.momentState}
+              momentStatusMessage={props.momentStatusMessage}
               onLoadArtifact={props.onLoadArtifact}
               onResolveEvidence={props.onResolveEvidence}
             />
@@ -564,6 +819,9 @@ export function App() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [replay, setReplay] = useState<RawRunReplayV1 | null>(null);
   const [manifest, setManifest] = useState<FinalDiffManifestV1 | null>(null);
+  const [moments, setMoments] = useState<OwnershipMomentsProjectionV1 | null>(null);
+  const [momentState, setMomentState] = useState<MomentLoadState>("idle");
+  const [momentStatusMessage, setMomentStatusMessage] = useState("");
 
   const initialRunId = useMemo(() => {
     const runId = new URLSearchParams(window.location.search).get("run");
@@ -579,6 +837,9 @@ export function App() {
     setRuns([]);
     setReplay(null);
     setManifest(null);
+    setMoments(null);
+    setMomentState("idle");
+    setMomentStatusMessage("");
     setSelectedRunId(null);
     setNextCursor(null);
     window.history.replaceState(null, "", window.location.pathname);
@@ -596,14 +857,35 @@ export function App() {
   async function loadRun(client: ReplayApiClient, runId: string): Promise<void> {
     setState("loading");
     setManifest(null);
+    setMoments(null);
+    setMomentState("loading");
+    setMomentStatusMessage("");
     try {
       const nextReplay = await client.getRun(runId);
       setReplay(nextReplay);
       setSelectedRunId(runId);
       setState("ready");
       window.history.replaceState(null, "", `?run=${encodeURIComponent(runId)}`);
+      try {
+        const nextMoments = await client.getMoments(runId);
+        setMoments(nextMoments);
+        setMomentState("ready");
+      } catch (momentError) {
+        if (momentError instanceof ReplayApiError && momentError.code === "unauthorized") {
+          clearConnection(momentError.message);
+          return;
+        }
+        setMomentState("error");
+        setMomentStatusMessage(
+          momentError instanceof ReplayApiError
+            ? momentError.message
+            : "Ownership Moments could not be loaded.",
+        );
+      }
     } catch (error) {
       setReplay(null);
+      setMoments(null);
+      setMomentState("error");
       handleApiError(error, "The replay could not be loaded.");
     }
   }
@@ -723,6 +1005,9 @@ export function App() {
           runs={runs}
           replay={replay}
           manifest={manifest}
+          moments={moments}
+          momentState={momentState}
+          momentStatusMessage={momentStatusMessage}
           selectedRunId={selectedRunId}
           nextCursor={nextCursor}
           onSelectRun={selectRun}

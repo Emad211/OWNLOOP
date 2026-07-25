@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createSecretKey } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,16 +29,20 @@ import {
 import { extractFinalizedRunVerificationEvidence } from "../verification-extraction/index.js";
 import { prepareFinalizedRunSemanticAnalysisInput } from "../semantic-input/index.js";
 import {
-  CANDIDATE_GENERATION_ARTIFACT_ROLE_PREFIX,
   type CandidateGenerationDependencies,
   type CandidateGenerationTransport,
-  generateEligibleFinalizedRunCandidateBatches,
   generateFinalizedRunCandidateBatch,
-  getCandidateGeneration,
-  getRunCandidateGenerations,
 } from "../candidate-generation/index.js";
 import { TEST_API_KEY, TEST_PROVIDER } from "../candidate-generation/test-fixture.js";
-import { CANDIDATE_MOMENT_SCHEMA_VERSION } from "@ownloop/contracts";
+import {
+  createLoopbackIngressServer,
+  generateInstallationToken,
+  startLoopbackIngressServer,
+} from "../ingress/index.js";
+import {
+  CANDIDATE_MOMENT_SCHEMA_VERSION,
+  OwnershipMomentsProjectionV1Schema,
+} from "@ownloop/contracts";
 
 const HASH_A = "a".repeat(64);
 const HASH_B = "b".repeat(64);
@@ -592,6 +596,51 @@ describe("Candidate validation processor integration", () => {
         objectsDeleted: 1,
       });
     } finally {
+      context.persistence.close();
+    }
+  });
+
+  it("serves only the selected verified Candidate through the authenticated Moment route", async () => {
+    const context = await createContext([RUN_A]);
+    const generated = await generateForValidation(context, RUN_A, sequentialGenerationIds());
+    const validated = await validateCandidateGeneration(
+      generated.deps,
+      generated.result.generationId!,
+    );
+    if (validated === null || validated.validationId === null) {
+      throw new Error("Validation ID is missing.");
+    }
+    const token = generateInstallationToken();
+    const server = createLoopbackIngressServer({
+      persistence: context.persistence,
+      installationToken: token,
+      hmacKey: createSecretKey(Buffer.alloc(32, 7)),
+      replay: { persistence: context.persistence, artifactStore: context.artifactStore },
+    });
+    const address = await startLoopbackIngressServer(server, 0);
+    try {
+      const response = await fetch(`${address.url}/v1/replay/runs/${ids(RUN_A).runId}/moments`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(response.status).toBe(200);
+      const projection = OwnershipMomentsProjectionV1Schema.parse(await response.json());
+      expect(projection).toMatchObject({
+        runId: ids(RUN_A).runId,
+        outcome: "partial",
+        validationId: validated.validationId,
+        selectedCount: 1,
+      });
+      expect(projection.moments.map((moment) => moment.candidate.title)).toEqual(["File modified"]);
+      expect(JSON.stringify(projection)).not.toContain(TEST_API_KEY);
+      expect(JSON.stringify(projection)).not.toContain("/workspace/project");
+      const detail = await fetch(`${address.url}/v1/replay/runs/${ids(RUN_A).runId}`, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const detailText = await detail.text();
+      expect(detail.status).toBe(200);
+      expect(detailText).not.toContain("File modified");
+    } finally {
+      await server.close();
       context.persistence.close();
     }
   });

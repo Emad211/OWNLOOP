@@ -701,3 +701,129 @@ pre {
   outline: 3px solid var(--accent);
   outline-offset: 4px;
 }
+
+.moments-section {
+  margin: 1rem 0;
+}
+
+.moment-list {
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.moment-card {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-left: 0.35rem solid var(--accent);
+  border-radius: 0.9rem;
+  background: var(--surface);
+}
+
+.moment-risk {
+  border-left-color: var(--danger);
+}
+
+.moment-decision {
+  border-left-style: double;
+}
+
+.moment-check {
+  border-left-style: dashed;
+}
+
+.moment-card > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  text-transform: capitalize;
+}
+
+.moment-rank,
+.moment-type {
+  font-weight: 800;
+}
+
+.moment-proposal,
+.moment-support,
+.moment-signals,
+.moment-interaction {
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+}
+
+.moment-proposal {
+  background: var(--surface-soft);
+}
+
+.moment-support ul,
+.moment-signals dl {
+  margin: 0.5rem 0;
+}
+
+.moment-signals dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.moment-signals dl > div {
+  min-width: 0;
+}
+
+.moment-signals dd {
+  margin: 0.25rem 0 0;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
+.moment-evidence-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.moment-interaction fieldset {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+}
+
+.moment-interaction label {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.moment-unsaved-note {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+[id="ownership-moments"]:focus {
+  outline: 3px solid var(--accent);
+  outline-offset: 4px;
+}
+
+@media (max-width: 720px) {
+  .moment-signals dl {
+    grid-template-columns: 1fr;
+  }
+
+  .moment-card,
+  .moment-proposal,
+  .moment-support,
+  .moment-signals,
+  .moment-interaction {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}

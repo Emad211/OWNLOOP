@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 import {
   FinalDiffManifestV1Schema,
+  OwnershipMomentsProjectionV1Schema,
   RawRunReplayV1Schema,
   ReplayErrorResponseSchema,
   ReplayRunListResponseV1Schema,
@@ -615,6 +616,25 @@ describe("authenticated replay routes and contained static delivery", () => {
       const detail = await fetch(`${address.url}/v1/replay/runs/run-1`, { headers });
       expect(detail.status).toBe(200);
       expect(RawRunReplayV1Schema.safeParse(await detail.json()).success).toBe(true);
+
+      const moments = await fetch(`${address.url}/v1/replay/runs/run-1/moments`, { headers });
+      expect(moments.status).toBe(200);
+      expect(moments.headers.get("cache-control")).toBe("no-store");
+      expect(OwnershipMomentsProjectionV1Schema.parse(await moments.json())).toMatchObject({
+        runId: "run-1",
+        outcome: "not_available",
+        selectedCount: 0,
+        moments: [],
+      });
+      expect((await fetch(`${address.url}/v1/replay/runs/run-1/moments`)).status).toBe(401);
+      expect(
+        (
+          await fetch(`${address.url}/v1/replay/runs/run-1/moments`, {
+            method: "POST",
+            headers,
+          })
+        ).status,
+      ).toBe(404);
 
       const artifact = await fetch(`${address.url}/v1/replay/artifacts/artifact-1`, { headers });
       expect(artifact.status).toBe(200);

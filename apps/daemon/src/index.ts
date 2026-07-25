@@ -10,6 +10,7 @@ export * from "./git-reconciliation/index.js";
 export * from "./ingress/index.js";
 export * from "./lifecycle/index.js";
 export * from "./normalization/index.js";
+export * from "./ownership-moments/index.js";
 export * from "./persistence/index.js";
 export * from "./replay/index.js";
 export * from "./semantic-input/index.js";
