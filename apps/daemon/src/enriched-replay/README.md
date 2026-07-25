@@ -8,6 +8,10 @@ OL-022 composes one terminal Task Run from already verified read models:
 
 The module is read-only and deterministic. It creates no table, artifact, cache, event, interaction, background job, provider request, repository read, or generated narrative.
 
+## Verified read order
+
+For an eligible terminal Run, the processor reads the validated Evidence Graph and Raw Replay first, then the current OL-020 Moment projection, and finally OL-021 state for that exact validation ID. Active Runs return before Graph, Moment, or interaction reads. A missing current validation yields an honest partial factual replay and never starts generation or validation.
+
 ## Truth surfaces
 
 The output keeps these surfaces separate:
