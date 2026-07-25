@@ -1,4 +1,4 @@
-import { DeterministicEvidenceGraphV1Schema } from "@ownloop/contracts";
+import { DeterministicEvidenceGraphV1Schema, parseCandidateMomentV1 } from "@ownloop/contracts";
 import { describe, expect, it } from "vitest";
 
 import { buildCandidateValidationReport } from "./validator.js";
@@ -43,26 +43,73 @@ describe("Candidate validation", () => {
     expect(first.value.items.every((entry) => Number.isInteger(entry.score?.total))).toBe(true);
   });
 
+  it("selects at most seven distinct supported Candidates", () => {
+    const changedFileOnly = parseCandidateMomentV1({
+      ...CHANGE_CANDIDATE,
+      title: "File modified",
+      claim: "File modified",
+      evidenceIds: [CHANGE_EVIDENCE],
+    });
+    const labelOnly = parseCandidateMomentV1({
+      ...CHANGE_CANDIDATE,
+      evidenceIds: [LABEL_EVIDENCE],
+    });
+    const gapRisk = parseCandidateMomentV1({
+      ...RISK_CANDIDATE,
+      title: "Evidence gap",
+      claim: "Evidence gap",
+      evidenceIds: [GAP_EVIDENCE],
+      suggestedInteraction: {
+        ...RISK_CANDIDATE.suggestedInteraction,
+        prompt: "Confirm evidence gap",
+      },
+    });
+    const result = buildCandidateValidationReport(
+      validatorInput([
+        CHANGE_CANDIDATE,
+        changedFileOnly,
+        labelOnly,
+        DECISION_CANDIDATE,
+        RISK_CANDIDATE,
+        gapRisk,
+        CHECK_CANDIDATE,
+      ]),
+    );
+    expect(result.value.counts).toMatchObject({ source: 7, valid: 7, selected: 7 });
+    expect(result.value.selectedSourceIndexes).toHaveLength(7);
+    expect(new Set(result.value.selectedSourceIndexes).size).toBe(7);
+  });
+
+  it("rejects a cited Evidence kind that is not valid for the Candidate type", () => {
+    const candidate = parseCandidateMomentV1({
+      ...CHANGE_CANDIDATE,
+      evidenceIds: [RUN_EVIDENCE, CHANGE_EVIDENCE],
+    });
+    const result = buildCandidateValidationReport(validatorInput([candidate]));
+    expect(item(result, 0).reasons).toContain("unsupported_evidence_kind");
+    expect(item(result, 0).decision).toBe("rejected");
+  });
+
   it("rejects unsupported absence, semantic prose, contradiction, and missing evidence", () => {
-    const absence = {
+    const absence = parseCandidateMomentV1({
       ...RISK_CANDIDATE,
       title: "No tests failed",
       claim: "No tests failed",
-    };
-    const semantic = {
+    });
+    const semantic = parseCandidateMomentV1({
       ...CHANGE_CANDIDATE,
       title: "Behavior file modified performance improved",
       claim: "Behavior file modified performance improved",
-    };
-    const contradiction = {
+    });
+    const contradiction = parseCandidateMomentV1({
       ...CHANGE_CANDIDATE,
       title: "Behavior file deleted",
       claim: "Behavior file deleted",
-    };
-    const missing = {
+    });
+    const missing = parseCandidateMomentV1({
       ...CHANGE_CANDIDATE,
       evidenceIds: [`ev_${"f".repeat(48)}`],
-    };
+    });
     const result = buildCandidateValidationReport(
       validatorInput(candidateBatch([absence, semantic, contradiction, missing]).candidates),
     );
@@ -74,12 +121,12 @@ describe("Candidate validation", () => {
   });
 
   it("groups same-type support duplicates without merging prose", () => {
-    const duplicate = {
+    const duplicate = parseCandidateMomentV1({
       ...CHANGE_CANDIDATE,
       title: "Behavior file updated",
       claim: "Behavior file updated",
       confidenceBasisPoints: 5000,
-    };
+    });
     const result = buildCandidateValidationReport(
       validatorInput([CHANGE_CANDIDATE, duplicate, CHECK_CANDIDATE]),
     );
@@ -105,12 +152,12 @@ describe("Candidate validation", () => {
     if (node === undefined) throw new Error("changed-file node missing");
     node.metadata.changeKind = "type_changed";
     const graph = DeterministicEvidenceGraphV1Schema.parse(graphValue);
-    const candidate = {
+    const candidate = parseCandidateMomentV1({
       ...CHANGE_CANDIDATE,
       title: "File type changed",
       claim: "File type changed",
       evidenceIds: [CHANGE_EVIDENCE],
-    };
+    });
     const result = buildCandidateValidationReport({
       ...input,
       candidateBatch: candidateBatch([candidate]),
@@ -143,12 +190,12 @@ describe("Candidate validation", () => {
     if (finalization === undefined) throw new Error("finalization node missing");
     finalization.metadata.terminalStatus = "Failed";
     const graph = DeterministicEvidenceGraphV1Schema.parse(graphValue);
-    const candidate = {
+    const candidate = parseCandidateMomentV1({
       ...RISK_CANDIDATE,
       title: "Run failed",
       claim: "Run failed",
       evidenceIds: [RUN_EVIDENCE, FINALIZATION_EVIDENCE],
-    };
+    });
     const result = buildCandidateValidationReport({
       ...input,
       candidateBatch: candidateBatch([candidate]),
@@ -159,12 +206,12 @@ describe("Candidate validation", () => {
   });
 
   it("does not expand a generic Run citation into sibling gap evidence", () => {
-    const candidate = {
+    const candidate = parseCandidateMomentV1({
       ...RISK_CANDIDATE,
       title: "Evidence gap",
       claim: "Evidence gap",
       evidenceIds: [RUN_EVIDENCE],
-    };
+    });
     const result = buildCandidateValidationReport(validatorInput([candidate]));
     expect(item(result, 0).expandedEvidenceIds).not.toContain(GAP_EVIDENCE);
     expect(item(result, 0).reasons).toContain("type_evidence_mismatch");
@@ -181,12 +228,12 @@ describe("Candidate validation", () => {
       (entry) => entry.kind !== "classification_assigned_label",
     );
     const graph = DeterministicEvidenceGraphV1Schema.parse(graphValue);
-    const candidate = {
+    const candidate = parseCandidateMomentV1({
       ...CHANGE_CANDIDATE,
       title: "Behavior file modified",
       claim: "Behavior file modified",
       evidenceIds: [LABEL_EVIDENCE],
-    };
+    });
     const result = buildCandidateValidationReport({
       ...input,
       candidateBatch: candidateBatch([candidate]),

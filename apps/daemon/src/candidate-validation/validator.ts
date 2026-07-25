@@ -39,6 +39,42 @@ const EXPANSION_EDGES = new Set([
 
 const IMPORTANCE_SIGNAL = Object.freeze({ low: 0, medium: 20, high: 40, critical: 60 });
 const TYPE_ORDER = Object.freeze({ risk: 0, decision: 1, change: 2, check: 3 });
+
+function supportsCitedEvidenceKind(
+  type: CandidateMomentV1["type"],
+  kind: DeterministicEvidenceGraphV1["nodes"][number]["kind"],
+): boolean {
+  switch (type) {
+    case "change":
+      return (
+        kind === "changed_file" ||
+        kind === "classification_entry" ||
+        kind === "classification_label" ||
+        kind === "test_file_change"
+      );
+    case "decision":
+      return kind === "event";
+    case "risk":
+      return (
+        kind === "evidence_gap" ||
+        kind === "verification_observation" ||
+        kind === "run" ||
+        kind === "finalization"
+      );
+    case "check":
+      return (
+        kind === "changed_file" ||
+        kind === "classification_entry" ||
+        kind === "classification_label" ||
+        kind === "test_file_change" ||
+        kind === "event" ||
+        kind === "evidence_gap" ||
+        kind === "verification_observation" ||
+        kind === "run" ||
+        kind === "finalization"
+      );
+  }
+}
 const STOP_WORDS = new Set([
   "a",
   "an",
@@ -635,9 +671,17 @@ function draftCandidate(
 ): CandidateDraft {
   const candidateFingerprint = fingerprint(candidate);
   const citedEvidenceIds = [...candidate.evidenceIds].toSorted();
-  const nodeIds = new Set(input.evidenceGraph.nodes.map((node) => node.evidenceId));
+  const nodesById = new Map(input.evidenceGraph.nodes.map((node) => [node.evidenceId, node]));
   const reasons = new Set<CandidateValidationReason>();
-  if (citedEvidenceIds.some((id) => !nodeIds.has(id))) reasons.add("missing_evidence");
+  if (citedEvidenceIds.some((id) => !nodesById.has(id))) reasons.add("missing_evidence");
+  if (
+    citedEvidenceIds.some((id) => {
+      const node = nodesById.get(id);
+      return node !== undefined && !supportsCitedEvidenceKind(candidate.type, node.kind);
+    })
+  ) {
+    reasons.add("unsupported_evidence_kind");
+  }
   const closure = connectedAndExpanded(input.evidenceGraph, citedEvidenceIds);
   if (!closure.connected) reasons.add("disconnected_evidence");
   const supportIds = [...new Set([...citedEvidenceIds, ...closure.expanded])].toSorted();

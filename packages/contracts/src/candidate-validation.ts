@@ -70,6 +70,34 @@ export const CANDIDATE_VALIDATION_LIMITATIONS = ["source_graph_partial"] as cons
 export const CandidateValidationLimitationSchema = z.enum(CANDIDATE_VALIDATION_LIMITATIONS);
 export type CandidateValidationLimitation = z.infer<typeof CandidateValidationLimitationSchema>;
 
+const validationLimitationsSchema = z
+  .array(CandidateValidationLimitationSchema)
+  .max(CANDIDATE_VALIDATION_LIMITATIONS.length)
+  .superRefine((value, context) => {
+    if (new Set(value).size !== value.length) {
+      context.addIssue({ code: "custom", message: "Validation limitations must be unique." });
+    }
+    const indexes = value.map((item) => CANDIDATE_VALIDATION_LIMITATIONS.indexOf(item));
+    if (indexes.toSorted((a, b) => a - b).some((item, index) => item !== indexes[index])) {
+      context.addIssue({ code: "custom", message: "Validation limitations must be sorted." });
+    }
+  });
+
+const selectedSourceIndexesSchema = z
+  .array(
+    z
+      .number()
+      .int()
+      .min(0)
+      .max(CANDIDATE_GENERATION_MAX_PRODUCT_CANDIDATES - 1),
+  )
+  .max(CANDIDATE_VALIDATION_MAX_SELECTED)
+  .superRefine((value, context) => {
+    if (new Set(value).size !== value.length) {
+      context.addIssue({ code: "custom", message: "Selected source indexes must be unique." });
+    }
+  });
+
 export const CANDIDATE_VALIDATION_DECISIONS = [
   "rejected",
   "valid_selected",
@@ -386,14 +414,12 @@ export const CandidateValidationReportV1Schema = z
     sourceVersions: CandidateValidationSourceVersionsV1Schema,
     outcome: CandidateValidationOutcomeSchema,
     diagnosticCode: CandidateValidationDiagnosticCodeSchema,
-    limitations: z
-      .array(CandidateValidationLimitationSchema)
-      .max(CANDIDATE_VALIDATION_LIMITATIONS.length),
+    limitations: validationLimitationsSchema,
     items: z
       .array(CandidateValidationItemV1Schema)
       .max(CANDIDATE_GENERATION_MAX_PRODUCT_CANDIDATES),
     counts: CandidateValidationCountsV1Schema,
-    selectedSourceIndexes: z.array(z.number().int().min(0).max(6)).max(7),
+    selectedSourceIndexes: selectedSourceIndexesSchema,
     reportFingerprint: sha256FingerprintSchema,
   })
   .superRefine((value, context) => {
@@ -417,6 +443,33 @@ export const CandidateValidationReportV1Schema = z
     ) {
       context.addIssue({ code: "custom", message: "Validation aggregates differ." });
     }
+    const duplicateRepresentatives = new Map<string, number>();
+    for (const item of value.items) {
+      if (!item.reasons.includes("duplicate_candidate")) continue;
+      const representativeIndex = item.representativeSourceIndex;
+      const groupId = item.duplicateGroupId;
+      const representative =
+        representativeIndex === null ? undefined : value.items[representativeIndex];
+      if (
+        groupId === null ||
+        representativeIndex === null ||
+        representative === undefined ||
+        representative.decision === "rejected" ||
+        representative.reasons.includes("duplicate_candidate")
+      ) {
+        context.addIssue({ code: "custom", message: "Duplicate representative is invalid." });
+        continue;
+      }
+      const previous = duplicateRepresentatives.get(groupId);
+      if (previous !== undefined && previous !== representativeIndex) {
+        context.addIssue({
+          code: "custom",
+          message: "Duplicate group representatives must agree.",
+        });
+      }
+      duplicateRepresentatives.set(groupId, representativeIndex);
+    }
+
     const rankedSelected = selected.toSorted(
       (left, right) => (left.selectedRank ?? 0) - (right.selectedRank ?? 0),
     );
@@ -479,7 +532,7 @@ export const CandidateValidationResultV1Schema = z
     selectionPolicyVersion: z.literal(CANDIDATE_VALIDATION_SELECTION_POLICY_VERSION),
     outcome: CandidateValidationResultOutcomeSchema,
     diagnosticCode: CandidateValidationDiagnosticCodeSchema,
-    limitations: z.array(CandidateValidationLimitationSchema),
+    limitations: validationLimitationsSchema,
     validationId: validationIdSchema.nullable(),
     validationKey: validationKeySchema.nullable(),
     runId: safeIdSchema,
@@ -491,23 +544,26 @@ export const CandidateValidationResultV1Schema = z
     reportArtifactId: safeIdSchema.nullable(),
     reportFingerprint: sha256FingerprintSchema.nullable(),
     counts: CandidateValidationCountsV1Schema,
-    selectedSourceIndexes: z.array(z.number().int().min(0).max(6)).max(7),
+    selectedSourceIndexes: selectedSourceIndexesSchema,
     sourceVersions: CandidateValidationSourceVersionsV1Schema.nullable(),
   })
   .superRefine((value, context) => {
-    const hasReport =
-      value.validationId !== null &&
-      value.validationKey !== null &&
-      value.sourceCandidateArtifactId !== null &&
-      value.sourceCandidateFingerprint !== null &&
-      value.evidenceGraphArtifactId !== null &&
-      value.evidenceGraphInputFingerprint !== null &&
-      value.reportArtifactId !== null &&
-      value.reportFingerprint !== null &&
-      value.sourceVersions !== null;
+    const reportFields = [
+      value.validationId,
+      value.validationKey,
+      value.sourceCandidateArtifactId,
+      value.sourceCandidateFingerprint,
+      value.evidenceGraphArtifactId,
+      value.evidenceGraphInputFingerprint,
+      value.reportArtifactId,
+      value.reportFingerprint,
+      value.sourceVersions,
+    ];
+    const hasAnyReportField = reportFields.some((field) => field !== null);
+    const hasCompleteReport = reportFields.every((field) => field !== null);
     if (value.outcome === "unavailable") {
       if (
-        hasReport ||
+        hasAnyReportField ||
         value.diagnosticCode !== "source_unavailable" ||
         value.limitations.length !== 0 ||
         value.counts.source !== 0 ||
@@ -518,7 +574,7 @@ export const CandidateValidationResultV1Schema = z
     } else {
       const partial = value.outcome === "partial";
       if (
-        !hasReport ||
+        !hasCompleteReport ||
         value.selectedSourceIndexes.length !== value.counts.selected ||
         partial !== value.limitations.includes("source_graph_partial") ||
         (partial && value.diagnosticCode !== "source_graph_partial") ||

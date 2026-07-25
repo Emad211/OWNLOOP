@@ -168,6 +168,54 @@ describe("Candidate validation contracts", () => {
     });
     expect(value).not.toHaveProperty("claim");
     expect(value).not.toHaveProperty("title");
+
+    expect(() =>
+      CandidateValidationResultV1Schema.parse({
+        ...value,
+        reportArtifactId: "report-1",
+      }),
+    ).toThrow();
+  });
+
+  it("rejects duplicate references to missing or duplicate representatives", () => {
+    const value: MutableReportFixture = {
+      ...report(),
+      items: [
+        {
+          sourceIndex: 0,
+          candidateFingerprint: fingerprint,
+          citedEvidenceIds: [`ev_${"1".repeat(48)}`],
+          expandedEvidenceIds: [],
+          facts: [],
+          decision: "valid_unselected",
+          reasons: ["duplicate_candidate"],
+          duplicateGroupId: `dup_${"4".repeat(48)}`,
+          representativeSourceIndex: 1,
+          attentionCost: 10,
+          score: {
+            evidenceStrength: 1,
+            urgency: 0,
+            completenessAdjustment: 0,
+            providerImportanceSignal: 0,
+            providerConfidenceSignal: 0,
+            attentionPenalty: 0,
+            total: 1,
+          },
+          selectedRank: null,
+        },
+      ],
+      counts: { source: 1, rejected: 0, valid: 1, selected: 0, duplicate: 1, unselected: 1 },
+    };
+    expect(() => CandidateValidationReportV1Schema.parse(value)).toThrow();
+
+    const chain = structuredClone(value);
+    chain.items.push({
+      ...chain.items[0]!,
+      sourceIndex: 1,
+      representativeSourceIndex: 0,
+    });
+    chain.counts = { source: 2, rejected: 0, valid: 2, selected: 0, duplicate: 2, unselected: 2 };
+    expect(() => CandidateValidationReportV1Schema.parse(chain)).toThrow();
   });
 
   it("rejects source-version drift and inconsistent score arithmetic", () => {

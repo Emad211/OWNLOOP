@@ -1,6 +1,14 @@
 import type { DatabaseSync } from "node:sqlite";
 
 import {
+  CANDIDATE_VALIDATION_ABSENCE_POLICY_VERSION,
+  CANDIDATE_VALIDATION_CONTRADICTION_POLICY_VERSION,
+  CANDIDATE_VALIDATION_DUPLICATE_POLICY_VERSION,
+  CANDIDATE_VALIDATION_RANKING_POLICY_VERSION,
+  CANDIDATE_VALIDATION_SCHEMA_VERSION,
+  CANDIDATE_VALIDATION_SELECTION_POLICY_VERSION,
+  CANDIDATE_VALIDATION_SUPPORT_POLICY_VERSION,
+  CANDIDATE_VALIDATOR_VERSION,
   type CandidateValidationRecordV1,
   CandidateValidationRecordV1Schema,
 } from "@ownloop/contracts";
@@ -47,6 +55,27 @@ function parseRecordJson(row: SqliteRow): CandidateValidationRecordV1 {
   }
   return record;
 }
+
+const CURRENT_VALIDATION_VERSION_PREDICATE = `
+  json_extract(record_json, '$.schemaVersion') = ?
+  AND json_extract(record_json, '$.validatorVersion') = ?
+  AND json_extract(record_json, '$.supportPolicyVersion') = ?
+  AND json_extract(record_json, '$.contradictionPolicyVersion') = ?
+  AND json_extract(record_json, '$.absencePolicyVersion') = ?
+  AND json_extract(record_json, '$.duplicatePolicyVersion') = ?
+  AND json_extract(record_json, '$.rankingPolicyVersion') = ?
+  AND json_extract(record_json, '$.selectionPolicyVersion') = ?`;
+
+const CURRENT_VALIDATION_VERSION_PARAMETERS = Object.freeze([
+  CANDIDATE_VALIDATION_SCHEMA_VERSION,
+  CANDIDATE_VALIDATOR_VERSION,
+  CANDIDATE_VALIDATION_SUPPORT_POLICY_VERSION,
+  CANDIDATE_VALIDATION_CONTRADICTION_POLICY_VERSION,
+  CANDIDATE_VALIDATION_ABSENCE_POLICY_VERSION,
+  CANDIDATE_VALIDATION_DUPLICATE_POLICY_VERSION,
+  CANDIDATE_VALIDATION_RANKING_POLICY_VERSION,
+  CANDIDATE_VALIDATION_SELECTION_POLICY_VERSION,
+] as const);
 
 const SELECT_RECORD = `SELECT
   validation_id,
@@ -137,10 +166,11 @@ export class CandidateValidationRepository {
       .prepare(
         `${SELECT_RECORD}
          WHERE run_id = ?
+           AND ${CURRENT_VALIDATION_VERSION_PREDICATE}
          ORDER BY created_at ASC, validation_id ASC
          LIMIT ?`,
       )
-      .all(runId, limit)
+      .all(runId, ...CURRENT_VALIDATION_VERSION_PARAMETERS, limit)
       .map(parseRecordJson);
   }
 
@@ -154,11 +184,12 @@ export class CandidateValidationRepository {
            AND NOT EXISTS (
              SELECT 1 FROM candidate_validations cv
              WHERE cv.generation_id = cg.generation_id
+               AND ${CURRENT_VALIDATION_VERSION_PREDICATE.replaceAll("record_json", "cv.record_json")}
            )
          ORDER BY cg.completed_at ASC, cg.generation_id ASC
          LIMIT ?`,
       )
-      .all(limit)
+      .all(...CURRENT_VALIDATION_VERSION_PARAMETERS, limit)
       .map((row) => requiredString(row, "generation_id"));
   }
 }
