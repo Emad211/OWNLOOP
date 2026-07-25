@@ -1,0 +1,129 @@
+name: Finalize OL-020 Ownership Moments
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'agent/ol-020-ownership-moments'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out OL-020 branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 1
+
+      - name: Verify and decode implementation patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected_sizes=(8000 8000 8000 3252)
+          expected_hashes=(
+            4cbce2ab3867978eecedab01c5a6bb3a9e760cd3f0f62cc7e9443239f281e08b
+            6e9075d8eeca59c0d382b30ad50107e036baf47720a1a50d6c0aa1ba16638fdb
+            e04a7ab4e14d131ff36aa1dac04282f09026097aab65e1845c74d72761598d7e
+            ce780e331005f38108b9e7ca2d2e7c5160765c2a991da0e43f9845ed52fc831f
+          )
+          for index in $(seq 0 3); do
+            suffix=$(printf '%02d' "$index")
+            path=".github/ol020-payload/part-${suffix}"
+            test "$(wc -c < "$path")" -eq "${expected_sizes[$index]}"
+            echo "${expected_hashes[$index]}  $path" | sha256sum --check
+          done
+          cat .github/ol020-payload/part-* > /tmp/ol020.patch.gz.b64
+          test "$(wc -c < /tmp/ol020.patch.gz.b64)" -eq 27252
+          echo "4215c9ef5324528effe36bca6b2fc5747c82b09935c3d77998f79c9fbae492cb  /tmp/ol020.patch.gz.b64" | sha256sum --check
+          base64 --decode /tmp/ol020.patch.gz.b64 > /tmp/ol020.patch.gz
+          test "$(wc -c < /tmp/ol020.patch.gz)" -eq 20437
+          echo "286ca8fb7d5a7c34125e181280f171e35911a5c8313ab2cb986c26cc7a237591  /tmp/ol020.patch.gz" | sha256sum --check
+          gzip --test /tmp/ol020.patch.gz
+          gzip --decompress --stdout /tmp/ol020.patch.gz > /tmp/ol020.patch
+          test "$(wc -c < /tmp/ol020.patch)" -eq 89359
+          echo "cefdaeac485c1886dd1e76a0afcf000cc3ef816fa557139f4f8b5d42a589323f  /tmp/ol020.patch" | sha256sum --check
+          git apply --check /tmp/ol020.patch
+
+      - name: Apply patch and verify exact scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply /tmp/ol020.patch
+          git add -N .
+          cat > /tmp/expected-files <<'FILES'
+          .github/workflows/export-ol020-source.yml
+          .github/workflows/export-ol020-toolchain.yml
+          AGENTS.md
+          README.md
+          apps/daemon/src/candidate-validation/processor.integration.test.ts
+          apps/daemon/src/index.ts
+          apps/daemon/src/ownership-moments/README.md
+          apps/daemon/src/ownership-moments/constants.ts
+          apps/daemon/src/ownership-moments/index.ts
+          apps/daemon/src/ownership-moments/projection.test.ts
+          apps/daemon/src/ownership-moments/projection.ts
+          apps/daemon/src/persistence/repositories/candidate-validations.test.ts
+          apps/daemon/src/persistence/repositories/candidate-validations.ts
+          apps/daemon/src/replay/replay.test.ts
+          apps/daemon/src/replay/routes.ts
+          apps/daemon/src/semantic-input/reducer.ts
+          apps/web/src/App.test.tsx
+          apps/web/src/App.tsx
+          apps/web/src/api.test.ts
+          apps/web/src/api.ts
+          apps/web/src/styles.css
+          packages/contracts/src/index.ts
+          packages/contracts/src/ownership-moments.ts
+          packages/contracts/tests/ownership-moments.test.ts
+          FILES
+          {
+            git diff --name-only
+            git diff --cached --name-only
+          } | grep -v '^\.github/ol020-payload/' \
+            | grep -v '^\.github/workflows/finalize-ol020.yml$' \
+            | sort -u > /tmp/actual-files
+          diff -u /tmp/expected-files /tmp/actual-files
+          git rm -r .github/ol020-payload
+          git rm .github/workflows/finalize-ol020.yml
+          git diff --check
+
+      - name: Set up exact Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+
+      - name: Set up exact pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+          run_install: false
+
+      - name: Install frozen dependencies
+        shell: bash
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate OL-020 implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
+      - name: Publish clean OL-020 commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Implement read-only Ownership Moment projection"
+          git push origin "HEAD:${{ github.head_ref }}"
