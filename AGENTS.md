@@ -4,7 +4,7 @@ These instructions apply to the entire repository.
 
 ## Product boundary
 
-OwnLoop is a local-first Human Ownership Layer for AI-generated software. Accepted direction is defined by the product scope, dependency-ordered backlog, and ADR-0001 through ADR-0021.
+OwnLoop is a local-first Human Ownership Layer for AI-generated software. Accepted direction is defined by the product scope, dependency-ordered backlog, and ADR-0001 through ADR-0022.
 
 Read the relevant documents before changing code. Do not silently reinterpret an accepted decision. Architectural changes require an ADR.
 
@@ -28,16 +28,18 @@ Read the relevant documents before changing code. Do not silently reinterpret an
 - local SHA-256 content-addressed artifact storage
 - Vitest, GitHub Actions, Biome
 
-No new runtime dependency is authorized for OL-019.
+No new runtime dependency is authorized for OL-020.
 
-## OL-019 placement
+## OL-020 placement
 
-- contracts/report/provenance belong in `packages/contracts/src/candidate-validation.ts`;
-- pure validation, canonical artifact, processor, and read-back belong in `apps/daemon/src/candidate-validation/`;
-- immutable provenance belongs in the existing SQLite persistence boundary through migration v16;
-- architecture policy belongs in ADR-0021.
+- strict browser projection contracts belong in `packages/contracts/src/ownership-moments.ts`;
+- read-only verified source joining belongs in `apps/daemon/src/ownership-moments/`;
+- current-policy validation lookup remains inside the existing persistence repository;
+- the authenticated GET route extends the existing Replay server;
+- accessible page-memory-only rendering belongs in `apps/web/`;
+- architecture policy belongs in ADR-0022.
 
-Do not create a new package, background worker, job queue, scheduler, model judge, embedding index, vector store, route, UI, mutable validation cache, or runtime dependency.
+Do not create a migration, table, artifact, write endpoint, processor trigger, background worker, scheduler, browser storage, new listener, CORS surface, model call, or runtime dependency.
 
 ## Quality gates
 
@@ -51,13 +53,13 @@ pnpm test
 pnpm build
 ```
 
-Focused OL-019 tests must prove strict contracts, exact Evidence resolution, type support, conservative claim grammar, contradiction and absence rejection, duplicate grouping, integer ranking, maximum-seven selection, deterministic canonical report bytes, migration v16 invariants, persistence/read-back, concurrency, restart, tamper detection, orphan GC, exact lookup, bounded batch order, and no repository/network/model boundary.
+Focused OL-020 tests must prove strict projection contracts, current-policy latest-validation selection, exact OL-018/019/015 joins, selected-only wording, maximum-seven and zero-Moment states, read-only authenticated routes, Run-scoped Evidence navigation, page-memory interactions and resets, proposal/support/signal separation, browser privacy, accessibility, full regression, and production builds.
 
 Never claim a check passed unless it completed successfully.
 
 ## Git and Pull Request discipline
 
-- Base implementation on `agent/ol-019-candidate-validation` from the exact OL-018 merge commit.
+- Base implementation on `agent/ol-020-ownership-moments` from the exact OL-019 merge commit.
 - Make focused commits and leave the final diff free of transfer/export workflows.
 - Do not push directly to `main`.
 - Keep the PR draft until clean-checkout CI and final review pass.
@@ -65,14 +67,15 @@ Never claim a check passed unless it completed successfully.
 
 ## Current phase restriction
 
-The active issue is `OL-019: Validate, deduplicate, rank, and select Candidate Moments` (#56).
+The active issue is `OL-020: Render finite Ownership Moments with local evidence navigation` (#58).
 
 Explicitly forbidden:
 
-- provider/model calls, embeddings, vector similarity, model-based judging, broad natural-language entailment, or Candidate rewriting;
-- repository/worktree/source/AST/package-content reads, raw transcript, raw Hook receipts, arbitrary Event payloads, commands, patches, or hunks;
-- inferred Evidence relationships from path, time, wording, or similarity;
-- absence/completeness/security/correctness claims without an explicit future graph-owned absence fact;
-- mutable validation state, `analysis_jobs`, workers, timers, schedulers, routes, UI, cloud, analytics, telemetry, billing, or multi-user authentication.
+- rendering rejected, duplicate, or valid-unselected Candidate prose;
+- treating provider confidence/importance as Evidence, proof, correctness, agreement, comprehension, or ownership;
+- Candidate generation, validation, reranking, rewriting, or any other processing side effect from a GET route;
+- persistence migrations, Moment/interaction tables, artifact creation, write endpoints, browser storage, workers, timers, or schedulers;
+- repository/worktree/source/AST/package-content reads, raw provider responses, semantic input, transcripts, commands, output excerpts, paths, artifact storage metadata, exceptions, or stacks;
+- a new listener, CORS, cloud, analytics, telemetry, billing, or multi-user authentication.
 
-OL-019 is complete only when verified OL-018 Candidates are deterministically rejected, deduplicated, ranked, and selected from exact OL-015 Evidence, with byte-reproducible OL-010 report bytes and strict restart/tamper validation.
+OL-020 is complete only when one exact verified current-policy OL-019 validation can be joined with its verified OL-018 source Candidates and OL-015 Evidence Graph into a finite selected-only projection, rendered accessibly with Run-scoped Evidence navigation and explicitly unsaved page-memory interactions.

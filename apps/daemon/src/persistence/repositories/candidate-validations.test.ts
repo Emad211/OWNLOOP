@@ -87,3 +87,28 @@ describe("CandidateValidationRepository", () => {
     expect(repository.listUnvalidatedGenerationIds(1)).toEqual(["generation-stale"]);
   });
 });
+
+describe("CandidateValidationRepository current presentation selection", () => {
+  it("uses a bounded descending current-policy lookup", () => {
+    let preparedSql = "";
+    let parameters: readonly unknown[] = [];
+    const queryDatabase = {
+      prepare(sql: string) {
+        preparedSql = sql;
+        return {
+          get(...values: unknown[]) {
+            parameters = values;
+            return undefined;
+          },
+        };
+      },
+    } as unknown as DatabaseSync;
+    const repository = new CandidateValidationRepository(queryDatabase);
+    expect(repository.getLatestForRun("run-1")).toBeNull();
+    expect(preparedSql).toContain("ORDER BY created_at DESC, validation_id DESC");
+    expect(preparedSql).toContain("LIMIT 1");
+    expect(preparedSql).toContain("validatorVersion");
+    expect(parameters[0]).toBe("run-1");
+    expect(parameters.length).toBeGreaterThan(1);
+  });
+});

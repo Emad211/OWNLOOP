@@ -1,5 +1,6 @@
 import {
   EvidenceResolutionV1Schema,
+  OwnershipMomentsProjectionV1Schema,
   RAW_REPLAY_SCHEMA_VERSION,
   RawRunReplayV1Schema,
   REPLAY_DEFAULT_LIST_LIMIT,
@@ -10,6 +11,7 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 import { isArtifactStoreError, type LocalArtifactStore } from "../artifact-store/index.js";
+import { OWNERSHIP_MOMENTS_ROUTE, projectRunOwnershipMoments } from "../ownership-moments/index.js";
 import { readValidatedRunEvidenceGraph, resolveRunEvidence } from "../evidence-graph/index.js";
 import type { InstallationTokenVerifier } from "../ingress/index.js";
 import { type OwnLoopPersistence, PersistenceError } from "../persistence/index.js";
@@ -132,6 +134,32 @@ export function registerReplayRoutes(
           .send(
             RawRunReplayV1Schema.parse({ ...replay, schemaVersion: RAW_REPLAY_SCHEMA_VERSION }),
           );
+      } catch (error) {
+        contentFreeFailure(reply, error);
+      }
+    },
+  );
+
+  server.get<{ Params: { runId: string } }>(
+    OWNERSHIP_MOMENTS_ROUTE,
+    { onRequest },
+    async (request, reply) => {
+      if (!SAFE_ID_PATTERN.test(request.params.runId)) {
+        void reply.code(404).header("Cache-Control", "no-store").send(replayError("run_not_found"));
+        return;
+      }
+      try {
+        const projection = await projectRunOwnershipMoments(dependencies, request.params.runId);
+        if (projection === null) {
+          void reply
+            .code(404)
+            .header("Cache-Control", "no-store")
+            .send(replayError("run_not_found"));
+          return;
+        }
+        void reply
+          .header("Cache-Control", "no-store")
+          .send(OwnershipMomentsProjectionV1Schema.parse(projection));
       } catch (error) {
         contentFreeFailure(reply, error);
       }
