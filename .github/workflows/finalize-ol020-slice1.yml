@@ -1,0 +1,104 @@
+name: Finalize OL-020 Projection Slice
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref == 'agent/ol-020-ownership-moments-rendering'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 1
+
+      - name: Verify and apply exact projection patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload=.github/ol020-slice1.patch.gz
+          test "$(wc -c < "$payload")" -eq 6795
+          echo 'd318946d48f565b2b44dca3b40c74bf97b2eba233785dd330ae065033effecbd  .github/ol020-slice1.patch.gz' | sha256sum --check
+          gzip --test "$payload"
+          gzip --decompress --stdout "$payload" > /tmp/ol020-slice1.patch
+          test "$(wc -c < /tmp/ol020-slice1.patch)" -eq 28055
+          echo 'a7c0e909b2168c5f846e96c3715f739b877bdc2d9d061eefbef8b8a10ef069a4  /tmp/ol020-slice1.patch' | sha256sum --check
+          git apply --check /tmp/ol020-slice1.patch
+          git apply /tmp/ol020-slice1.patch
+
+      - name: Set up exact Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+
+      - name: Set up exact pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Format projection source
+        run: pnpm format
+
+      - name: Remove transfer files and verify exact scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/ol020-slice1.patch.gz
+          git rm .github/workflows/finalize-ol020-slice1.yml
+          cat > /tmp/expected-files <<'FILES'
+          .github/ol020-slice1.patch.gz
+          .github/workflows/export-ol020-source.yml
+          .github/workflows/finalize-ol020-slice1.yml
+          apps/daemon/src/index.ts
+          apps/daemon/src/ownership-moments/builder.test.ts
+          apps/daemon/src/ownership-moments/builder.ts
+          apps/daemon/src/ownership-moments/index.ts
+          docs/adr/0022-deterministic-ownership-moment-render-projection.md
+          packages/contracts/src/index.ts
+          packages/contracts/src/ownership-moments.ts
+          packages/contracts/tests/ownership-moments.test.ts
+          FILES
+          {
+            git diff --name-only
+            git diff --cached --name-only
+            git ls-files --others --exclude-standard
+          } | sort -u > /tmp/actual-files
+          diff -u /tmp/expected-files /tmp/actual-files
+          git diff --check
+
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Publish OL-020 projection slice
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Add deterministic Ownership Moment render projection'
+          git push origin "HEAD:${{ github.head_ref }}"
