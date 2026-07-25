@@ -1,3 +1,4 @@
+export { ENRICHED_BUILD_REPLAY_ROUTE } from "../enriched-replay/constants.js";
 export {
   REPLAY_ARTIFACT_ROUTE,
   REPLAY_LIST_ROUTE,

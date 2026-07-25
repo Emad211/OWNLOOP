@@ -1,5 +1,6 @@
 import type {
   CandidateValidationFactV1,
+  EnrichedBuildReplayV1,
   FinalDiffManifestV1,
   MomentInteractionActionV1,
   MomentInteractionReceiptV1,
@@ -13,6 +14,7 @@ import type {
 } from "@ownloop/contracts";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
+import { BuildReplaySection, type BuildReplayLoadState } from "./BuildReplay.js";
 import {
   createMomentInteractionId,
   createReplayApiClient,
@@ -38,6 +40,9 @@ type ViewerProps = Readonly<{
   interactionState: MomentInteractionStateResponseV1 | null;
   interactionLoadState: InteractionLoadState;
   interactionStatusMessage: string;
+  buildReplay: EnrichedBuildReplayV1 | null;
+  buildReplayState: BuildReplayLoadState;
+  buildReplayStatusMessage: string;
   selectedRunId: string | null;
   nextCursor: string | null;
   onSelectRun(runId: string): void;
@@ -250,6 +255,21 @@ function preferNewerInteractionState(
     current.runId !== next.runId ||
     current.validationId !== next.validationId ||
     next.totalInteractionCount >= current.totalInteractionCount
+  ) {
+    return next;
+  }
+  return current;
+}
+
+export function preferNewerBuildReplay(
+  current: EnrichedBuildReplayV1 | null,
+  next: EnrichedBuildReplayV1,
+): EnrichedBuildReplayV1 {
+  if (
+    current === null ||
+    current.runId !== next.runId ||
+    current.source?.validationId !== next.source?.validationId ||
+    next.reviewSummary.totalInteractions >= current.reviewSummary.totalInteractions
   ) {
     return next;
   }
@@ -917,6 +937,9 @@ function ReplayDetail(
     interactionState: MomentInteractionStateResponseV1 | null;
     interactionLoadState: InteractionLoadState;
     interactionStatusMessage: string;
+    buildReplay: EnrichedBuildReplayV1 | null;
+    buildReplayState: BuildReplayLoadState;
+    buildReplayStatusMessage: string;
     onLoadArtifact(artifact: ReplayArtifactReferenceV1): void;
     onResolveEvidence(evidenceId: string): void;
     onResolveMomentEvidence(
@@ -941,6 +964,12 @@ function ReplayDetail(
         <span className={statusClass(props.replay.run.status)}>{props.replay.run.status}</span>
       </header>
       <EvidenceBanner replay={props.replay} />
+      <BuildReplaySection
+        state={props.buildReplayState}
+        statusMessage={props.buildReplayStatusMessage}
+        projection={props.buildReplay}
+        onResolveEvidence={props.onResolveEvidence}
+      />
       <OwnershipMomentsSection
         key={`${props.replay.run.runId}:${props.moments?.validationId ?? "none"}`}
         state={props.momentState}
@@ -1070,6 +1099,9 @@ export function ReplayViewer(props: ViewerProps) {
               interactionState={props.interactionState}
               interactionLoadState={props.interactionLoadState}
               interactionStatusMessage={props.interactionStatusMessage}
+              buildReplay={props.buildReplay}
+              buildReplayState={props.buildReplayState}
+              buildReplayStatusMessage={props.buildReplayStatusMessage}
               onLoadArtifact={props.onLoadArtifact}
               onResolveEvidence={props.onResolveEvidence}
               onResolveMomentEvidence={props.onResolveMomentEvidence}
@@ -1103,6 +1135,9 @@ export function App() {
   );
   const [interactionLoadState, setInteractionLoadState] = useState<InteractionLoadState>("idle");
   const [interactionStatusMessage, setInteractionStatusMessage] = useState("");
+  const [buildReplay, setBuildReplay] = useState<EnrichedBuildReplayV1 | null>(null);
+  const [buildReplayState, setBuildReplayState] = useState<BuildReplayLoadState>("idle");
+  const [buildReplayStatusMessage, setBuildReplayStatusMessage] = useState("");
 
   const initialRunId = useMemo(() => {
     const runId = new URLSearchParams(window.location.search).get("run");
@@ -1125,6 +1160,9 @@ export function App() {
     setInteractionState(null);
     setInteractionLoadState("idle");
     setInteractionStatusMessage("");
+    setBuildReplay(null);
+    setBuildReplayState("idle");
+    setBuildReplayStatusMessage("");
     setSelectedRunId(null);
     setNextCursor(null);
     window.history.replaceState(null, "", window.location.pathname);
@@ -1150,6 +1188,9 @@ export function App() {
     setInteractionState(null);
     setInteractionLoadState("idle");
     setInteractionStatusMessage("");
+    setBuildReplay(null);
+    setBuildReplayState("loading");
+    setBuildReplayStatusMessage("");
 
     let nextReplay: RawRunReplayV1;
     try {
@@ -1167,6 +1208,28 @@ export function App() {
     setSelectedRunId(runId);
     setState("ready");
     window.history.replaceState(null, "", `?run=${encodeURIComponent(runId)}`);
+
+    void (async () => {
+      try {
+        const nextBuildReplay = await client.getBuildReplay(runId);
+        if (loadRequestRef.current !== requestNumber) return;
+        setBuildReplay(nextBuildReplay);
+        setBuildReplayState("ready");
+      } catch (error) {
+        if (loadRequestRef.current !== requestNumber) return;
+        if (error instanceof ReplayApiError && error.code === "unauthorized") {
+          clearConnection(error.message);
+          return;
+        }
+        setBuildReplay(null);
+        setBuildReplayState("error");
+        setBuildReplayStatusMessage(
+          error instanceof ReplayApiError
+            ? error.message
+            : "Enriched Build Replay could not be loaded.",
+        );
+      }
+    })();
 
     let nextMoments: OwnershipMomentsProjectionV1;
     try {
@@ -1358,6 +1421,28 @@ export function App() {
             ? "The existing recorded interaction was verified."
             : "Interaction recorded locally.",
         );
+        try {
+          const refreshedBuildReplay = await client.getBuildReplay(runId);
+          if (clientRef.current === client && loadRequestRef.current === requestNumber) {
+            setBuildReplay((current) => preferNewerBuildReplay(current, refreshedBuildReplay));
+            setBuildReplayState("ready");
+            setBuildReplayStatusMessage("");
+          }
+        } catch (buildReplayError) {
+          if (
+            buildReplayError instanceof ReplayApiError &&
+            buildReplayError.code === "unauthorized"
+          ) {
+            clearConnection(buildReplayError.message);
+          } else if (clientRef.current === client && loadRequestRef.current === requestNumber) {
+            setBuildReplayState("error");
+            setBuildReplayStatusMessage(
+              buildReplayError instanceof ReplayApiError
+                ? buildReplayError.message
+                : "Build Replay could not be refreshed after the recorded interaction.",
+            );
+          }
+        }
       }
       return receipt;
     } catch (error) {
@@ -1434,6 +1519,9 @@ export function App() {
           interactionState={interactionState}
           interactionLoadState={interactionLoadState}
           interactionStatusMessage={interactionStatusMessage}
+          buildReplay={buildReplay}
+          buildReplayState={buildReplayState}
+          buildReplayStatusMessage={buildReplayStatusMessage}
           selectedRunId={selectedRunId}
           nextCursor={nextCursor}
           onSelectRun={selectRun}

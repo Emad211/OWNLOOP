@@ -1,6 +1,6 @@
 # ADR-0024: Compose a Deterministic Read-Only Enriched Build Replay
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-07-25
 **Decision owner:** Project founder
 **Related documents:**

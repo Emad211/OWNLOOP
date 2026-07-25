@@ -827,3 +827,142 @@ pre {
     overflow-wrap: anywhere;
   }
 }
+
+.build-replay {
+  display: grid;
+  gap: 1rem;
+  margin: 1rem 0;
+  border-left: 0.35rem solid var(--accent);
+}
+
+.build-replay.outcome-partial {
+  border-left-color: var(--warning, #9a6700);
+}
+
+.build-replay > section,
+.build-replay-moment {
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--surface);
+}
+
+.build-replay-goal {
+  background: var(--surface-soft);
+}
+
+.build-replay-limitations {
+  border-left: 0.3rem solid var(--danger) !important;
+}
+
+.build-replay-limitations ul,
+.build-replay-files ol,
+.build-replay-verification ol,
+.build-replay-gaps ol {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.65rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.build-replay-files li,
+.build-replay-verification li,
+.build-replay-gaps li {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.65rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.build-replay-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.65rem;
+  margin: 0.75rem 0 0;
+}
+
+.build-replay-counts > div {
+  min-width: 0;
+  padding: 0.6rem;
+  border-radius: 0.6rem;
+  background: var(--surface-soft);
+}
+
+.build-replay-counts dt {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.build-replay-counts dd {
+  margin: 0.25rem 0 0;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
+.build-replay-moment {
+  display: grid;
+  gap: 0.8rem;
+  border-left: 0.3rem solid var(--accent);
+}
+
+.build-replay-moment > header {
+  display: flex;
+  justify-content: space-between;
+  text-transform: capitalize;
+}
+
+.build-replay-review {
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+}
+
+.build-replay-disclaimer,
+.build-replay-interaction {
+  color: var(--text-muted);
+  font-size: 0.86rem;
+}
+
+[id="build-replay"]:focus {
+  outline: 3px solid var(--accent);
+  outline-offset: 4px;
+}
+
+@media (max-width: 720px) {
+  .build-replay,
+  .build-replay > section,
+  .build-replay-moment,
+  .build-replay-counts > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .build-replay-counts {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .build-replay * {
+    scroll-behavior: auto;
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+.build-replay-moment-groups {
+  display: grid;
+  gap: 1rem;
+}
+
+.build-replay-moment-groups > section {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.build-replay-moment-groups h4 {
+  margin: 0;
+  text-transform: capitalize;
+}

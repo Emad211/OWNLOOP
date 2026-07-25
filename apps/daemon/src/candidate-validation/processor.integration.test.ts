@@ -21,6 +21,7 @@ import {
 } from "../candidate-validation/index.js";
 import { classifyFinalizedRunChanges } from "../change-classification/index.js";
 import { buildFinalizedRunEvidenceGraph } from "../evidence-graph/index.js";
+import { projectEnrichedBuildReplay } from "../enriched-replay/index.js";
 import { finalizeRun } from "../finalization/index.js";
 import {
   openPersistence,
@@ -47,6 +48,7 @@ import {
 } from "../ingress/index.js";
 import {
   CANDIDATE_MOMENT_SCHEMA_VERSION,
+  EnrichedBuildReplayV1Schema,
   MomentInteractionReceiptV1Schema,
   MomentInteractionStateResponseV1Schema,
   OwnershipMomentsProjectionV1Schema,
@@ -493,6 +495,8 @@ describe("Candidate validation processor integration", () => {
       },
       { clock: () => new Date("2026-07-25T15:00:00.000Z") },
     );
+    const beforeRestartReplay = await projectEnrichedBuildReplay(generated.deps, ids(RUN_A).runId);
+    expect(beforeRestartReplay).not.toBeNull();
     context.persistence.close();
     const databaseBytes = await readFile(databasePath);
     expect(databaseBytes.includes(Buffer.from(TEST_API_KEY))).toBe(false);
@@ -517,6 +521,9 @@ describe("Candidate validation processor integration", () => {
         totalOwnershipRecordCount: 1,
         states: [{ acknowledgement: true, interactionCount: 1, ownershipRecordCount: 1 }],
       });
+      expect(await projectEnrichedBuildReplay(restartedDeps, ids(RUN_A).runId)).toEqual(
+        beforeRestartReplay,
+      );
     } finally {
       persistence.close();
     }
@@ -738,6 +745,13 @@ describe("Candidate validation processor integration", () => {
         totalOwnershipRecordCount: 0,
         states: [{ momentId: moment.displayId, interactionCount: 0 }],
       });
+      const buildReplayUrl = `${address.url}/v1/replay/runs/${ids(RUN_A).runId}/build-replay`;
+      const initialBuildReplay = EnrichedBuildReplayV1Schema.parse(
+        await (
+          await fetch(buildReplayUrl, { headers: { authorization: `Bearer ${token}` } })
+        ).json(),
+      );
+      expect(initialBuildReplay.reviewSummary.totalInteractions).toBe(0);
 
       const interactionId = `ix_${"1".repeat(48)}`;
       const request = {
@@ -852,6 +866,42 @@ describe("Candidate validation processor integration", () => {
       });
       expect(JSON.stringify(finalState)).not.toContain("File modified");
       expect(JSON.stringify(finalState)).not.toContain(TEST_API_KEY);
+
+      expect((await fetch(buildReplayUrl)).status).toBe(401);
+      const buildReplayResponse = await fetch(buildReplayUrl, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(buildReplayResponse.status).toBe(200);
+      expect(buildReplayResponse.headers.get("cache-control")).toBe("no-store");
+      const buildReplay = EnrichedBuildReplayV1Schema.parse(await buildReplayResponse.json());
+      expect(buildReplay.projectionFingerprint).not.toBe(initialBuildReplay.projectionFingerprint);
+      expect(buildReplay).toMatchObject({
+        runId: ids(RUN_A).runId,
+        outcome: "partial",
+        source: {
+          generationId: generated.result.generationId,
+          validationId: validated.validationId,
+          sourceCandidateArtifactId: validated.sourceCandidateArtifactId,
+          reportArtifactId: validated.reportArtifactId,
+          sourceVersions: expect.any(Object),
+          policyVersions: expect.any(Object),
+        },
+        reviewSummary: {
+          selected: 1,
+          responded: 1,
+          totalInteractions: 2,
+          totalOwnershipRecords: 1,
+        },
+        moments: [
+          {
+            displayId: moment.displayId,
+            proposal: { title: "File modified" },
+            review: { activity: "responded" },
+          },
+        ],
+      });
+      expect(JSON.stringify(buildReplay)).not.toContain(TEST_API_KEY);
+      expect(JSON.stringify(buildReplay)).not.toContain("/workspace/project");
     } finally {
       await server.close();
       context.persistence.close();

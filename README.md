@@ -8,12 +8,12 @@ The project observes a coding-agent Task Run, captures verifiable changes and ev
 
 ## Current status
 
-- Stage: v0.1 durable append-only Ownership Moment interactions
+- Stage: v0.1 deterministic enriched Build Replay
 - Product scope: proposed v0.1
 - First coding-agent adapter: Claude Code
 - First project languages: JavaScript and TypeScript
 - Runtime model: local single-user prototype
-- Repository state: trustworthy deterministic evidence foundation, finite validated Ownership Moments, and durable append-only local interaction history in development
+- Repository state: trustworthy deterministic evidence foundation, finite validated Ownership Moments, durable append-only local interaction history, and deterministic enriched Build Replay in development
 
 ## Local setup
 
@@ -55,7 +55,7 @@ pnpm build
 
 Use `pnpm format` to apply formatting.
 
-The shared packages provide strict ingress, Event, Raw Replay, change-classification, verification-evidence, Evidence Graph, Candidate Moment, semantic-input, Candidate-generation, Candidate-validation, Ownership-Moment projection, and Moment-interaction contracts. The daemon exposes authenticated ingress, deterministic evidence processing, selected-Moment projection, and append-only interaction persistence tied to exact verified validations and Moments. The React viewer renders provider proposals separately from persisted support, hydrates recorded interaction state from the local daemon, and never treats a stored action as proof of comprehension or ownership. The Claude Code hook adapter remains fail-open and outside the agent critical path.
+The shared packages provide strict ingress, Event, Raw Replay, change-classification, verification-evidence, Evidence Graph, Candidate Moment, semantic-input, Candidate-generation, Candidate-validation, Ownership-Moment projection, Moment-interaction, and enriched Build Replay contracts. The daemon exposes authenticated ingress, deterministic evidence processing, selected-Moment projection, append-only interaction persistence tied to exact verified validations and Moments, and a read-only enriched Build Replay composition. The React viewer renders provider proposals separately from persisted support, hydrates recorded interaction state from the local daemon, and never treats a stored action as proof of comprehension or ownership. The Claude Code hook adapter remains fail-open and outside the agent critical path.
 
 ## Design principles
 
@@ -88,6 +88,7 @@ The shared packages provide strict ingress, Event, Raw Replay, change-classifica
 - [ADR-0021: Deterministic Candidate Validation and Selection](docs/adr/0021-deterministic-candidate-validation-and-selection.md)
 - [ADR-0022: Read-Only Finite Ownership Moment Projection](docs/adr/0022-read-only-finite-ownership-moment-projection.md)
 - [ADR-0023: Append-Only Moment Interactions and Ownership Records](docs/adr/0023-append-only-moment-interactions-and-ownership-records.md)
+- [ADR-0024: Deterministic Enriched Build Replay](docs/adr/0024-deterministic-enriched-build-replay.md)
 
 ### Architecture
 
@@ -111,6 +112,7 @@ Claude Code hook
 → deterministic Candidate validation, deduplication, ranking, and finite selection
 → read-only finite Ownership Moment projection and local Evidence navigation
 → append-only Moment interactions and bounded no-comprehension records
+→ deterministic enriched Build Replay
 ```
 
 Candidate generation is an explicit, disabled-by-default proposal boundary. Provider output is never treated as evidence. OL-019 validates and finitely selects source Candidates; OL-020 joins only that verified selection and renders proposal wording separately from deterministic support. OL-021 records only explicit actions against exact displayed Moments as append-only local history. A stored action attests to recording, not comprehension, correctness, agreement, authorship, safety, or legal ownership.
@@ -121,4 +123,4 @@ The project is currently maintained by a one-person team. Architecture and scope
 
 ## Current milestone
 
-OL-021 adds migration v17 and two strict append-only tables: `moment_interactions` and `ownership_records`. Every write is authenticated and revalidates the exact Run, OL-019 validation, OL-020 display ID, source Candidate identity, Moment type, and action-specific Evidence or Check choice. The browser creates a page-memory cryptographically random interaction ID; exact retries are idempotent, conflicting reuse is rejected, and intentionally repeated actions append new history. Qualifying state-changing actions create one atomic bounded record with assertion `interaction_recorded` and `noComprehensionClaim: true`. Current state and bounded recent history rehydrate after refresh or daemon restart, while full Task Run deletion remains the only history-deletion boundary.
+OL-022 composes one terminal Run into a finite deterministic enriched Build Replay by joining only verified OL-012 Raw Replay facts, the exact current-policy OL-020 selected-Moment projection, and exact OL-021 interaction state. The projection displays the original redacted goal, terminal status, explicit limitations, only Moment-linked changed files, selected changes/decisions/risks/checks, observed verification, Evidence gaps, and recorded activity. Provider proposal wording, deterministic support, and recorded review activity remain separate. No migration, replay cache/artifact, generated narrative, repository/source read, interaction write, model call, or browser storage is introduced.
