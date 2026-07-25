@@ -1,7 +1,4 @@
-import {
-  type CandidateMomentV1,
-  DeterministicEvidenceGraphV1Schema,
-} from "@ownloop/contracts";
+import { DeterministicEvidenceGraphV1Schema } from "@ownloop/contracts";
 import { describe, expect, it } from "vitest";
 
 import { buildCandidateValidationReport } from "./validator.js";
@@ -47,22 +44,22 @@ describe("Candidate validation", () => {
   });
 
   it("rejects unsupported absence, semantic prose, contradiction, and missing evidence", () => {
-    const absence: CandidateMomentV1 = {
+    const absence = {
       ...RISK_CANDIDATE,
       title: "No tests failed",
       claim: "No tests failed",
     };
-    const semantic: CandidateMomentV1 = {
+    const semantic = {
       ...CHANGE_CANDIDATE,
       title: "Behavior file modified performance improved",
       claim: "Behavior file modified performance improved",
     };
-    const contradiction: CandidateMomentV1 = {
+    const contradiction = {
       ...CHANGE_CANDIDATE,
       title: "Behavior file deleted",
       claim: "Behavior file deleted",
     };
-    const missing: CandidateMomentV1 = {
+    const missing = {
       ...CHANGE_CANDIDATE,
       evidenceIds: [`ev_${"f".repeat(48)}`],
     };
@@ -77,7 +74,7 @@ describe("Candidate validation", () => {
   });
 
   it("groups same-type support duplicates without merging prose", () => {
-    const duplicate: CandidateMomentV1 = {
+    const duplicate = {
       ...CHANGE_CANDIDATE,
       title: "Behavior file updated",
       claim: "Behavior file updated",
@@ -108,7 +105,7 @@ describe("Candidate validation", () => {
     if (node === undefined) throw new Error("changed-file node missing");
     node.metadata.changeKind = "type_changed";
     const graph = DeterministicEvidenceGraphV1Schema.parse(graphValue);
-    const candidate: CandidateMomentV1 = {
+    const candidate = {
       ...CHANGE_CANDIDATE,
       title: "File type changed",
       claim: "File type changed",
@@ -146,7 +143,7 @@ describe("Candidate validation", () => {
     if (finalization === undefined) throw new Error("finalization node missing");
     finalization.metadata.terminalStatus = "Failed";
     const graph = DeterministicEvidenceGraphV1Schema.parse(graphValue);
-    const candidate: CandidateMomentV1 = {
+    const candidate = {
       ...RISK_CANDIDATE,
       title: "Run failed",
       claim: "Run failed",
@@ -162,7 +159,7 @@ describe("Candidate validation", () => {
   });
 
   it("does not expand a generic Run citation into sibling gap evidence", () => {
-    const candidate: CandidateMomentV1 = {
+    const candidate = {
       ...RISK_CANDIDATE,
       title: "Evidence gap",
       claim: "Evidence gap",
@@ -184,7 +181,7 @@ describe("Candidate validation", () => {
       (entry) => entry.kind !== "classification_assigned_label",
     );
     const graph = DeterministicEvidenceGraphV1Schema.parse(graphValue);
-    const candidate: CandidateMomentV1 = {
+    const candidate = {
       ...CHANGE_CANDIDATE,
       title: "Behavior file modified",
       claim: "Behavior file modified",
