@@ -25,19 +25,30 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(wc -c < .github/ol015-payload/part-00)" -eq 8000
-          test "$(wc -c < .github/ol015-payload/rest)" -eq 44192
-          echo "409c620305d7f8c94f93f21a572f0fa7df10df2e27c0b81f8381dc36a75ab90c  .github/ol015-payload/part-00" | sha256sum --check
-          echo "54f0d7507a687830de4d868df99b9074b7ab8ab5ddba5f726b047e9cddfdabd1  .github/ol015-payload/rest" | sha256sum --check
-          cat .github/ol015-payload/part-00 .github/ol015-payload/rest > /tmp/ol015.patch.gz.b64
-          test "$(wc -c < /tmp/ol015.patch.gz.b64)" -eq 52192
+          expected_sizes=(8000 8000 8000 8000 8000 5004)
+          expected_hashes=(
+            6d63904f6dd399ad9d6e14f0261cc6b0fee75522322fb8cc38d64a15d43f2b57
+            13e6bb95817289c8fdbc7e63d4da305f6806f85e3755bb645bf1a9c2a6666c48
+            a2f8cae1c3483bdc1348c7d995ffcff902eb8d641f54b32728022e236ff244eb
+            af5ca74e6e2e4f8b399b1e5623b13f4cfe3da5fa9e157b8da8f01fd2f3cd8775
+            26c589cb24d960645f819b2ebc941a39dea047f70be60c1cdcaa57c41207d718
+            c4653fda552e7abde4f07f775a20bf689c4113c53090db843e172949b30ce7e3
+          )
+          for index in $(seq 0 5); do
+            suffix=$(printf '%02d' "$index")
+            path=".github/ol015-payload/part-${suffix}"
+            test "$(wc -c < "$path")" -eq "${expected_sizes[$index]}"
+            echo "${expected_hashes[$index]}  $path" | sha256sum --check
+          done
+          cat .github/ol015-payload/part-* > /tmp/ol015.patch.gz.b64
+          test "$(wc -c < /tmp/ol015.patch.gz.b64)" -eq 45004
           base64 --decode /tmp/ol015.patch.gz.b64 > /tmp/ol015.patch.gz
-          test "$(wc -c < /tmp/ol015.patch.gz)" -eq 39144
-          echo "be086d9b3ceb5f8fb3624f9513e7c44404af7f7b66e77b2504786a670d5d3a4a  /tmp/ol015.patch.gz" | sha256sum --check
+          test "$(wc -c < /tmp/ol015.patch.gz)" -eq 33751
+          echo "0f93ea53fdb086b7ac3560313845dd4c7ca73c3138781ce87eed38ee84e6ea2b  /tmp/ol015.patch.gz" | sha256sum --check
           gzip --test /tmp/ol015.patch.gz
           gzip --decompress --stdout /tmp/ol015.patch.gz > /tmp/ol015.patch
-          test "$(wc -c < /tmp/ol015.patch)" -eq 179132
-          echo "cec34225d07113837bdb4d9fbac5ee5796f44a8ff24f323944794f88988afbdf  /tmp/ol015.patch" | sha256sum --check
+          test "$(wc -c < /tmp/ol015.patch)" -eq 160777
+          echo "23b5804cfe3578856f7b2246668eb027dfdd9931d9bad84d907fe3c9dbc4c558  /tmp/ol015.patch" | sha256sum --check
           git apply --check /tmp/ol015.patch
 
       - name: Apply patch and verify exact scope
@@ -45,7 +56,6 @@ jobs:
         run: |
           set -euo pipefail
           git apply /tmp/ol015.patch
-          git add -N .
           cat > /tmp/expected-files <<'FILES'
           .github/workflows/export-ol015-source.yml
           AGENTS.md
@@ -59,12 +69,11 @@ jobs:
           apps/daemon/src/evidence-graph/processor.test.ts
           apps/daemon/src/evidence-graph/processor.ts
           apps/daemon/src/index.ts
-          apps/daemon/src/ingress/server.ts
           apps/daemon/src/persistence/migration-definitions.ts
           apps/daemon/src/persistence/migrations.test.ts
           apps/daemon/src/replay/constants.ts
-          apps/daemon/src/replay/projection.ts
-          apps/daemon/src/replay/replay.test.ts
+          apps/daemon/src/replay/evidence.ts
+          apps/daemon/src/replay/index.ts
           apps/daemon/src/replay/responses.ts
           apps/daemon/src/replay/routes.ts
           apps/web/src/App.test.tsx
@@ -78,14 +87,17 @@ jobs:
           packages/contracts/src/replay.ts
           packages/contracts/tests/evidence-graph.test.ts
           FILES
-          git diff HEAD --name-only \
+          {
+            git ls-files --modified --deleted
+            git ls-files --others --exclude-standard
+          } \
             | grep -v '^\.github/ol015-payload/' \
             | grep -v '^\.github/workflows/finalize-ol015.yml$' \
-            | sort > /tmp/actual-files
+            | sort -u > /tmp/actual-files
           diff -u /tmp/expected-files /tmp/actual-files
           git rm -r .github/ol015-payload
           git rm .github/workflows/finalize-ol015.yml
-          git diff HEAD --check
+          git diff --check
 
       - name: Set up exact Node.js
         uses: actions/setup-node@v6
@@ -116,5 +128,5 @@ jobs:
           git add -A
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Implement deterministic evidence graph"
+          git commit -m "Implement deterministic locally resolvable evidence graph"
           git push origin "HEAD:${{ github.head_ref }}"
