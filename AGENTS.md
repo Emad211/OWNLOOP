@@ -4,7 +4,7 @@ These instructions apply to the entire repository.
 
 ## Product boundary
 
-OwnLoop is a local-first Human Ownership Layer for AI-generated software. Accepted direction is defined by the product scope, dependency-ordered backlog, and ADR-0001 through ADR-0024.
+OwnLoop is a local-first Human Ownership Layer for AI-generated software. Accepted direction is defined by the product scope, dependency-ordered backlog, and ADR-0001 through ADR-0025.
 
 Read the relevant documents before changing code. Do not silently reinterpret an accepted decision. Architectural changes require an ADR.
 
@@ -27,17 +27,18 @@ Read the relevant documents before changing code. Do not silently reinterpret an
 - local SHA-256 content-addressed artifact storage
 - Vitest, GitHub Actions, Biome
 
-No new runtime dependency is authorized for OL-022.
+No new runtime dependency is authorized for OL-023.
 
-## OL-022 placement
+## OL-023 placement
 
-- strict enriched Build Replay contracts belong in `packages/contracts/src/enriched-build-replay.ts`;
-- pure deterministic composition belongs in `apps/daemon/src/enriched-replay/`;
-- the authenticated GET route extends the existing Replay server;
-- the finite read-only end-of-task UI belongs in `apps/web/`;
-- architecture policy belongs in ADR-0024.
+- strict local settings/privacy contracts belong in `packages/contracts/src/local-settings.ts`;
+- migration v18 and compare-and-swap persistence belong in the existing SQLite boundary;
+- memory-only provider secrets, diagnostics, retention/deletion orchestration, and routes belong in `apps/daemon/src/local-settings/`;
+- custom field-name redaction extends `packages/ingress-security/` without disabling built-in rules;
+- the accessible settings/privacy experience belongs in `apps/web/`;
+- architecture policy belongs in ADR-0025.
 
-Do not create a migration, Build Replay table/cache/artifact, generated narrative, importance classifier, interaction write, new listener, CORS surface, background worker, scheduler, provider/model call, repository/source read, browser storage, or runtime dependency.
+Do not persist provider secrets, accept arbitrary regex/value patterns, create a background retention worker, raw source-payload archive, account system, new listener, CORS surface, browser storage, cloud, analytics, telemetry, billing, or runtime dependency.
 
 ## Quality gates
 
@@ -51,13 +52,13 @@ pnpm test
 pnpm build
 ```
 
-Focused OL-022 tests must prove strict contracts, complete source identity, deterministic canonical fingerprinting, terminal gating, exact Raw Replay/Moment/interaction joins, selected-only wording, explicit Evidence-linked files, review-activity semantics, truncation and byte bounds, restart stability, interaction-driven fingerprint updates, source tamper detection, authenticated no-store GET behavior, accessible finite UI states, and absence of persistence or processing side effects.
+Focused OL-023 tests must prove strict settings and API contracts, migration v18 defaults/invariants, compare-and-swap concurrency, restart durability, memory-only provider-secret behavior, disabled generation until complete configuration, explicit bounded retention preview/apply, terminal-only Run deletion, target-only cascades and artifact GC, off/counts-only diagnostics, fixed-off raw source-payload retention, bounded exact/prefix/suffix custom field-name redaction, authenticated no-store route behavior, accessible settings UI states, and absence of secret persistence, background scheduling, browser storage, cloud, analytics, telemetry, billing, accounts, or multi-user authentication.
 
 Never claim a check passed unless it completed successfully.
 
 ## Git and Pull Request discipline
 
-- Base implementation on `agent/ol-022-enriched-build-replay` from the exact OL-021 merge commit.
+- Base implementation on `agent/ol-023-local-settings-privacy` from the exact OL-022 merge commit.
 - Make focused commits and leave the final diff free of transfer/export workflows.
 - Do not push directly to `main`.
 - Keep the PR draft until clean-checkout CI and final review pass.
@@ -65,15 +66,15 @@ Never claim a check passed unless it completed successfully.
 
 ## Current phase restriction
 
-The active issue is `OL-022: Produce deterministic enriched Build Replay` (#65).
+The active issue is `OL-023: Implement local settings and privacy controls` (#67).
 
 Explicitly forbidden:
 
-- generated prose summaries, hidden semantic interpretation, Candidate rewriting, ranking, deduplication, or filler content;
-- inferring file importance from paths, extensions, timestamps, provider signals, or similarity;
-- treating recorded views/responses as comprehension, correctness, approval, safety, authorship, or ownership;
-- replay persistence, materialized cache/artifact, migration, background projection, or interaction writes from Build Replay;
-- repository/worktree/source/AST/package reads, raw provider data, raw commands/output, diff hunks, artifact storage metadata, tokens, exceptions, or stacks;
-- a new listener, CORS, workers, timers, schedulers, cloud, analytics, telemetry, billing, or multi-user authentication.
+- persisting provider API keys, key-derived hashes, installation tokens, raw source payloads, prompts, repository/source content, artifact paths, exceptions, or stacks;
+- automatic provider calls, generation scheduling, provider fallback routing, or provider marketplace behavior;
+- background retention workers, timers, startup purges, TTL triggers, soft delete, or individual Event/interaction/Evidence deletion;
+- arbitrary regular expressions, value-pattern secret matching, disabling built-in redaction, or retroactive receipt rewriting;
+- raw diagnostic payload tables/artifacts, diagnostic bundle export, or exception-bearing diagnostics;
+- a new listener, CORS, browser storage, cloud, analytics, telemetry, billing, accounts, roles, teams, or remote authentication.
 
-OL-022 is complete only when a terminal Run can be deterministically composed from verified OL-012, OL-020, and OL-021 sources into one finite replay with explicit source identities, limitations, Evidence navigation, and recorded activity semantics, without introducing new persistence or factual inference.
+OL-023 is complete only when one strict revisioned local settings document, process-memory provider secret, explicit retention/deletion flow, custom future-ingress field redaction, and allowlisted diagnostic counts are authenticated, restart-safe, privacy-bounded, accessible, and fully tested without adding hidden background behavior or durable secrets.

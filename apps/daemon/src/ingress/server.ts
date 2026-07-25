@@ -18,6 +18,11 @@ import Fastify, {
   LogController,
 } from "fastify";
 import type { LocalArtifactStore } from "../artifact-store/index.js";
+import {
+  localSettingsError,
+  registerLocalSettingsRoutes,
+  type LocalSettingsService,
+} from "../local-settings/index.js";
 import type {
   NewPreparedIngressReceipt,
   OwnLoopPersistence,
@@ -48,6 +53,8 @@ export type IngressServerDependencies = Readonly<{
   clock?: () => Date;
   receiptIdGenerator?: () => string;
   diagnostics?: IngressDiagnosticSink;
+  customSecretFieldPatterns?: () => readonly string[];
+  settings?: LocalSettingsService;
   replay?: Readonly<{
     persistence: ReplayPersistence;
     artifactStore: Pick<LocalArtifactStore, "readPreparedBytes">;
@@ -135,7 +142,14 @@ function mapFrameworkError(error: unknown): Readonly<{
 export function createLoopbackIngressServer(
   dependencies: IngressServerDependencies,
 ): FastifyInstance {
-  const { persistence, installationToken, hmacKey, homePath, diagnostics } = dependencies;
+  const { persistence, installationToken, hmacKey, homePath } = dependencies;
+  const diagnostics: IngressDiagnosticSink | undefined =
+    dependencies.settings === undefined
+      ? dependencies.diagnostics
+      : (event) => {
+          emitIngressDiagnostic(dependencies.diagnostics, event);
+          emitIngressDiagnostic(dependencies.settings?.diagnosticsSink, event);
+        };
   validateIngressHmacKey(hmacKey);
   const tokenVerifier = createInstallationTokenVerifier(installationToken);
   const clock = dependencies.clock ?? (() => new Date());
@@ -177,6 +191,14 @@ export function createLoopbackIngressServer(
       return;
     }
     const mapped = mapFrameworkError(error);
+    if (/^\/v1\/settings(?:\/|$)/u.test(request.url)) {
+      const status = mapped.statusCode === 413 ? 413 : mapped.statusCode === 415 ? 415 : 400;
+      void reply
+        .code(status)
+        .header("Cache-Control", "no-store")
+        .send(localSettingsError("invalid_request"));
+      return;
+    }
     if (
       request.method === "POST" &&
       /^\/v1\/replay\/runs\/[^/?]+\/moments\/[^/?]+\/interactions(?:\?|$)/u.test(request.url)
@@ -191,6 +213,9 @@ export function createLoopbackIngressServer(
     sendRejected(reply, mapped.statusCode, mapped.code, diagnostics);
   });
 
+  if (dependencies.settings !== undefined) {
+    registerLocalSettingsRoutes(server, { service: dependencies.settings, tokenVerifier });
+  }
   if (dependencies.replay !== undefined) {
     registerReplayRoutes(server, {
       persistence: dependencies.replay.persistence,
@@ -202,6 +227,13 @@ export function createLoopbackIngressServer(
   const staticSite = createContainedStaticSite(dependencies.replay?.webRoot);
 
   server.setNotFoundHandler((request, reply) => {
+    if (request.url.startsWith("/v1/settings")) {
+      void reply
+        .code(404)
+        .header("Cache-Control", "no-store")
+        .send(localSettingsError("invalid_request"));
+      return;
+    }
     if (request.url.startsWith("/v1/replay")) {
       void reply.code(404).header("Cache-Control", "no-store").send(replayError("invalid_query"));
       return;
@@ -242,6 +274,10 @@ export function createLoopbackIngressServer(
         const prepared = prepareIngressReceipt(parsed.data, {
           hmacKey: hmacKey,
           ...(homePath === undefined ? {} : { homePath: homePath }),
+          customSecretFieldPatterns:
+            dependencies.settings?.getCustomSecretFieldPatterns() ??
+            dependencies.customSecretFieldPatterns?.() ??
+            [],
         });
         const createdAt = safeTimestamp(clock);
         const newReceipt: NewPreparedIngressReceipt = {

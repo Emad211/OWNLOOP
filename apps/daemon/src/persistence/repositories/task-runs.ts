@@ -322,6 +322,34 @@ export class TaskRunRepository {
     }));
   }
 
+  countTerminalEndedBefore(cutoff: string): number {
+    const row = this.#database
+      .prepare(
+        `SELECT COUNT(*) AS eligible_count
+         FROM task_runs
+         WHERE status IN ('Completed', 'Partial', 'Abandoned', 'Failed')
+           AND ended_at IS NOT NULL
+           AND ended_at <= ?`,
+      )
+      .get(cutoff) as SqliteRow;
+    return requiredNumber(row, "eligible_count");
+  }
+
+  listTerminalEndedBefore(cutoff: string, limit: number): TaskRun[] {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 101) return [];
+    return this.#database
+      .prepare(
+        `${TASK_RUN_SELECT}
+         WHERE status IN ('Completed', 'Partial', 'Abandoned', 'Failed')
+           AND ended_at IS NOT NULL
+           AND ended_at <= ?
+         ORDER BY ended_at ASC, conversation_id ASC, run_number ASC, run_id ASC
+         LIMIT ?`,
+      )
+      .all(cutoff, limit)
+      .map(mapTaskRun);
+  }
+
   delete(runId: string): boolean {
     return (
       this.#database.prepare("DELETE FROM task_runs WHERE run_id = ?").run(runId).changes === 1

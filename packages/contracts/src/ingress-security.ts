@@ -12,6 +12,7 @@ export const INGRESS_REDACTION_POLICY_VERSION = 1 as const;
 
 export const INGRESS_REDACTION_RULE_IDS = [
   "field.secret",
+  "field.secret.custom",
   "field.unknown-dropped",
   "path.absolute",
   "path.home",

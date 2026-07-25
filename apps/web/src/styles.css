@@ -34,19 +34,25 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
 button,
 a,
-input {
+input,
+select,
+textarea {
   outline-offset: 3px;
 }
 
 button:focus-visible,
 a:focus-visible,
-input:focus-visible {
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
   outline: 2px solid var(--focus);
 }
 
@@ -965,4 +971,146 @@ pre {
 .build-replay-moment-groups h4 {
   margin: 0;
   text-transform: capitalize;
+}
+
+.settings-panel {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  border: 1px solid var(--line);
+  border-left: 0.35rem solid var(--focus);
+  border-radius: 1rem;
+  background: var(--surface);
+}
+
+.settings-form,
+.settings-secret-form,
+.settings-actions {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.settings-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-form fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--surface-soft);
+}
+
+.settings-form legend {
+  padding: 0 0.35rem;
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.settings-form label,
+.settings-secret-form label {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.65rem 0;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.settings-form .checkbox-row {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.settings-form input,
+.settings-form select,
+.settings-form textarea,
+.settings-secret-form input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  color: inherit;
+  background: #0b100d;
+}
+
+.settings-form textarea {
+  resize: vertical;
+  font-family: "SFMono-Regular", Consolas, monospace;
+}
+
+.settings-form > .button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.settings-secret-form {
+  grid-template-columns: minmax(12rem, 1fr) auto auto;
+  align-items: end;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--surface-soft);
+}
+
+.settings-secret-form label {
+  margin: 0;
+}
+
+.settings-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.settings-actions p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.button.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: rgb(255 157 140 / 8%);
+}
+
+.button.danger:hover:not(:disabled) {
+  background: rgb(255 157 140 / 16%);
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.settings-status {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.settings-status.error {
+  color: var(--danger);
+}
+
+@media (max-width: 820px) {
+  .settings-form,
+  .settings-secret-form,
+  .settings-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-form > .button {
+    grid-column: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-panel * {
+    scroll-behavior: auto;
+    transition: none !important;
+    animation: none !important;
+  }
 }

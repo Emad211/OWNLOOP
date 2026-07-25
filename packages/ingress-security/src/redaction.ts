@@ -51,8 +51,25 @@ export function normalizeSecretFieldName(name: string): string {
   return name.toLowerCase().replace(/[_.\-\s]/g, "");
 }
 
-export function isSecretFieldName(name: string): boolean {
-  return SECRET_FIELD_NAMES.has(normalizeSecretFieldName(name));
+export function matchesCustomSecretFieldPattern(normalizedName: string, pattern: string): boolean {
+  if (pattern.startsWith("*")) return normalizedName.endsWith(pattern.slice(1));
+  if (pattern.endsWith("*")) return normalizedName.startsWith(pattern.slice(0, -1));
+  return normalizedName === pattern;
+}
+
+export function secretFieldMatch(
+  name: string,
+  customPatterns: readonly string[] = [],
+): "builtin" | "custom" | null {
+  const normalized = normalizeSecretFieldName(name);
+  if (SECRET_FIELD_NAMES.has(normalized)) return "builtin";
+  return customPatterns.some((pattern) => matchesCustomSecretFieldPattern(normalized, pattern))
+    ? "custom"
+    : null;
+}
+
+export function isSecretFieldName(name: string, customPatterns: readonly string[] = []): boolean {
+  return secretFieldMatch(name, customPatterns) !== null;
 }
 
 function replacePattern(
@@ -211,6 +228,7 @@ function truncateUtf8(value: string, maximumBytes: number): string {
 export type SanitizeContext = Readonly<{
   paths: PathReductionContext;
   state: RedactionState;
+  customSecretFieldPatterns?: readonly string[];
 }>;
 
 function sanitizeString(value: string, fieldName: string | null, context: SanitizeContext): string {
@@ -274,11 +292,14 @@ function sanitizeObject(
       throw ingressSecurityError("policy_invariant", [...path, key]);
     }
 
-    if (isSecretFieldName(key)) {
+    const secretMatch = secretFieldMatch(key, context.customSecretFieldPatterns ?? []);
+    if (secretMatch !== null) {
       output[sanitizedKey] = REDACTION_MARKER;
       context.state.redactedFieldCount += 1;
       context.state.redactedValueCount += 1;
-      context.state.rulesApplied.add(REDACTION_RULES.secretField);
+      context.state.rulesApplied.add(
+        secretMatch === "builtin" ? REDACTION_RULES.secretField : REDACTION_RULES.customSecretField,
+      );
       continue;
     }
     output[sanitizedKey] = sanitizeArbitraryJson(

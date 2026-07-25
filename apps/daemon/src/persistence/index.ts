@@ -10,6 +10,7 @@ import { GitBaselineRepository } from "./repositories/git-baselines.js";
 import { GitReconciliationRepository } from "./repositories/git-reconciliations.js";
 import { IngressReceiptRepository } from "./repositories/ingress-receipts.js";
 import { LifecycleResolutionRepository } from "./repositories/lifecycle-resolutions.js";
+import { LocalSettingsRepository } from "./repositories/local-settings.js";
 import { MomentInteractionRepository } from "./repositories/moment-interactions.js";
 import { RunFinalizationRepository } from "./repositories/run-finalizations.js";
 import { RunSupportRepository } from "./repositories/run-support.js";
@@ -20,6 +21,7 @@ import { assertSynchronousTransactionOperation, runInTransaction } from "./trans
 export type PersistenceRepositories = Readonly<{
   ingressReceipts: IngressReceiptRepository;
   lifecycleResolutions: LifecycleResolutionRepository;
+  localSettings: LocalSettingsRepository;
   workspaces: WorkspaceRepository;
   conversations: AgentConversationRepository;
   taskRuns: TaskRunRepository;
@@ -64,6 +66,7 @@ export function openPersistence(databasePath: string): OwnLoopPersistence {
   const repositories: PersistenceRepositories = {
     ingressReceipts: new IngressReceiptRepository(database),
     lifecycleResolutions: new LifecycleResolutionRepository(database),
+    localSettings: new LocalSettingsRepository(database),
     workspaces: new WorkspaceRepository(database),
     conversations: new AgentConversationRepository(database),
     taskRuns: new TaskRunRepository(database),
@@ -232,3 +235,5 @@ export type { CandidateGenerationRecordV1 } from "@ownloop/contracts";
 export { CandidateGenerationRepository } from "./repositories/candidate-generations.js";
 
 export { MomentInteractionRepository } from "./repositories/moment-interactions.js";
+
+export { LocalSettingsRepository } from "./repositories/local-settings.js";

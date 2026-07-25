@@ -17,6 +17,7 @@ export const ARRAY_TRUNCATION_MARKER = Object.freeze({ $ownloop: "truncated-arra
 
 export const REDACTION_RULES = Object.freeze({
   secretField: "field.secret",
+  customSecretField: "field.secret.custom",
   unknownField: "field.unknown-dropped",
   authorization: "string.authorization",
   privateKey: "string.private-key",
