@@ -1,4 +1,6 @@
 import {
+  type EnrichedBuildReplayV1,
+  EnrichedBuildReplayV1Schema,
   type EvidenceResolutionV1,
   EvidenceResolutionV1Schema,
   type FinalDiffManifestV1,
@@ -52,6 +54,7 @@ export class ReplayApiError extends Error {
 export type ReplayApiClient = Readonly<{
   listRuns(cursor?: string | null): Promise<ReplayRunListResponseV1>;
   getRun(runId: string): Promise<RawRunReplayV1>;
+  getBuildReplay(runId: string): Promise<EnrichedBuildReplayV1>;
   getMoments(runId: string): Promise<OwnershipMomentsProjectionV1>;
   getMomentInteractionState(
     runId: string,
@@ -177,6 +180,19 @@ export function createReplayApiClient(
         await requestJson(`/v1/replay/runs/${encodeURIComponent(runId)}`),
       );
       if (!result.success) {
+        throw new ReplayApiError("invalid_response");
+      }
+      return result.data;
+    },
+
+    async getBuildReplay(runId: string): Promise<EnrichedBuildReplayV1> {
+      if (!SAFE_ID_PATTERN.test(runId)) {
+        throw new ReplayApiError("not_found");
+      }
+      const result = EnrichedBuildReplayV1Schema.safeParse(
+        await requestJson(`/v1/replay/runs/${encodeURIComponent(runId)}/build-replay`),
+      );
+      if (!result.success || result.data.runId !== runId) {
         throw new ReplayApiError("invalid_response");
       }
       return result.data;

@@ -108,6 +108,61 @@ describe("replay browser API client", () => {
     await expect(client.listRuns()).rejects.toMatchObject({ code: "invalid_response" });
   });
 
+  it("loads Build Replay through one Run-scoped no-write route and binds the response Run", async () => {
+    const buildReplay = {
+      ok: true,
+      schemaVersion: 1,
+      projectorVersion: "0.1.0",
+      projectionFingerprint: FINGERPRINT,
+      runId: "run-1",
+      outcome: "not_available",
+      diagnosticCode: "run_not_terminal",
+      limitations: [],
+      source: null,
+      goal: null,
+      completion: null,
+      files: { counts: { total: 0, returned: 0, truncated: false }, items: [] },
+      moments: [],
+      verification: { counts: { total: 0, returned: 0, truncated: false }, items: [] },
+      gaps: { counts: { total: 0, returned: 0, truncated: false }, items: [] },
+      reviewSummary: {
+        selected: 0,
+        none: 0,
+        viewed: 0,
+        evidenceOpened: 0,
+        responded: 0,
+        totalMomentViews: 0,
+        totalEvidenceViews: 0,
+        totalInteractions: 0,
+        totalOwnershipRecords: 0,
+      },
+    } as const;
+    const calls: string[] = [];
+    const client = createReplayApiClient(TOKEN, {
+      fetcher: async (input, init) => {
+        calls.push(input instanceof URL ? input.toString() : String(input));
+        expect(init?.method).toBe("GET");
+        return new Response(JSON.stringify(buildReplay), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    expect(await client.getBuildReplay("run-1")).toEqual(buildReplay);
+    expect(calls).toEqual([`${PAGE_ORIGIN}/v1/replay/runs/run-1/build-replay`]);
+
+    const foreign = createReplayApiClient(TOKEN, {
+      fetcher: async () =>
+        new Response(JSON.stringify({ ...buildReplay, runId: "other-run" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+    await expect(foreign.getBuildReplay("run-1")).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+
   it("loads Moments through the current Run-scoped read-only route", async () => {
     const calls: string[] = [];
     const projection = {

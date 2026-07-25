@@ -1,4 +1,5 @@
 import {
+  EnrichedBuildReplayV1Schema,
   EvidenceResolutionV1Schema,
   MomentInteractionReceiptV1Schema,
   MomentInteractionStateResponseV1Schema,
@@ -13,6 +14,10 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 import { isArtifactStoreError, type LocalArtifactStore } from "../artifact-store/index.js";
+import {
+  ENRICHED_BUILD_REPLAY_ROUTE,
+  projectEnrichedBuildReplay,
+} from "../enriched-replay/index.js";
 import {
   MOMENT_INTERACTION_BODY_LIMIT_BYTES,
   MOMENT_INTERACTION_STATE_ROUTE,
@@ -195,6 +200,32 @@ export function registerReplayRoutes(
           .send(
             RawRunReplayV1Schema.parse({ ...replay, schemaVersion: RAW_REPLAY_SCHEMA_VERSION }),
           );
+      } catch (error) {
+        contentFreeFailure(reply, error);
+      }
+    },
+  );
+
+  server.get<{ Params: { runId: string } }>(
+    ENRICHED_BUILD_REPLAY_ROUTE,
+    { onRequest },
+    async (request, reply) => {
+      if (!SAFE_ID_PATTERN.test(request.params.runId)) {
+        void reply.code(404).header("Cache-Control", "no-store").send(replayError("run_not_found"));
+        return;
+      }
+      try {
+        const projection = await projectEnrichedBuildReplay(dependencies, request.params.runId);
+        if (projection === null) {
+          void reply
+            .code(404)
+            .header("Cache-Control", "no-store")
+            .send(replayError("run_not_found"));
+          return;
+        }
+        void reply
+          .header("Cache-Control", "no-store")
+          .send(EnrichedBuildReplayV1Schema.parse(projection));
       } catch (error) {
         contentFreeFailure(reply, error);
       }

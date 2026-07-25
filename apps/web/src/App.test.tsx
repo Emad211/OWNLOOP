@@ -19,7 +19,12 @@ import {
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { App, interactionStateMatchesProjection, ReplayViewer } from "./App.js";
+import {
+  App,
+  interactionStateMatchesProjection,
+  preferNewerBuildReplay,
+  ReplayViewer,
+} from "./App.js";
 import { createReplayApiClient } from "./api.js";
 
 const summary: ReplayRunSummaryV1 = {
@@ -265,6 +270,9 @@ describe("Raw Replay viewer", () => {
         interactionState={null}
         interactionLoadState="ready"
         interactionStatusMessage=""
+        buildReplay={null}
+        buildReplayState="idle"
+        buildReplayStatusMessage=""
         selectedRunId="run-1"
         nextCursor={null}
         onSelectRun={() => undefined}
@@ -303,6 +311,9 @@ describe("Raw Replay viewer", () => {
         interactionState={null}
         interactionLoadState="ready"
         interactionStatusMessage=""
+        buildReplay={null}
+        buildReplayState="idle"
+        buildReplayStatusMessage=""
         selectedRunId="run-1"
         nextCursor={null}
         onSelectRun={() => undefined}
@@ -436,6 +447,9 @@ describe("Raw Replay viewer", () => {
         interactionState={interactionState}
         interactionLoadState="ready"
         interactionStatusMessage="Interaction recorded locally."
+        buildReplay={null}
+        buildReplayState="idle"
+        buildReplayStatusMessage=""
         selectedRunId="run-1"
         nextCursor={null}
         onSelectRun={() => undefined}
@@ -542,5 +556,25 @@ describe("Raw Replay viewer", () => {
     } finally {
       Object.defineProperty(globalThis, "window", { configurable: true, value: previousWindow });
     }
+  });
+
+  it("keeps the newest append-only Build Replay snapshot", () => {
+    const older = {
+      runId: "run-1",
+      source: { validationId: `val_${"b".repeat(48)}` },
+      reviewSummary: { totalInteractions: 2 },
+    } as any;
+    const stale = {
+      runId: "run-1",
+      source: { validationId: `val_${"b".repeat(48)}` },
+      reviewSummary: { totalInteractions: 1 },
+    } as any;
+    const newer = {
+      runId: "run-1",
+      source: { validationId: `val_${"b".repeat(48)}` },
+      reviewSummary: { totalInteractions: 3 },
+    } as any;
+    expect(preferNewerBuildReplay(older, stale)).toBe(older);
+    expect(preferNewerBuildReplay(older, newer)).toBe(newer);
   });
 });

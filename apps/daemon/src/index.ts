@@ -4,6 +4,7 @@ export * from "./artifact-store/index.js";
 export * from "./candidate-generation/index.js";
 export * from "./change-classification/index.js";
 export * from "./evidence-graph/index.js";
+export * from "./enriched-replay/index.js";
 export * from "./finalization/index.js";
 export * from "./git-baseline/index.js";
 export * from "./git-reconciliation/index.js";
