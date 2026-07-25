@@ -10,6 +10,7 @@ import { GitBaselineRepository } from "./repositories/git-baselines.js";
 import { GitReconciliationRepository } from "./repositories/git-reconciliations.js";
 import { IngressReceiptRepository } from "./repositories/ingress-receipts.js";
 import { LifecycleResolutionRepository } from "./repositories/lifecycle-resolutions.js";
+import { MomentInteractionRepository } from "./repositories/moment-interactions.js";
 import { RunFinalizationRepository } from "./repositories/run-finalizations.js";
 import { RunSupportRepository } from "./repositories/run-support.js";
 import { TaskRunRepository } from "./repositories/task-runs.js";
@@ -31,6 +32,7 @@ export type PersistenceRepositories = Readonly<{
   artifacts: ArtifactRepository;
   candidateGenerations: CandidateGenerationRepository;
   candidateValidations: CandidateValidationRepository;
+  momentInteractions: MomentInteractionRepository;
 }>;
 
 type AsyncTransactionGuard<Result> = [Result] extends [never]
@@ -74,6 +76,7 @@ export function openPersistence(databasePath: string): OwnLoopPersistence {
     artifacts: new ArtifactRepository(database),
     candidateGenerations: new CandidateGenerationRepository(database),
     candidateValidations: new CandidateValidationRepository(database),
+    momentInteractions: new MomentInteractionRepository(database),
   };
 
   function withTransaction<Result>(
@@ -227,3 +230,5 @@ export { WORKSPACE_IDENTITY_BASES } from "./repositories/workspaces.js";
 
 export type { CandidateGenerationRecordV1 } from "@ownloop/contracts";
 export { CandidateGenerationRepository } from "./repositories/candidate-generations.js";
+
+export { MomentInteractionRepository } from "./repositories/moment-interactions.js";

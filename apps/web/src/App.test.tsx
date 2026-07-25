@@ -11,6 +11,7 @@ import {
   EVIDENCE_GRAPH_BUILDER_VERSION,
   EVIDENCE_GRAPH_SCHEMA_VERSION,
   EVIDENCE_GRAPH_TAXONOMY_VERSION,
+  MomentInteractionStateResponseV1Schema,
   OwnershipMomentsProjectionV1Schema,
   type RawRunReplayV1,
   type ReplayRunSummaryV1,
@@ -18,7 +19,7 @@ import {
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { App, ReplayViewer } from "./App.js";
+import { App, interactionStateMatchesProjection, ReplayViewer } from "./App.js";
 import { createReplayApiClient } from "./api.js";
 
 const summary: ReplayRunSummaryV1 = {
@@ -261,12 +262,19 @@ describe("Raw Replay viewer", () => {
         moments={null}
         momentState="idle"
         momentStatusMessage=""
+        interactionState={null}
+        interactionLoadState="ready"
+        interactionStatusMessage=""
         selectedRunId="run-1"
         nextCursor={null}
         onSelectRun={() => undefined}
         onLoadMore={() => undefined}
         onLoadArtifact={() => undefined}
         onResolveEvidence={() => undefined}
+        onResolveMomentEvidence={async () => undefined}
+        onRecordMomentInteraction={async () => {
+          throw new Error("not invoked during static rendering");
+        }}
         onDisconnect={() => undefined}
       />,
     );
@@ -281,7 +289,7 @@ describe("Raw Replay viewer", () => {
     expect(html).not.toContain("dangerouslySetInnerHTML");
   });
 
-  it("renders four finite Moment types with proposal/support separation and unsaved controls", () => {
+  it("renders four finite Moment types with proposal/support separation and durable controls", () => {
     const html = renderToStaticMarkup(
       <ReplayViewer
         state="ready"
@@ -292,12 +300,19 @@ describe("Raw Replay viewer", () => {
         moments={momentsProjection}
         momentState="ready"
         momentStatusMessage=""
+        interactionState={null}
+        interactionLoadState="ready"
+        interactionStatusMessage=""
         selectedRunId="run-1"
         nextCursor={null}
         onSelectRun={() => undefined}
         onLoadMore={() => undefined}
         onLoadArtifact={() => undefined}
         onResolveEvidence={() => undefined}
+        onResolveMomentEvidence={async () => undefined}
+        onRecordMomentInteraction={async () => {
+          throw new Error("not invoked during static rendering");
+        }}
         onDisconnect={() => undefined}
       />,
     );
@@ -307,12 +322,192 @@ describe("Raw Replay viewer", () => {
     expect(html).toContain("AI-proposed, deterministically validated statement");
     expect(html).toContain("Persisted supporting facts");
     expect(html).toContain("Proposal signals — not proof");
-    expect(html).toContain("No page response selected");
-    expect(html).toContain("No usefulness feedback selected");
-    expect(html).toContain("Responses are held only in page memory and are not saved yet");
+    expect(html).toContain("Durable local interaction");
+    expect(html).toContain("Recorded interactions show what was selected or viewed");
+    expect(html).toContain("Recorded state loaded");
     expect(html).toContain("No feedback");
     expect(html).toContain("View evidence");
     expect(html).not.toContain("localStorage");
+  });
+
+  it("hydrates durable exact-validation controls without claiming comprehension", () => {
+    const interactionState = MomentInteractionStateResponseV1Schema.parse({
+      ok: true,
+      schemaVersion: 1,
+      runId: "run-1",
+      validationId: momentsProjection.validationId,
+      states: momentsProjection.moments.map((moment, index) => ({
+        momentId: moment.displayId,
+        sourceIndex: moment.sourceIndex,
+        sourceCandidateFingerprint: moment.sourceCandidateFingerprint,
+        momentType: moment.candidate.type,
+        viewCount: 1,
+        evidenceViewCount: 0,
+        acknowledgement: moment.candidate.type === "change" ? true : null,
+        decisionResponse: moment.candidate.type === "decision" ? "revise" : null,
+        riskResponse: moment.candidate.type === "risk" ? "mitigate" : null,
+        checkChoiceId: moment.candidate.type === "check" ? "yes" : null,
+        usefulness: "useful",
+        latestInteractionAt: "2026-07-25T15:00:00.000Z",
+        interactionCount: 2,
+        ownershipRecordCount: 1,
+      })),
+      totalInteractionCount: 8,
+      totalOwnershipRecordCount: 4,
+      recentInteractions: momentsProjection.moments.flatMap((moment, index) => [
+        {
+          schemaVersion: 1,
+          interactionId: `ix_${(index * 2).toString(16).padStart(48, "0")}`,
+          actor: "local_user",
+          runId: "run-1",
+          validationId: momentsProjection.validationId,
+          momentId: moment.displayId,
+          sourceIndex: moment.sourceIndex,
+          sourceCandidateFingerprint: moment.sourceCandidateFingerprint,
+          momentType: moment.candidate.type,
+          action: { kind: "moment_viewed" },
+          requestFingerprint: `sha256:${"8".repeat(64)}`,
+          createdAt: "2026-07-25T15:00:00.000Z",
+        },
+        {
+          schemaVersion: 1,
+          interactionId: `ix_${(index * 2 + 1).toString(16).padStart(48, "0")}`,
+          actor: "local_user",
+          runId: "run-1",
+          validationId: momentsProjection.validationId,
+          momentId: moment.displayId,
+          sourceIndex: moment.sourceIndex,
+          sourceCandidateFingerprint: moment.sourceCandidateFingerprint,
+          momentType: moment.candidate.type,
+          action:
+            moment.candidate.type === "change"
+              ? { kind: "acknowledgement_set", value: true }
+              : moment.candidate.type === "decision"
+                ? { kind: "decision_response_set", value: "revise" }
+                : moment.candidate.type === "risk"
+                  ? { kind: "risk_response_set", value: "mitigate" }
+                  : { kind: "check_answer_set", choiceId: "yes" },
+          requestFingerprint: `sha256:${"9".repeat(64)}`,
+          createdAt: "2026-07-25T15:00:00.000Z",
+        },
+      ]),
+      recentOwnershipRecords: momentsProjection.moments.map((moment, index) => ({
+        schemaVersion: 1,
+        recordId: `or_${index.toString(16).padStart(48, "0")}`,
+        interactionId: `ix_${(index * 2 + 1).toString(16).padStart(48, "0")}`,
+        actor: "local_user",
+        runId: "run-1",
+        validationId: momentsProjection.validationId,
+        momentId: moment.displayId,
+        sourceIndex: moment.sourceIndex,
+        sourceCandidateFingerprint: moment.sourceCandidateFingerprint,
+        momentType: moment.candidate.type,
+        recordKind:
+          moment.candidate.type === "change"
+            ? "acknowledgement_recorded"
+            : moment.candidate.type === "check"
+              ? "answer_recorded"
+              : "response_recorded",
+        valueCode:
+          moment.candidate.type === "change"
+            ? "acknowledged"
+            : moment.candidate.type === "decision"
+              ? "revise"
+              : moment.candidate.type === "risk"
+                ? "mitigate"
+                : "yes",
+        assertionCode: "interaction_recorded",
+        noComprehensionClaim: true,
+        createdAt: "2026-07-25T15:00:00.000Z",
+      })),
+      interactionHistoryTruncated: false,
+      ownershipRecordHistoryTruncated: false,
+    });
+    const html = renderToStaticMarkup(
+      <ReplayViewer
+        state="ready"
+        statusMessage=""
+        runs={[summary]}
+        replay={replay}
+        manifest={null}
+        moments={momentsProjection}
+        momentState="ready"
+        momentStatusMessage=""
+        interactionState={interactionState}
+        interactionLoadState="ready"
+        interactionStatusMessage="Interaction recorded locally."
+        selectedRunId="run-1"
+        nextCursor={null}
+        onSelectRun={() => undefined}
+        onLoadMore={() => undefined}
+        onLoadArtifact={() => undefined}
+        onResolveEvidence={() => undefined}
+        onResolveMomentEvidence={async () => undefined}
+        onRecordMomentInteraction={async () => {
+          throw new Error("not invoked during static rendering");
+        }}
+        onDisconnect={() => undefined}
+      />,
+    );
+    expect(html).toContain("Set not acknowledged");
+    expect(html).toContain("2 recorded actions");
+    expect(html).toContain("1 bounded record");
+    expect(html).toContain("They do not prove comprehension or ownership");
+    expect(html).toMatch(/checked="" value="revise"/);
+    expect(html).toMatch(/checked="" value="mitigate"/);
+    expect(html).toMatch(/checked="" value="yes"/);
+    expect(html).toMatch(/checked="" value="useful"/);
+  });
+
+  it("requires exact interaction state identity for every projected Moment", () => {
+    const exact = MomentInteractionStateResponseV1Schema.parse({
+      ok: true,
+      schemaVersion: 1,
+      runId: "run-1",
+      validationId: momentsProjection.validationId,
+      states: momentsProjection.moments.map((moment) => ({
+        momentId: moment.displayId,
+        sourceIndex: moment.sourceIndex,
+        sourceCandidateFingerprint: moment.sourceCandidateFingerprint,
+        momentType: moment.candidate.type,
+        viewCount: 0,
+        evidenceViewCount: 0,
+        acknowledgement: null,
+        decisionResponse: null,
+        riskResponse: null,
+        checkChoiceId: null,
+        usefulness: "unset",
+        latestInteractionAt: null,
+        interactionCount: 0,
+        ownershipRecordCount: 0,
+      })),
+      totalInteractionCount: 0,
+      totalOwnershipRecordCount: 0,
+      recentInteractions: [],
+      recentOwnershipRecords: [],
+      interactionHistoryTruncated: false,
+      ownershipRecordHistoryTruncated: false,
+    });
+    expect(interactionStateMatchesProjection(exact, momentsProjection)).toBe(true);
+    expect(
+      interactionStateMatchesProjection(
+        { ...exact, states: exact.states.slice(1) },
+        momentsProjection,
+      ),
+    ).toBe(false);
+    expect(
+      interactionStateMatchesProjection(
+        {
+          ...exact,
+          states: exact.states.map((state, index) =>
+            index === 0
+              ? { ...state, sourceCandidateFingerprint: `sha256:${"0".repeat(64)}` }
+              : state,
+          ),
+        },
+        momentsProjection,
+      ),
+    ).toBe(false);
   });
 
   it("renders a password connection control and exposes no browser-persistence API", () => {
@@ -341,6 +536,9 @@ describe("Raw Replay viewer", () => {
       expect(createReplayApiClient.toString()).not.toContain("apiHost");
       expect(App.toString()).toContain('error.code === "unauthorized"');
       expect(App.toString()).toContain("clearConnection(error.message)");
+      expect(App.toString()).toContain(
+        "clientRef.current === client && loadRequestRef.current === requestNumber",
+      );
     } finally {
       Object.defineProperty(globalThis, "window", { configurable: true, value: previousWindow });
     }

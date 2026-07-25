@@ -172,11 +172,22 @@ export function createLoopbackIngressServer(
     done();
   });
 
-  server.setErrorHandler((error, _request, reply) => {
+  server.setErrorHandler((error, request, reply) => {
     if (reply.sent) {
       return;
     }
     const mapped = mapFrameworkError(error);
+    if (
+      request.method === "POST" &&
+      /^\/v1\/replay\/runs\/[^/?]+\/moments\/[^/?]+\/interactions(?:\?|$)/u.test(request.url)
+    ) {
+      const code = mapped.statusCode === 413 ? 413 : mapped.statusCode === 415 ? 415 : 400;
+      void reply
+        .code(code)
+        .header("Cache-Control", "no-store")
+        .send(replayError("interaction_rejected"));
+      return;
+    }
     sendRejected(reply, mapped.statusCode, mapped.code, diagnostics);
   });
 
@@ -185,6 +196,7 @@ export function createLoopbackIngressServer(
       persistence: dependencies.replay.persistence,
       artifactStore: dependencies.replay.artifactStore,
       tokenVerifier,
+      clock,
     });
   }
   const staticSite = createContainedStaticSite(dependencies.replay?.webRoot);

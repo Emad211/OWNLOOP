@@ -1,20 +1,30 @@
 import type {
   CandidateValidationFactV1,
   FinalDiffManifestV1,
+  MomentInteractionActionV1,
+  MomentInteractionReceiptV1,
+  MomentInteractionStateResponseV1,
+  MomentInteractionStateV1,
   OwnershipMomentProjectionItemV1,
   OwnershipMomentsProjectionV1,
   RawRunReplayV1,
   ReplayArtifactReferenceV1,
   ReplayRunSummaryV1,
 } from "@ownloop/contracts";
-import { type FormEvent, useMemo, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
-import { createReplayApiClient, type ReplayApiClient, ReplayApiError } from "./api.js";
+import {
+  createMomentInteractionId,
+  createReplayApiClient,
+  type ReplayApiClient,
+  ReplayApiError,
+} from "./api.js";
 
 const SAFE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
 
 type LoadState = "disconnected" | "loading" | "ready" | "empty" | "error";
 type MomentLoadState = "idle" | "loading" | "ready" | "error";
+type InteractionLoadState = "idle" | "loading" | "ready" | "error";
 
 type ViewerProps = Readonly<{
   state: LoadState;
@@ -25,12 +35,25 @@ type ViewerProps = Readonly<{
   moments: OwnershipMomentsProjectionV1 | null;
   momentState: MomentLoadState;
   momentStatusMessage: string;
+  interactionState: MomentInteractionStateResponseV1 | null;
+  interactionLoadState: InteractionLoadState;
+  interactionStatusMessage: string;
   selectedRunId: string | null;
   nextCursor: string | null;
   onSelectRun(runId: string): void;
   onLoadMore(): void;
   onLoadArtifact(artifact: ReplayArtifactReferenceV1): void;
   onResolveEvidence(evidenceId: string): void;
+  onResolveMomentEvidence(
+    momentId: string,
+    evidenceId: string,
+    interactionId: string,
+  ): Promise<void>;
+  onRecordMomentInteraction(
+    momentId: string,
+    action: MomentInteractionActionV1,
+    interactionId: string,
+  ): Promise<MomentInteractionReceiptV1>;
   onDisconnect(): void;
 }>;
 
@@ -193,6 +216,46 @@ function factKey(fact: CandidateValidationFactV1): string {
   }
 }
 
+export function interactionStateMatchesProjection(
+  state: MomentInteractionStateResponseV1,
+  projection: OwnershipMomentsProjectionV1,
+): boolean {
+  if (
+    projection.validationId === null ||
+    state.runId !== projection.runId ||
+    state.validationId !== projection.validationId ||
+    state.states.length !== projection.moments.length
+  ) {
+    return false;
+  }
+  const stateByMoment = new Map(state.states.map((item) => [item.momentId, item]));
+  if (stateByMoment.size !== state.states.length) return false;
+  return projection.moments.every((moment) => {
+    const item = stateByMoment.get(moment.displayId);
+    return (
+      item !== undefined &&
+      item.sourceIndex === moment.sourceIndex &&
+      item.sourceCandidateFingerprint === moment.sourceCandidateFingerprint &&
+      item.momentType === moment.candidate.type
+    );
+  });
+}
+
+function preferNewerInteractionState(
+  current: MomentInteractionStateResponseV1 | null,
+  next: MomentInteractionStateResponseV1,
+): MomentInteractionStateResponseV1 {
+  if (
+    current === null ||
+    current.runId !== next.runId ||
+    current.validationId !== next.validationId ||
+    next.totalInteractionCount >= current.totalInteractionCount
+  ) {
+    return next;
+  }
+  return current;
+}
+
 function factText(fact: CandidateValidationFactV1): string {
   switch (fact.kind) {
     case "verification_status":
@@ -208,38 +271,66 @@ function factText(fact: CandidateValidationFactV1): string {
   }
 }
 
-function MomentInteraction({ moment }: Readonly<{ moment: OwnershipMomentProjectionItemV1 }>) {
-  const [response, setResponse] = useState<string | boolean | null>(null);
-  const [usefulness, setUsefulness] = useState<"useful" | "not_useful" | "unset">("unset");
-  const interaction = moment.candidate.suggestedInteraction;
-  const name = `${moment.displayId}-interaction`;
-  const responseStatus =
-    response === null
-      ? "No page response selected."
-      : response === true
-        ? "Acknowledged in this page."
-        : typeof response === "string"
-          ? `Page response: ${response.replaceAll("_", " ")}.`
-          : "Not acknowledged in this page.";
-  const usefulnessStatus =
-    usefulness === "unset"
-      ? "No usefulness feedback selected."
-      : `Usefulness feedback: ${usefulness.replaceAll("_", " ")}.`;
+function MomentInteraction(
+  props: Readonly<{
+    moment: OwnershipMomentProjectionItemV1;
+    state: MomentInteractionStateV1;
+    enabled: boolean;
+    onRecord(
+      action: MomentInteractionActionV1,
+      interactionId: string,
+    ): Promise<MomentInteractionReceiptV1>;
+  }>,
+) {
+  const [pending, setPending] = useState(false);
+  const [status, setStatus] = useState("Recorded state loaded.");
+  const [failed, setFailed] = useState<Readonly<{
+    interactionId: string;
+    action: MomentInteractionActionV1;
+  }> | null>(null);
+  const interaction = props.moment.candidate.suggestedInteraction;
+  const name = `${props.moment.displayId}-interaction`;
+
+  async function submit(
+    action: MomentInteractionActionV1,
+    interactionId = createMomentInteractionId(),
+  ): Promise<void> {
+    setPending(true);
+    setStatus("Saving interaction…");
+    try {
+      await props.onRecord(action, interactionId);
+      setFailed(null);
+      setStatus("Interaction saved. Recorded actions do not prove comprehension or ownership.");
+    } catch {
+      setFailed({ interactionId, action });
+      setStatus("Interaction was not saved. Retry uses the same interaction ID.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  const disabled = !props.enabled || pending;
   return (
     <div className="moment-interaction">
-      <p className="eyebrow">Unsaved page response</p>
+      <p className="eyebrow">Durable local interaction</p>
       {interaction.kind === "acknowledge" ? (
         <button
           type="button"
           className="button secondary"
-          aria-pressed={response === true}
-          onClick={() => setResponse(response === true ? null : true)}
+          aria-pressed={props.state.acknowledgement === true}
+          disabled={disabled}
+          onClick={() =>
+            void submit({
+              kind: "acknowledgement_set",
+              value: props.state.acknowledgement !== true,
+            })
+          }
         >
-          {response === true ? "Acknowledged in this page" : "Acknowledge for this page"}
+          {props.state.acknowledgement === true ? "Set not acknowledged" : "Set acknowledged"}
         </button>
       ) : null}
-      {interaction.kind === "decision_response" || interaction.kind === "risk_response" ? (
-        <fieldset>
+      {interaction.kind === "decision_response" ? (
+        <fieldset disabled={disabled}>
           <legend>{interaction.prompt}</legend>
           {interaction.options.map((option) => (
             <label key={option}>
@@ -247,8 +338,25 @@ function MomentInteraction({ moment }: Readonly<{ moment: OwnershipMomentProject
                 type="radio"
                 name={name}
                 value={option}
-                checked={response === option}
-                onChange={() => setResponse(option)}
+                checked={props.state.decisionResponse === option}
+                onChange={() => void submit({ kind: "decision_response_set", value: option })}
+              />
+              {option.replaceAll("_", " ")}
+            </label>
+          ))}
+        </fieldset>
+      ) : null}
+      {interaction.kind === "risk_response" ? (
+        <fieldset disabled={disabled}>
+          <legend>{interaction.prompt}</legend>
+          {interaction.options.map((option) => (
+            <label key={option}>
+              <input
+                type="radio"
+                name={name}
+                value={option}
+                checked={props.state.riskResponse === option}
+                onChange={() => void submit({ kind: "risk_response_set", value: option })}
               />
               {option.replaceAll("_", " ")}
             </label>
@@ -256,7 +364,7 @@ function MomentInteraction({ moment }: Readonly<{ moment: OwnershipMomentProject
         </fieldset>
       ) : null}
       {interaction.kind === "check_answer" ? (
-        <fieldset>
+        <fieldset disabled={disabled}>
           <legend>{interaction.question}</legend>
           {interaction.choices.map((choice) => (
             <label key={choice.id}>
@@ -264,33 +372,48 @@ function MomentInteraction({ moment }: Readonly<{ moment: OwnershipMomentProject
                 type="radio"
                 name={name}
                 value={choice.id}
-                checked={response === choice.id}
-                onChange={() => setResponse(choice.id)}
+                checked={props.state.checkChoiceId === choice.id}
+                onChange={() => void submit({ kind: "check_answer_set", choiceId: choice.id })}
               />
               {choice.label}
             </label>
           ))}
         </fieldset>
       ) : null}
-      <fieldset>
+      <fieldset disabled={disabled}>
         <legend>Was this Moment useful?</legend>
         {(["unset", "useful", "not_useful"] as const).map((value) => (
           <label key={value}>
             <input
               type="radio"
-              name={`${moment.displayId}-usefulness`}
+              name={`${props.moment.displayId}-usefulness`}
               value={value}
-              checked={usefulness === value}
-              onChange={() => setUsefulness(value)}
+              checked={props.state.usefulness === value}
+              onChange={() => void submit({ kind: "usefulness_set", value })}
             />
             {value === "unset" ? "No feedback" : value === "useful" ? "Useful" : "Not useful"}
           </label>
         ))}
       </fieldset>
+      {failed !== null ? (
+        <button
+          type="button"
+          className="button secondary"
+          disabled={pending}
+          onClick={() => void submit(failed.action, failed.interactionId)}
+        >
+          Retry save
+        </button>
+      ) : null}
       <p className="moment-unsaved-note" role="status" aria-live="polite">
-        {responseStatus} {usefulnessStatus} Responses are held only in page memory and are not saved
-        yet.
+        {status}
       </p>
+      <small>
+        {props.state.interactionCount} recorded action
+        {props.state.interactionCount === 1 ? "" : "s"}; {props.state.ownershipRecordCount} bounded
+        record{props.state.ownershipRecordCount === 1 ? "" : "s"}. These records attest only that an
+        explicit interaction was stored.
+      </small>
     </div>
   );
 }
@@ -298,10 +421,60 @@ function MomentInteraction({ moment }: Readonly<{ moment: OwnershipMomentProject
 function OwnershipMomentCard(
   props: Readonly<{
     moment: OwnershipMomentProjectionItemV1;
-    onResolveEvidence(evidenceId: string): void;
+    interactionState: MomentInteractionStateV1;
+    interactionReady: boolean;
+    onResolveEvidence(evidenceId: string, interactionId: string): Promise<void>;
+    onRecordInteraction(
+      action: MomentInteractionActionV1,
+      interactionId: string,
+    ): Promise<MomentInteractionReceiptV1>;
   }>,
 ) {
   const { moment } = props;
+  const viewAttempted = useRef(false);
+  const recordInteractionRef = useRef(props.onRecordInteraction);
+  recordInteractionRef.current = props.onRecordInteraction;
+  const [viewFailure, setViewFailure] = useState<string | null>(null);
+  const [evidenceFailure, setEvidenceFailure] = useState<Readonly<{
+    evidenceId: string;
+    interactionId: string;
+  }> | null>(null);
+  const [evidencePending, setEvidencePending] = useState(false);
+
+  async function openEvidence(
+    evidenceId: string,
+    interactionId = createMomentInteractionId(),
+  ): Promise<void> {
+    setEvidencePending(true);
+    try {
+      await props.onResolveEvidence(evidenceId, interactionId);
+      setEvidenceFailure(null);
+    } catch {
+      setEvidenceFailure({ evidenceId, interactionId });
+    } finally {
+      setEvidencePending(false);
+    }
+  }
+
+  async function recordView(interactionId = createMomentInteractionId()): Promise<void> {
+    try {
+      await recordInteractionRef.current({ kind: "moment_viewed" }, interactionId);
+      setViewFailure(null);
+    } catch {
+      setViewFailure(interactionId);
+    }
+  }
+
+  useEffect(() => {
+    if (!props.interactionReady || viewAttempted.current) return;
+    viewAttempted.current = true;
+    const interactionId = createMomentInteractionId();
+    void recordInteractionRef
+      .current({ kind: "moment_viewed" }, interactionId)
+      .then(() => setViewFailure(null))
+      .catch(() => setViewFailure(interactionId));
+  }, [props.interactionReady]);
+
   return (
     <li className={`moment-card moment-${moment.candidate.type}`}>
       <header>
@@ -330,12 +503,25 @@ function OwnershipMomentCard(
               key={evidenceId}
               type="button"
               className="button evidence-action"
-              onClick={() => props.onResolveEvidence(evidenceId)}
+              disabled={!props.interactionReady || evidencePending}
+              onClick={() => void openEvidence(evidenceId)}
             >
               View evidence {evidenceId.slice(-6)}
             </button>
           ))}
         </div>
+        {evidenceFailure !== null ? (
+          <button
+            type="button"
+            className="button secondary"
+            disabled={evidencePending}
+            onClick={() =>
+              void openEvidence(evidenceFailure.evidenceId, evidenceFailure.interactionId)
+            }
+          >
+            Retry Evidence view
+          </button>
+        ) : null}
       </section>
       <section className="moment-signals" aria-label="Proposal ranking signals">
         <p className="eyebrow">Proposal signals — not proof</p>
@@ -354,7 +540,21 @@ function OwnershipMomentCard(
           </div>
         </dl>
       </section>
-      <MomentInteraction moment={moment} />
+      {viewFailure !== null ? (
+        <button
+          type="button"
+          className="button secondary"
+          onClick={() => void recordView(viewFailure)}
+        >
+          Retry recording Moment view
+        </button>
+      ) : null}
+      <MomentInteraction
+        moment={moment}
+        state={props.interactionState}
+        enabled={props.interactionReady}
+        onRecord={props.onRecordInteraction}
+      />
     </li>
   );
 }
@@ -364,19 +564,45 @@ function OwnershipMomentsSection(
     state: MomentLoadState;
     statusMessage: string;
     projection: OwnershipMomentsProjectionV1 | null;
-    onResolveEvidence(evidenceId: string): void;
+    interactionState: MomentInteractionStateResponseV1 | null;
+    interactionLoadState: InteractionLoadState;
+    interactionStatusMessage: string;
+    onResolveEvidence(momentId: string, evidenceId: string, interactionId: string): Promise<void>;
+    onRecordInteraction(
+      momentId: string,
+      action: MomentInteractionActionV1,
+      interactionId: string,
+    ): Promise<MomentInteractionReceiptV1>;
   }>,
 ) {
+  const states = new Map(props.interactionState?.states.map((state) => [state.momentId, state]));
   return (
     <section id="ownership-moments" tabIndex={-1} className="content-section moments-section">
       <div className="section-heading">
         <p className="eyebrow">Finite validated proposals</p>
         <h2>Ownership Moments</h2>
       </div>
+      <p className="moment-persistence-note">
+        Recorded interactions show what was selected or viewed. They do not prove comprehension or
+        ownership.
+      </p>
       {props.state === "loading" ? <p aria-live="polite">Loading selected Moments…</p> : null}
       {props.state === "error" ? (
         <p className="warning-note" role="alert">
           {props.statusMessage}
+        </p>
+      ) : null}
+      {props.interactionLoadState === "loading" ? (
+        <p aria-live="polite">Loading recorded interactions…</p>
+      ) : null}
+      {props.interactionLoadState === "error" ? (
+        <p className="warning-note" role="alert">
+          {props.interactionStatusMessage}
+        </p>
+      ) : null}
+      {props.interactionLoadState === "ready" && props.interactionStatusMessage ? (
+        <p className="moment-unsaved-note" role="status" aria-live="polite">
+          {props.interactionStatusMessage}
         </p>
       ) : null}
       {props.projection?.outcome === "not_available" ? (
@@ -401,13 +627,40 @@ function OwnershipMomentsSection(
       ) : null}
       {props.projection !== null && props.projection.moments.length > 0 ? (
         <ol className="moment-list">
-          {props.projection.moments.map((moment) => (
-            <OwnershipMomentCard
-              key={moment.displayId}
-              moment={moment}
-              onResolveEvidence={props.onResolveEvidence}
-            />
-          ))}
+          {props.projection.moments.map((moment) => {
+            const state = states.get(moment.displayId) ?? {
+              momentId: moment.displayId,
+              sourceIndex: moment.sourceIndex,
+              sourceCandidateFingerprint: moment.sourceCandidateFingerprint,
+              momentType: moment.candidate.type,
+              viewCount: 0,
+              evidenceViewCount: 0,
+              acknowledgement: null,
+              decisionResponse: null,
+              riskResponse: null,
+              checkChoiceId: null,
+              usefulness: "unset" as const,
+              latestInteractionAt: null,
+              interactionCount: 0,
+              ownershipRecordCount: 0,
+            };
+            return (
+              <OwnershipMomentCard
+                key={moment.displayId}
+                moment={moment}
+                interactionState={state}
+                interactionReady={
+                  props.interactionLoadState === "ready" && props.interactionState !== null
+                }
+                onResolveEvidence={(evidenceId, interactionId) =>
+                  props.onResolveEvidence(moment.displayId, evidenceId, interactionId)
+                }
+                onRecordInteraction={(action, interactionId) =>
+                  props.onRecordInteraction(moment.displayId, action, interactionId)
+                }
+              />
+            );
+          })}
         </ol>
       ) : null}
     </section>
@@ -661,8 +914,21 @@ function ReplayDetail(
     moments: OwnershipMomentsProjectionV1 | null;
     momentState: MomentLoadState;
     momentStatusMessage: string;
+    interactionState: MomentInteractionStateResponseV1 | null;
+    interactionLoadState: InteractionLoadState;
+    interactionStatusMessage: string;
     onLoadArtifact(artifact: ReplayArtifactReferenceV1): void;
     onResolveEvidence(evidenceId: string): void;
+    onResolveMomentEvidence(
+      momentId: string,
+      evidenceId: string,
+      interactionId: string,
+    ): Promise<void>;
+    onRecordMomentInteraction(
+      momentId: string,
+      action: MomentInteractionActionV1,
+      interactionId: string,
+    ): Promise<MomentInteractionReceiptV1>;
   }>,
 ) {
   return (
@@ -680,7 +946,11 @@ function ReplayDetail(
         state={props.momentState}
         statusMessage={props.momentStatusMessage}
         projection={props.moments}
-        onResolveEvidence={props.onResolveEvidence}
+        interactionState={props.interactionState}
+        interactionLoadState={props.interactionLoadState}
+        interactionStatusMessage={props.interactionStatusMessage}
+        onResolveEvidence={props.onResolveMomentEvidence}
+        onRecordInteraction={props.onRecordMomentInteraction}
       />
       {props.replay.evidenceGraph !== null && props.replay.evidenceGraph !== undefined ? (
         <section className={`evidence-graph-summary outcome-${props.replay.evidenceGraph.outcome}`}>
@@ -797,8 +1067,13 @@ export function ReplayViewer(props: ViewerProps) {
               moments={props.moments}
               momentState={props.momentState}
               momentStatusMessage={props.momentStatusMessage}
+              interactionState={props.interactionState}
+              interactionLoadState={props.interactionLoadState}
+              interactionStatusMessage={props.interactionStatusMessage}
               onLoadArtifact={props.onLoadArtifact}
               onResolveEvidence={props.onResolveEvidence}
+              onResolveMomentEvidence={props.onResolveMomentEvidence}
+              onRecordMomentInteraction={props.onRecordMomentInteraction}
             />
           ) : null}
         </main>
@@ -811,6 +1086,7 @@ export function App() {
   const tokenRef = useRef("");
   const tokenInputRef = useRef<HTMLInputElement>(null);
   const clientRef = useRef<ReplayApiClient | null>(null);
+  const loadRequestRef = useRef(0);
   const [connected, setConnected] = useState(false);
   const [state, setState] = useState<LoadState>("disconnected");
   const [statusMessage, setStatusMessage] = useState("");
@@ -822,6 +1098,11 @@ export function App() {
   const [moments, setMoments] = useState<OwnershipMomentsProjectionV1 | null>(null);
   const [momentState, setMomentState] = useState<MomentLoadState>("idle");
   const [momentStatusMessage, setMomentStatusMessage] = useState("");
+  const [interactionState, setInteractionState] = useState<MomentInteractionStateResponseV1 | null>(
+    null,
+  );
+  const [interactionLoadState, setInteractionLoadState] = useState<InteractionLoadState>("idle");
+  const [interactionStatusMessage, setInteractionStatusMessage] = useState("");
 
   const initialRunId = useMemo(() => {
     const runId = new URLSearchParams(window.location.search).get("run");
@@ -829,6 +1110,7 @@ export function App() {
   }, []);
 
   function clearConnection(message = ""): void {
+    loadRequestRef.current += 1;
     tokenRef.current = "";
     clientRef.current = null;
     setConnected(false);
@@ -840,6 +1122,9 @@ export function App() {
     setMoments(null);
     setMomentState("idle");
     setMomentStatusMessage("");
+    setInteractionState(null);
+    setInteractionLoadState("idle");
+    setInteractionStatusMessage("");
     setSelectedRunId(null);
     setNextCursor(null);
     window.history.replaceState(null, "", window.location.pathname);
@@ -855,38 +1140,88 @@ export function App() {
   }
 
   async function loadRun(client: ReplayApiClient, runId: string): Promise<void> {
+    const requestNumber = loadRequestRef.current + 1;
+    loadRequestRef.current = requestNumber;
     setState("loading");
     setManifest(null);
     setMoments(null);
     setMomentState("loading");
     setMomentStatusMessage("");
+    setInteractionState(null);
+    setInteractionLoadState("idle");
+    setInteractionStatusMessage("");
+
+    let nextReplay: RawRunReplayV1;
     try {
-      const nextReplay = await client.getRun(runId);
-      setReplay(nextReplay);
-      setSelectedRunId(runId);
-      setState("ready");
-      window.history.replaceState(null, "", `?run=${encodeURIComponent(runId)}`);
-      try {
-        const nextMoments = await client.getMoments(runId);
-        setMoments(nextMoments);
-        setMomentState("ready");
-      } catch (momentError) {
-        if (momentError instanceof ReplayApiError && momentError.code === "unauthorized") {
-          clearConnection(momentError.message);
-          return;
-        }
-        setMomentState("error");
-        setMomentStatusMessage(
-          momentError instanceof ReplayApiError
-            ? momentError.message
-            : "Ownership Moments could not be loaded.",
-        );
-      }
+      nextReplay = await client.getRun(runId);
     } catch (error) {
+      if (loadRequestRef.current !== requestNumber) return;
       setReplay(null);
-      setMoments(null);
       setMomentState("error");
+      setInteractionLoadState("error");
       handleApiError(error, "The replay could not be loaded.");
+      return;
+    }
+    if (loadRequestRef.current !== requestNumber) return;
+    setReplay(nextReplay);
+    setSelectedRunId(runId);
+    setState("ready");
+    window.history.replaceState(null, "", `?run=${encodeURIComponent(runId)}`);
+
+    let nextMoments: OwnershipMomentsProjectionV1;
+    try {
+      nextMoments = await client.getMoments(runId);
+    } catch (error) {
+      if (loadRequestRef.current !== requestNumber) return;
+      if (error instanceof ReplayApiError && error.code === "unauthorized") {
+        clearConnection(error.message);
+        return;
+      }
+      setMomentState("error");
+      setMomentStatusMessage(
+        error instanceof ReplayApiError ? error.message : "Ownership Moments could not be loaded.",
+      );
+      setInteractionLoadState("error");
+      setInteractionStatusMessage(
+        "Recorded interactions are unavailable without a valid Moment projection.",
+      );
+      return;
+    }
+    if (loadRequestRef.current !== requestNumber) return;
+    setMoments(nextMoments);
+    setMomentState("ready");
+
+    if (nextMoments.validationId === null || nextMoments.outcome === "not_available") {
+      setInteractionState(null);
+      setInteractionLoadState("ready");
+      return;
+    }
+
+    setInteractionLoadState("loading");
+    try {
+      const nextInteractions = await client.getMomentInteractionState(
+        runId,
+        nextMoments.validationId,
+      );
+      if (loadRequestRef.current !== requestNumber) return;
+      if (!interactionStateMatchesProjection(nextInteractions, nextMoments)) {
+        throw new ReplayApiError("invalid_response");
+      }
+      setInteractionState(nextInteractions);
+      setInteractionLoadState("ready");
+    } catch (error) {
+      if (loadRequestRef.current !== requestNumber) return;
+      if (error instanceof ReplayApiError && error.code === "unauthorized") {
+        clearConnection(error.message);
+        return;
+      }
+      setInteractionState(null);
+      setInteractionLoadState("error");
+      setInteractionStatusMessage(
+        error instanceof ReplayApiError
+          ? error.message
+          : "Recorded interactions could not be loaded.",
+      );
     }
   }
 
@@ -959,22 +1294,110 @@ export function App() {
     }
   }
 
-  async function resolveEvidence(evidenceId: string): Promise<void> {
+  async function focusEvidence(evidenceId: string): Promise<void> {
     const client = clientRef.current;
     if (client === null || selectedRunId === null) {
-      return;
+      throw new ReplayApiError("unavailable");
     }
+    const runId = selectedRunId;
+    const requestNumber = loadRequestRef.current;
+    const resolution = await client.resolveEvidence(runId, evidenceId);
+    if (loadRequestRef.current !== requestNumber) {
+      throw new ReplayApiError("unavailable");
+    }
+    const target = document.getElementById(resolution.anchor.sectionId);
+    if (target === null) {
+      throw new ReplayApiError("invalid_response");
+    }
+    const reducedMotion =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    target.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+    target.focus({ preventScroll: true });
+    setStatusMessage(`Evidence resolved to ${resolution.nodeKind.replaceAll("_", " ")}.`);
+  }
+
+  async function resolveEvidence(evidenceId: string): Promise<void> {
     try {
-      const resolution = await client.resolveEvidence(selectedRunId, evidenceId);
-      const target = document.getElementById(resolution.anchor.sectionId);
-      if (target === null) {
-        throw new ReplayApiError("invalid_response");
-      }
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-      target.focus({ preventScroll: true });
-      setStatusMessage(`Evidence resolved to ${resolution.nodeKind.replaceAll("_", " ")}.`);
+      await focusEvidence(evidenceId);
     } catch (error) {
       handleApiError(error, "The evidence reference could not be resolved.");
+    }
+  }
+
+  async function recordMomentInteractionAction(
+    momentId: string,
+    action: MomentInteractionActionV1,
+    interactionId: string,
+  ): Promise<MomentInteractionReceiptV1> {
+    const client = clientRef.current;
+    const runId = selectedRunId;
+    const projection = moments;
+    const validationId = projection?.validationId ?? null;
+    if (client === null || runId === null || validationId === null || projection === null) {
+      throw new ReplayApiError("unavailable");
+    }
+    const requestNumber = loadRequestRef.current;
+    setInteractionStatusMessage("Saving recorded interaction…");
+    try {
+      const receipt = await client.recordMomentInteraction(runId, momentId, {
+        schemaVersion: 1,
+        interactionId,
+        validationId,
+        action,
+      });
+      const refreshed = await client.getMomentInteractionState(runId, validationId);
+      if (!interactionStateMatchesProjection(refreshed, projection)) {
+        throw new ReplayApiError("invalid_response");
+      }
+      if (clientRef.current === client && loadRequestRef.current === requestNumber) {
+        setInteractionState((current) => preferNewerInteractionState(current, refreshed));
+        setInteractionLoadState("ready");
+        setInteractionStatusMessage(
+          receipt.idempotentReplay
+            ? "The existing recorded interaction was verified."
+            : "Interaction recorded locally.",
+        );
+      }
+      return receipt;
+    } catch (error) {
+      if (error instanceof ReplayApiError && error.code === "unauthorized") {
+        clearConnection(error.message);
+      } else if (clientRef.current === client && loadRequestRef.current === requestNumber) {
+        setInteractionStatusMessage(
+          error instanceof ReplayApiError ? error.message : "The interaction could not be saved.",
+        );
+      }
+      throw error;
+    }
+  }
+
+  async function resolveMomentEvidence(
+    momentId: string,
+    evidenceId: string,
+    interactionId: string,
+  ): Promise<void> {
+    try {
+      await focusEvidence(evidenceId);
+    } catch (error) {
+      if (error instanceof ReplayApiError && error.code === "unauthorized") {
+        clearConnection(error.message);
+      } else {
+        setInteractionStatusMessage("Evidence could not be opened, so no view was recorded.");
+      }
+      throw error;
+    }
+    try {
+      await recordMomentInteractionAction(
+        momentId,
+        { kind: "evidence_viewed", evidenceId },
+        interactionId,
+      );
+    } catch (error) {
+      if (!(error instanceof ReplayApiError && error.code === "unauthorized")) {
+        setInteractionStatusMessage("Evidence opened, but the view could not be recorded.");
+      }
+      throw error;
     }
   }
 
@@ -1008,12 +1431,17 @@ export function App() {
           moments={moments}
           momentState={momentState}
           momentStatusMessage={momentStatusMessage}
+          interactionState={interactionState}
+          interactionLoadState={interactionLoadState}
+          interactionStatusMessage={interactionStatusMessage}
           selectedRunId={selectedRunId}
           nextCursor={nextCursor}
           onSelectRun={selectRun}
           onLoadMore={loadMore}
           onLoadArtifact={loadArtifact}
           onResolveEvidence={resolveEvidence}
+          onResolveMomentEvidence={resolveMomentEvidence}
+          onRecordMomentInteraction={recordMomentInteractionAction}
           onDisconnect={() => clearConnection()}
         />
       )}

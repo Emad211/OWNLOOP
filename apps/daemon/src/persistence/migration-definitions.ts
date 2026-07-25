@@ -1879,6 +1879,218 @@ BEGIN
 END;
 `;
 
+const MOMENT_INTERACTIONS_SQL = `
+CREATE UNIQUE INDEX candidate_validations_identity_run_v17
+ON candidate_validations (validation_id, run_id);
+
+CREATE TABLE moment_interactions (
+  interaction_id TEXT PRIMARY KEY CHECK (
+    interaction_id GLOB 'ix_*'
+    AND length(interaction_id) = 51
+    AND substr(interaction_id, 4) NOT GLOB '*[^0-9a-f]*'
+  ),
+  actor TEXT NOT NULL CHECK (actor = 'local_user'),
+  run_id TEXT NOT NULL REFERENCES task_runs (run_id) ON DELETE CASCADE,
+  validation_id TEXT NOT NULL,
+  moment_id TEXT NOT NULL CHECK (
+    moment_id GLOB 'mom_*'
+    AND length(moment_id) = 52
+    AND substr(moment_id, 5) NOT GLOB '*[^0-9a-f]*'
+  ),
+  source_index INTEGER NOT NULL CHECK (source_index >= 0 AND source_index <= 6),
+  source_candidate_fingerprint TEXT NOT NULL CHECK (
+    source_candidate_fingerprint GLOB 'sha256:*'
+    AND length(source_candidate_fingerprint) = 71
+    AND substr(source_candidate_fingerprint, 8) NOT GLOB '*[^0-9a-f]*'
+  ),
+  moment_type TEXT NOT NULL CHECK (moment_type IN ('change', 'decision', 'risk', 'check')),
+  action_kind TEXT NOT NULL CHECK (action_kind IN (
+    'moment_viewed',
+    'evidence_viewed',
+    'acknowledgement_set',
+    'decision_response_set',
+    'risk_response_set',
+    'check_answer_set',
+    'usefulness_set'
+  )),
+  evidence_id TEXT CHECK (
+    evidence_id IS NULL OR (
+      evidence_id GLOB 'ev_*'
+      AND length(evidence_id) = 51
+      AND substr(evidence_id, 4) NOT GLOB '*[^0-9a-f]*'
+    )
+  ),
+  value_code TEXT CHECK (
+    value_code IS NULL OR (
+      length(value_code) BETWEEN 1 AND 64
+      AND value_code GLOB '[a-z]*'
+      AND value_code NOT GLOB '*[^a-z0-9_]*'
+    )
+  ),
+  request_fingerprint TEXT NOT NULL CHECK (
+    request_fingerprint GLOB 'sha256:*'
+    AND length(request_fingerprint) = 71
+    AND substr(request_fingerprint, 8) NOT GLOB '*[^0-9a-f]*'
+  ),
+  schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+  created_at TEXT NOT NULL CHECK (
+    created_at = strftime('%Y-%m-%dT%H:%M:%fZ', created_at)
+  ),
+  CHECK (
+    (action_kind = 'moment_viewed' AND evidence_id IS NULL AND value_code IS NULL)
+    OR (action_kind = 'evidence_viewed' AND evidence_id IS NOT NULL AND value_code IS NULL)
+    OR (action_kind = 'acknowledgement_set' AND moment_type = 'change'
+      AND evidence_id IS NULL AND value_code IN ('true', 'false'))
+    OR (action_kind = 'decision_response_set' AND moment_type = 'decision'
+      AND evidence_id IS NULL AND value_code IN ('confirm', 'revise', 'uncertain'))
+    OR (action_kind = 'risk_response_set' AND moment_type = 'risk'
+      AND evidence_id IS NULL AND value_code IN ('acknowledge', 'mitigate', 'dismiss'))
+    OR (action_kind = 'check_answer_set' AND moment_type = 'check'
+      AND evidence_id IS NULL AND value_code IS NOT NULL)
+    OR (action_kind = 'usefulness_set' AND evidence_id IS NULL
+      AND value_code IN ('useful', 'not_useful', 'unset'))
+  ),
+  FOREIGN KEY (validation_id, run_id)
+    REFERENCES candidate_validations (validation_id, run_id) ON DELETE CASCADE
+) STRICT;
+
+CREATE INDEX moment_interactions_validation_moment_idx
+ON moment_interactions (run_id, validation_id, moment_id, created_at, interaction_id);
+
+CREATE INDEX moment_interactions_validation_recent_idx
+ON moment_interactions (run_id, validation_id, created_at DESC, interaction_id DESC);
+
+CREATE TABLE ownership_records (
+  record_id TEXT PRIMARY KEY CHECK (
+    record_id GLOB 'or_*'
+    AND length(record_id) = 51
+    AND substr(record_id, 4) NOT GLOB '*[^0-9a-f]*'
+  ),
+  interaction_id TEXT NOT NULL UNIQUE
+    REFERENCES moment_interactions (interaction_id) ON DELETE CASCADE,
+  actor TEXT NOT NULL CHECK (actor = 'local_user'),
+  run_id TEXT NOT NULL REFERENCES task_runs (run_id) ON DELETE CASCADE,
+  validation_id TEXT NOT NULL,
+  moment_id TEXT NOT NULL,
+  source_index INTEGER NOT NULL CHECK (source_index >= 0 AND source_index <= 6),
+  source_candidate_fingerprint TEXT NOT NULL,
+  moment_type TEXT NOT NULL CHECK (moment_type IN ('change', 'decision', 'risk', 'check')),
+  record_kind TEXT NOT NULL CHECK (record_kind IN (
+    'acknowledgement_recorded',
+    'response_recorded',
+    'answer_recorded',
+    'feedback_recorded'
+  )),
+  value_code TEXT NOT NULL CHECK (
+    length(value_code) BETWEEN 1 AND 64
+    AND value_code GLOB '[a-z]*'
+    AND value_code NOT GLOB '*[^a-z0-9_]*'
+  ),
+  assertion_code TEXT NOT NULL CHECK (assertion_code = 'interaction_recorded'),
+  no_comprehension_claim INTEGER NOT NULL CHECK (no_comprehension_claim = 1),
+  schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+  created_at TEXT NOT NULL CHECK (
+    created_at = strftime('%Y-%m-%dT%H:%M:%fZ', created_at)
+  ),
+  FOREIGN KEY (validation_id, run_id)
+    REFERENCES candidate_validations (validation_id, run_id) ON DELETE CASCADE
+) STRICT;
+
+CREATE INDEX ownership_records_validation_moment_idx
+ON ownership_records (run_id, validation_id, moment_id, created_at, record_id);
+
+CREATE TRIGGER moment_interactions_validate_insert_v17
+BEFORE INSERT ON moment_interactions
+BEGIN
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1
+    FROM candidate_validations cv
+    WHERE cv.validation_id = NEW.validation_id
+      AND cv.run_id = NEW.run_id
+  ) THEN RAISE(ABORT, 'Moment interaction requires exact Run validation') END;
+  SELECT CASE WHEN EXISTS (
+    SELECT 1
+    FROM moment_interactions existing
+    WHERE existing.run_id = NEW.run_id
+      AND existing.validation_id = NEW.validation_id
+      AND existing.moment_id = NEW.moment_id
+      AND (
+        existing.source_index <> NEW.source_index
+        OR existing.source_candidate_fingerprint <> NEW.source_candidate_fingerprint
+        OR existing.moment_type <> NEW.moment_type
+      )
+  ) THEN RAISE(ABORT, 'Moment interaction identity must remain exact') END;
+END;
+
+CREATE TRIGGER ownership_records_validate_insert_v17
+BEFORE INSERT ON ownership_records
+BEGIN
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1
+    FROM moment_interactions mi
+    WHERE mi.interaction_id = NEW.interaction_id
+      AND mi.actor = NEW.actor
+      AND mi.run_id = NEW.run_id
+      AND mi.validation_id = NEW.validation_id
+      AND mi.moment_id = NEW.moment_id
+      AND mi.source_index = NEW.source_index
+      AND mi.source_candidate_fingerprint = NEW.source_candidate_fingerprint
+      AND mi.moment_type = NEW.moment_type
+      AND mi.created_at = NEW.created_at
+      AND (
+        (mi.action_kind = 'acknowledgement_set'
+          AND NEW.record_kind = 'acknowledgement_recorded'
+          AND NEW.value_code = CASE mi.value_code WHEN 'true' THEN 'acknowledged' ELSE 'unacknowledged' END)
+        OR (mi.action_kind IN ('decision_response_set', 'risk_response_set')
+          AND NEW.record_kind = 'response_recorded'
+          AND NEW.value_code = mi.value_code)
+        OR (mi.action_kind = 'check_answer_set'
+          AND NEW.record_kind = 'answer_recorded'
+          AND NEW.value_code = mi.value_code)
+        OR (mi.action_kind = 'usefulness_set'
+          AND NEW.record_kind = 'feedback_recorded'
+          AND NEW.value_code = mi.value_code)
+      )
+  ) THEN RAISE(ABORT, 'Ownership Record requires exact qualifying interaction') END;
+END;
+
+CREATE TRIGGER moment_interactions_reject_update_v17
+BEFORE UPDATE ON moment_interactions
+BEGIN
+  SELECT RAISE(ABORT, 'Moment interactions are append-only');
+END;
+
+CREATE TRIGGER ownership_records_reject_update_v17
+BEFORE UPDATE ON ownership_records
+BEGIN
+  SELECT RAISE(ABORT, 'Ownership Records are append-only');
+END;
+
+CREATE TRIGGER moment_interactions_reject_direct_delete_v17
+BEFORE DELETE ON moment_interactions
+WHEN EXISTS (SELECT 1 FROM task_runs tr WHERE tr.run_id = OLD.run_id)
+BEGIN
+  SELECT RAISE(ABORT, 'Moment interactions can be deleted only with their Task Run');
+END;
+
+CREATE TRIGGER ownership_records_reject_direct_delete_v17
+BEFORE DELETE ON ownership_records
+WHEN EXISTS (SELECT 1 FROM task_runs tr WHERE tr.run_id = OLD.run_id)
+BEGIN
+  SELECT RAISE(ABORT, 'Ownership Records can be deleted only with their Task Run');
+END;
+
+CREATE TRIGGER candidate_validations_preserve_moment_interactions_v17
+BEFORE DELETE ON candidate_validations
+WHEN EXISTS (SELECT 1 FROM task_runs tr WHERE tr.run_id = OLD.run_id)
+  AND EXISTS (
+    SELECT 1 FROM moment_interactions mi WHERE mi.validation_id = OLD.validation_id
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'Candidate validation with Moment interactions is retained with its Task Run');
+END;
+`;
+
 export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   Object.freeze({
     version: 1,
@@ -1959,5 +2171,10 @@ export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
     version: 16,
     name: "candidate_validation_provenance",
     sql: CANDIDATE_VALIDATION_PROVENANCE_SQL,
+  }),
+  Object.freeze({
+    version: 17,
+    name: "append_only_moment_interactions",
+    sql: MOMENT_INTERACTIONS_SQL,
   }),
 ]);

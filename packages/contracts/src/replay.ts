@@ -304,6 +304,10 @@ export const REPLAY_ERROR_CODES = [
   "artifact_unavailable",
   "evidence_not_found",
   "evidence_unavailable",
+  "interaction_not_found",
+  "interaction_conflict",
+  "interaction_rejected",
+  "interaction_unavailable",
   "projection_failed",
   "internal_error",
 ] as const;

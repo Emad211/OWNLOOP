@@ -236,21 +236,22 @@ export function prepareOwnershipMomentsProjection(
   });
 }
 
-export async function projectRunOwnershipMoments(
+export async function projectValidationOwnershipMoments(
   dependencies: OwnershipMomentsDependencies,
   runId: string,
+  validationId: string,
 ): Promise<OwnershipMomentsProjectionV1 | null> {
   if (dependencies.persistence.taskRuns.get(runId) === null) return null;
-  const current = dependencies.persistence.candidateValidations.getLatestForRun(runId);
-  if (current === null) return unavailable(runId);
+  const current = dependencies.persistence.candidateValidations.get(validationId);
+  if (current === null || current.runId !== runId) return null;
   const validation = await readValidatedCandidateValidation(
     dependencies as CandidateValidationDependencies,
-    current.validationId,
+    validationId,
   );
-  if (validation === null) {
+  if (validation === null || validation.record.runId !== runId) {
     throw new PersistenceError(
       "invalid_persisted_row",
-      "The current Moment validation disappeared.",
+      "The requested Moment validation disappeared.",
     );
   }
   const generation = await readValidatedCandidateGeneration(
@@ -260,14 +261,14 @@ export async function projectRunOwnershipMoments(
   if (generation === null || generation.candidate === null) {
     throw new PersistenceError(
       "invalid_persisted_row",
-      "The current Moment Candidate generation is unavailable.",
+      "The requested Moment Candidate generation is unavailable.",
     );
   }
   const graph = await readValidatedRunEvidenceGraph(dependencies, runId);
   if (graph === null) {
     throw new PersistenceError(
       "invalid_persisted_row",
-      "The current Moment Evidence Graph is unavailable.",
+      "The requested Moment Evidence Graph is unavailable.",
     );
   }
   return prepareOwnershipMomentsProjection({
@@ -279,4 +280,14 @@ export async function projectRunOwnershipMoments(
     evidenceGraphArtifactId: graph.artifactId,
     evidenceGraph: graph.value,
   });
+}
+
+export async function projectRunOwnershipMoments(
+  dependencies: OwnershipMomentsDependencies,
+  runId: string,
+): Promise<OwnershipMomentsProjectionV1 | null> {
+  if (dependencies.persistence.taskRuns.get(runId) === null) return null;
+  const current = dependencies.persistence.candidateValidations.getLatestForRun(runId);
+  if (current === null) return unavailable(runId);
+  return projectValidationOwnershipMoments(dependencies, runId, current.validationId);
 }

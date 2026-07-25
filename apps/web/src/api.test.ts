@@ -1,9 +1,59 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createReplayApiClient, ReplayApiError } from "./api.js";
+import { createMomentInteractionId, createReplayApiClient, ReplayApiError } from "./api.js";
 
 const TOKEN = "A".repeat(43);
 const PAGE_ORIGIN = "http://127.0.0.1:4021";
+
+const VALIDATION_ID = `val_${"b".repeat(48)}`;
+const MOMENT_ID = `mom_${"c".repeat(48)}`;
+const INTERACTION_ID = `ix_${"d".repeat(48)}`;
+const FINGERPRINT = `sha256:${"e".repeat(64)}`;
+const STATE = {
+  momentId: MOMENT_ID,
+  sourceIndex: 0,
+  sourceCandidateFingerprint: FINGERPRINT,
+  momentType: "change",
+  viewCount: 1,
+  evidenceViewCount: 0,
+  acknowledgement: null,
+  decisionResponse: null,
+  riskResponse: null,
+  checkChoiceId: null,
+  usefulness: "unset",
+  latestInteractionAt: "2026-07-25T15:00:00.000Z",
+  interactionCount: 1,
+  ownershipRecordCount: 0,
+} as const;
+const STATE_RESPONSE = {
+  ok: true,
+  schemaVersion: 1,
+  runId: "run-1",
+  validationId: VALIDATION_ID,
+  states: [STATE],
+  totalInteractionCount: 1,
+  totalOwnershipRecordCount: 0,
+  recentInteractions: [
+    {
+      schemaVersion: 1,
+      interactionId: INTERACTION_ID,
+      actor: "local_user",
+      runId: "run-1",
+      validationId: VALIDATION_ID,
+      momentId: MOMENT_ID,
+      sourceIndex: 0,
+      sourceCandidateFingerprint: FINGERPRINT,
+      momentType: "change",
+      action: { kind: "moment_viewed" },
+      requestFingerprint: FINGERPRINT,
+      createdAt: "2026-07-25T15:00:00.000Z",
+    },
+  ],
+  recentOwnershipRecords: [],
+  interactionHistoryTruncated: false,
+  ownershipRecordHistoryTruncated: false,
+} as const;
+
 const listResponse = {
   ok: true,
   schemaVersion: 1,
@@ -127,6 +177,145 @@ describe("replay browser API client", () => {
     await expect(client.resolveEvidence("../run", evidenceId)).rejects.toMatchObject({
       code: "not_found",
     });
+  });
+
+  it("loads exact validation interaction state and records strict POST bodies", async () => {
+    const calls: Array<
+      Readonly<{ url: string; method: string; contentType: string | null; body: string | null }>
+    > = [];
+    const receipt = {
+      ok: true,
+      schemaVersion: 1,
+      interactionId: INTERACTION_ID,
+      runId: "run-1",
+      validationId: VALIDATION_ID,
+      momentId: MOMENT_ID,
+      actionKind: "moment_viewed",
+      createdAt: "2026-07-25T15:00:00.000Z",
+      ownershipRecordId: null,
+      idempotentReplay: false,
+      state: STATE,
+    } as const;
+    const fetcher: typeof fetch = async (input, init) => {
+      const url = input instanceof URL ? input.toString() : String(input);
+      const headers = new Headers(init?.headers);
+      calls.push({
+        url,
+        method: init?.method ?? "GET",
+        contentType: headers.get("content-type"),
+        body: typeof init?.body === "string" ? init.body : null,
+      });
+      return new Response(JSON.stringify(init?.method === "POST" ? receipt : STATE_RESPONSE), {
+        status: init?.method === "POST" ? 201 : 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    const client = createReplayApiClient(TOKEN, { fetcher });
+    expect(await client.getMomentInteractionState("run-1", VALIDATION_ID)).toEqual(STATE_RESPONSE);
+    const request = {
+      schemaVersion: 1,
+      interactionId: INTERACTION_ID,
+      validationId: VALIDATION_ID,
+      action: { kind: "moment_viewed" },
+    } as const;
+    expect(await client.recordMomentInteraction("run-1", MOMENT_ID, request)).toEqual(receipt);
+    expect(calls).toEqual([
+      {
+        url: `${PAGE_ORIGIN}/v1/replay/runs/run-1/moment-interactions?validationId=${VALIDATION_ID}`,
+        method: "GET",
+        contentType: null,
+        body: null,
+      },
+      {
+        url: `${PAGE_ORIGIN}/v1/replay/runs/run-1/moments/${MOMENT_ID}/interactions`,
+        method: "POST",
+        contentType: "application/json",
+        body: JSON.stringify(request),
+      },
+    ]);
+  });
+
+  it("rejects valid-shaped interaction responses for another context", async () => {
+    const wrongState = { ...STATE_RESPONSE, runId: "run-2" } as const;
+    const stateClient = createReplayApiClient(TOKEN, {
+      fetcher: async () =>
+        new Response(JSON.stringify(wrongState), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+    await expect(
+      stateClient.getMomentInteractionState("run-1", VALIDATION_ID),
+    ).rejects.toMatchObject({ code: "invalid_response" });
+
+    const wrongReceipt = {
+      ok: true,
+      schemaVersion: 1,
+      interactionId: INTERACTION_ID,
+      runId: "run-1",
+      validationId: VALIDATION_ID,
+      momentId: MOMENT_ID,
+      actionKind: "usefulness_set",
+      createdAt: "2026-07-25T15:00:00.000Z",
+      ownershipRecordId: null,
+      idempotentReplay: false,
+      state: STATE,
+    } as const;
+    const receiptClient = createReplayApiClient(TOKEN, {
+      fetcher: async () =>
+        new Response(JSON.stringify(wrongReceipt), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+    await expect(
+      receiptClient.recordMomentInteraction("run-1", MOMENT_ID, {
+        schemaVersion: 1,
+        interactionId: INTERACTION_ID,
+        validationId: VALIDATION_ID,
+        action: { kind: "moment_viewed" },
+      }),
+    ).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("creates 48-hex page-memory interaction IDs from Web Crypto bytes", () => {
+    const cryptoValue = {
+      getRandomValues<T extends ArrayBufferView | null>(array: T): T {
+        if (!(array instanceof Uint8Array)) throw new Error("unexpected array");
+        array.forEach((_, index) => {
+          array[index] = index;
+        });
+        return array as T;
+      },
+    } as Crypto;
+    expect(createMomentInteractionId(cryptoValue)).toBe(
+      "ix_000102030405060708090a0b0c0d0e0f1011121314151617",
+    );
+  });
+
+  it("maps interaction conflict and rejection statuses without exposing response content", async () => {
+    for (const [status, code] of [
+      [409, "conflict"],
+      [400, "rejected"],
+      [413, "rejected"],
+      [415, "rejected"],
+    ] as const) {
+      const client = createReplayApiClient(TOKEN, {
+        fetcher: async () =>
+          new Response(JSON.stringify({ internal: "/private/path", status }), {
+            status,
+            headers: { "content-type": "application/json" },
+          }),
+      });
+      await expect(
+        client.recordMomentInteraction("run-1", MOMENT_ID, {
+          schemaVersion: 1,
+          interactionId: INTERACTION_ID,
+          validationId: VALIDATION_ID,
+          action: { kind: "moment_viewed" },
+        }),
+      ).rejects.toMatchObject({ code });
+    }
   });
 
   it("maps unauthorized and unavailable responses to fixed content-free errors", async () => {
