@@ -1,6 +1,6 @@
 # ADR-0025: Local Settings and Privacy Controls
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-07-25
 **Decision owner:** Project founder
 **Related documents:**

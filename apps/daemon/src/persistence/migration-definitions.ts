@@ -2091,6 +2091,138 @@ BEGIN
 END;
 `;
 
+const LOCAL_SETTINGS_SQL = `
+CREATE TABLE local_settings (
+  settings_id TEXT PRIMARY KEY CHECK (settings_id = 'local'),
+  schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+  revision INTEGER NOT NULL CHECK (revision >= 1),
+  external_ai_enabled INTEGER NOT NULL CHECK (external_ai_enabled IN (0, 1)),
+  provider_family TEXT CHECK (
+    provider_family IS NULL OR provider_family = 'responses_json_v1'
+  ),
+  provider_base_url TEXT CHECK (
+    provider_base_url IS NULL OR (
+      length(provider_base_url) BETWEEN 1 AND 2048
+      AND provider_base_url = trim(provider_base_url)
+    )
+  ),
+  provider_model_id TEXT CHECK (
+    provider_model_id IS NULL OR length(provider_model_id) BETWEEN 1 AND 256
+  ),
+  provider_model_revision TEXT CHECK (
+    provider_model_revision IS NULL OR length(provider_model_revision) BETWEEN 1 AND 256
+  ),
+  provider_timeout_ms INTEGER CHECK (
+    provider_timeout_ms IS NULL OR provider_timeout_ms BETWEEN 1000 AND 120000
+  ),
+  provider_max_response_bytes INTEGER CHECK (
+    provider_max_response_bytes IS NULL
+    OR provider_max_response_bytes BETWEEN 1 AND 262144
+  ),
+  provider_retry_max_attempts INTEGER CHECK (
+    provider_retry_max_attempts IS NULL OR provider_retry_max_attempts BETWEEN 1 AND 3
+  ),
+  provider_retry_base_delay_ms INTEGER CHECK (
+    provider_retry_base_delay_ms IS NULL OR provider_retry_base_delay_ms BETWEEN 0 AND 30000
+  ),
+  provider_retry_max_retry_after_ms INTEGER CHECK (
+    provider_retry_max_retry_after_ms IS NULL
+    OR provider_retry_max_retry_after_ms BETWEEN 0 AND 60000
+  ),
+  retention_policy TEXT NOT NULL CHECK (retention_policy IN (
+    'keep_until_deleted',
+    'delete_terminal_after_7_days',
+    'delete_terminal_after_30_days',
+    'delete_terminal_after_90_days'
+  )),
+  diagnostic_mode TEXT NOT NULL CHECK (diagnostic_mode IN ('off', 'counts_only')),
+  raw_source_payload_retention TEXT NOT NULL CHECK (raw_source_payload_retention = 'off'),
+  custom_secret_field_patterns_json TEXT NOT NULL CHECK (
+    json_valid(custom_secret_field_patterns_json)
+    AND json_type(custom_secret_field_patterns_json) = 'array'
+    AND length(custom_secret_field_patterns_json) <= 4096
+  ),
+  updated_at TEXT NOT NULL CHECK (
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', updated_at)
+  ),
+  CHECK (
+    (
+      provider_family IS NULL
+      AND provider_base_url IS NULL
+      AND provider_model_id IS NULL
+      AND provider_model_revision IS NULL
+      AND provider_timeout_ms IS NULL
+      AND provider_max_response_bytes IS NULL
+      AND provider_retry_max_attempts IS NULL
+      AND provider_retry_base_delay_ms IS NULL
+      AND provider_retry_max_retry_after_ms IS NULL
+    )
+    OR (
+      provider_family = 'responses_json_v1'
+      AND provider_base_url IS NOT NULL
+      AND provider_model_id IS NOT NULL
+      AND provider_timeout_ms IS NOT NULL
+      AND provider_max_response_bytes IS NOT NULL
+      AND provider_retry_max_attempts IS NOT NULL
+      AND provider_retry_base_delay_ms IS NOT NULL
+      AND provider_retry_max_retry_after_ms IS NOT NULL
+    )
+  )
+) STRICT;
+
+INSERT INTO local_settings (
+  settings_id,
+  schema_version,
+  revision,
+  external_ai_enabled,
+  provider_family,
+  provider_base_url,
+  provider_model_id,
+  provider_model_revision,
+  provider_timeout_ms,
+  provider_max_response_bytes,
+  provider_retry_max_attempts,
+  provider_retry_base_delay_ms,
+  provider_retry_max_retry_after_ms,
+  retention_policy,
+  diagnostic_mode,
+  raw_source_payload_retention,
+  custom_secret_field_patterns_json,
+  updated_at
+) VALUES (
+  'local', 1, 1, 0,
+  NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+  'keep_until_deleted', 'off', 'off', '[]',
+  strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+);
+
+CREATE TRIGGER local_settings_reject_insert_v18
+BEFORE INSERT ON local_settings
+WHEN EXISTS (SELECT 1 FROM local_settings)
+BEGIN
+  SELECT RAISE(ABORT, 'Only one local settings row is allowed');
+END;
+
+CREATE TRIGGER local_settings_validate_update_v18
+BEFORE UPDATE ON local_settings
+BEGIN
+  SELECT CASE WHEN NEW.settings_id <> OLD.settings_id
+    THEN RAISE(ABORT, 'Local settings identity is immutable') END;
+  SELECT CASE WHEN NEW.schema_version <> OLD.schema_version
+    THEN RAISE(ABORT, 'Local settings schema version is immutable') END;
+  SELECT CASE WHEN NEW.revision <> OLD.revision + 1
+    THEN RAISE(ABORT, 'Local settings revision must increment exactly once') END;
+  SELECT CASE WHEN NEW.updated_at < OLD.updated_at
+    THEN RAISE(ABORT, 'Local settings time cannot move backwards') END;
+END;
+
+CREATE TRIGGER local_settings_reject_delete_v18
+BEFORE DELETE ON local_settings
+BEGIN
+  SELECT RAISE(ABORT, 'Local settings cannot be deleted');
+END;
+`;
+
 export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
   Object.freeze({
     version: 1,
@@ -2176,5 +2308,10 @@ export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
     version: 17,
     name: "append_only_moment_interactions",
     sql: MOMENT_INTERACTIONS_SQL,
+  }),
+  Object.freeze({
+    version: 18,
+    name: "local_settings_and_privacy_controls",
+    sql: LOCAL_SETTINGS_SQL,
   }),
 ]);

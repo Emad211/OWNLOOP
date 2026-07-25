@@ -7,6 +7,7 @@ import {
   INGRESS_REDACTION_POLICY_VERSION,
   type PreparedIngressReceiptV1,
   PreparedIngressReceiptV1Schema,
+  LocalSecretFieldPatternsSchema,
 } from "@ownloop/contracts";
 
 import { canonicalizeJson } from "./canonical-json.js";
@@ -29,6 +30,7 @@ import { reduceAndRedactHookPayload } from "./reduction.js";
 export type PrepareIngressReceiptOptions = Readonly<{
   hmacKey: KeyObject;
   homePath?: string;
+  customSecretFieldPatterns?: readonly string[];
 }>;
 
 export function prepareIngressReceipt(
@@ -50,7 +52,14 @@ export function prepareIngressReceipt(
       options.homePath,
     );
     const state = createRedactionState();
-    const reducedPayload = reduceAndRedactHookPayload(validatedIngress.payload, { paths, state });
+    const customSecretFieldPatterns = LocalSecretFieldPatternsSchema.parse(
+      options.customSecretFieldPatterns ?? [],
+    );
+    const reducedPayload = reduceAndRedactHookPayload(validatedIngress.payload, {
+      paths,
+      state,
+      customSecretFieldPatterns,
+    });
     let redactedPayloadJson: string;
     try {
       redactedPayloadJson = canonicalizeJson(reducedPayload, {

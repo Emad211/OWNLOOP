@@ -4,6 +4,19 @@ import {
   type EvidenceResolutionV1,
   EvidenceResolutionV1Schema,
   type FinalDiffManifestV1,
+  type LocalDiagnosticsResponseV1,
+  LocalDiagnosticsResponseV1Schema,
+  type LocalProviderSecretResponseV1,
+  LocalProviderSecretResponseV1Schema,
+  type LocalRetentionApplyResultV1,
+  LocalRetentionApplyResultV1Schema,
+  type LocalRetentionPreviewV1,
+  LocalRetentionPreviewV1Schema,
+  type LocalRunDeletionResultV1,
+  LocalRunDeletionResultV1Schema,
+  type LocalSettingsResponseV1,
+  LocalSettingsResponseV1Schema,
+  type LocalSettingsUpdateRequestV1,
   type MomentInteractionReceiptV1,
   MomentInteractionReceiptV1Schema,
   type MomentInteractionRequestV1,
@@ -67,6 +80,14 @@ export type ReplayApiClient = Readonly<{
   ): Promise<MomentInteractionReceiptV1>;
   loadFinalManifest(artifactId: string): Promise<FinalDiffManifestV1>;
   resolveEvidence(runId: string, evidenceId: string): Promise<EvidenceResolutionV1>;
+  getSettings(): Promise<LocalSettingsResponseV1>;
+  updateSettings(request: LocalSettingsUpdateRequestV1): Promise<LocalSettingsResponseV1>;
+  loadProviderSecret(apiKey: string): Promise<LocalProviderSecretResponseV1>;
+  clearProviderSecret(): Promise<LocalProviderSecretResponseV1>;
+  getDiagnostics(): Promise<LocalDiagnosticsResponseV1>;
+  getRetentionPreview(): Promise<LocalRetentionPreviewV1>;
+  applyRetention(): Promise<LocalRetentionApplyResultV1>;
+  deleteRun(runId: string): Promise<LocalRunDeletionResultV1>;
 }>;
 
 async function responseJson(response: Response): Promise<unknown> {
@@ -135,13 +156,19 @@ export function createReplayApiClient(
     return responseJson(response);
   }
 
-  async function postJson(path: string, body: unknown): Promise<unknown> {
+  async function mutationJson(
+    method: "POST" | "PUT" | "DELETE",
+    path: string,
+    body?: unknown,
+    acceptControlledFailure = false,
+  ): Promise<Readonly<{ response: Response; body: unknown }>> {
     let response: Response;
     try {
       response = await fetcher(new URL(path, origin), {
-        method: "POST",
-        headers: { ...headers(), "content-type": "application/json" },
-        body: JSON.stringify(body),
+        method,
+        headers:
+          body === undefined ? headers() : { ...headers(), "content-type": "application/json" },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         cache: "no-store",
         credentials: "omit",
         redirect: "error",
@@ -149,11 +176,13 @@ export function createReplayApiClient(
     } catch {
       throw new ReplayApiError("unavailable");
     }
-    if (!response.ok) {
-      await responseJson(response).catch(() => null);
-      throw mapErrorStatus(response.status);
-    }
-    return responseJson(response);
+    const parsedBody = await responseJson(response);
+    if (!response.ok && !acceptControlledFailure) throw mapErrorStatus(response.status);
+    return { response, body: parsedBody };
+  }
+
+  async function postJson(path: string, body: unknown): Promise<unknown> {
+    return (await mutationJson("POST", path, body)).body;
   }
 
   return Object.freeze({
@@ -284,6 +313,78 @@ export function createReplayApiClient(
         await requestJson(`/v1/replay/artifacts/${encodeURIComponent(artifactId)}`),
       );
       if (!result.success) {
+        throw new ReplayApiError("invalid_response");
+      }
+      return result.data;
+    },
+
+    async getSettings(): Promise<LocalSettingsResponseV1> {
+      const result = LocalSettingsResponseV1Schema.safeParse(await requestJson("/v1/settings"));
+      if (!result.success) throw new ReplayApiError("invalid_response");
+      return result.data;
+    },
+
+    async updateSettings(request: LocalSettingsUpdateRequestV1): Promise<LocalSettingsResponseV1> {
+      const result = LocalSettingsResponseV1Schema.safeParse(
+        (await mutationJson("PUT", "/v1/settings", request)).body,
+      );
+      if (!result.success) throw new ReplayApiError("invalid_response");
+      return result.data;
+    },
+
+    async loadProviderSecret(apiKey: string): Promise<LocalProviderSecretResponseV1> {
+      const result = LocalProviderSecretResponseV1Schema.safeParse(
+        (await mutationJson("POST", "/v1/settings/provider-secret", { schemaVersion: 1, apiKey }))
+          .body,
+      );
+      if (!result.success) throw new ReplayApiError("invalid_response");
+      return result.data;
+    },
+
+    async clearProviderSecret(): Promise<LocalProviderSecretResponseV1> {
+      const result = LocalProviderSecretResponseV1Schema.safeParse(
+        (await mutationJson("DELETE", "/v1/settings/provider-secret")).body,
+      );
+      if (!result.success) throw new ReplayApiError("invalid_response");
+      return result.data;
+    },
+
+    async getDiagnostics(): Promise<LocalDiagnosticsResponseV1> {
+      const result = LocalDiagnosticsResponseV1Schema.safeParse(
+        await requestJson("/v1/settings/diagnostics"),
+      );
+      if (!result.success) throw new ReplayApiError("invalid_response");
+      return result.data;
+    },
+
+    async getRetentionPreview(): Promise<LocalRetentionPreviewV1> {
+      const result = LocalRetentionPreviewV1Schema.safeParse(
+        await requestJson("/v1/settings/retention-preview"),
+      );
+      if (!result.success) throw new ReplayApiError("invalid_response");
+      return result.data;
+    },
+
+    async applyRetention(): Promise<LocalRetentionApplyResultV1> {
+      const result = LocalRetentionApplyResultV1Schema.safeParse(
+        (await mutationJson("POST", "/v1/settings/apply-retention")).body,
+      );
+      if (!result.success) throw new ReplayApiError("invalid_response");
+      return result.data;
+    },
+
+    async deleteRun(runId: string): Promise<LocalRunDeletionResultV1> {
+      if (!SAFE_ID_PATTERN.test(runId)) throw new ReplayApiError("not_found");
+      const { response, body } = await mutationJson(
+        "DELETE",
+        `/v1/replay/runs/${encodeURIComponent(runId)}`,
+        undefined,
+        true,
+      );
+      if (response.status === 401) throw new ReplayApiError("unauthorized");
+      const result = LocalRunDeletionResultV1Schema.safeParse(body);
+      if (!result.success || result.data.runId !== runId) {
+        if (!response.ok) throw mapErrorStatus(response.status);
         throw new ReplayApiError("invalid_response");
       }
       return result.data;

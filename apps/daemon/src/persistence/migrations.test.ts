@@ -22,6 +22,7 @@ const REQUIRED_TABLES = [
   "git_reconciliation_entries",
   "git_reconciliations",
   "ingress_receipts",
+  "local_settings",
   "moment_interactions",
   "ownership_records",
   "receipt_event_normalizations",
@@ -1863,7 +1864,7 @@ describe("migration v17 Moment interactions", () => {
           )
           .get(),
       ).toBeUndefined();
-      runMigrations(opened.database);
+      runMigrations(opened.database, MIGRATIONS.slice(0, 17));
       expect(readAppliedMigrations(opened.database)).toHaveLength(17);
       expect(
         opened.database
@@ -1885,6 +1886,67 @@ describe("migration v17 Moment interactions", () => {
         .map((row) => row.name);
       expect(triggers).toContain("moment_interactions_reject_update_v17");
       expect(triggers).toContain("ownership_records_reject_update_v17");
+    } finally {
+      opened.database.close();
+    }
+  });
+});
+
+describe("local settings migration v18", () => {
+  it("upgrades an exact version-17 database and installs one default singleton", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database, MIGRATIONS.slice(0, 17));
+      const before = readAppliedMigrations(opened.database);
+      runMigrations(opened.database);
+      const after = readAppliedMigrations(opened.database);
+      expect(after.slice(0, 17)).toEqual(before);
+      expect(after).toHaveLength(18);
+      expect(
+        opened.database
+          .prepare(
+            `SELECT settings_id, schema_version, revision, external_ai_enabled,
+                    retention_policy, diagnostic_mode, raw_source_payload_retention,
+                    custom_secret_field_patterns_json
+             FROM local_settings`,
+          )
+          .all(),
+      ).toEqual([
+        {
+          settings_id: "local",
+          schema_version: 1,
+          revision: 1,
+          external_ai_enabled: 0,
+          retention_policy: "keep_until_deleted",
+          diagnostic_mode: "off",
+          raw_source_payload_retention: "off",
+          custom_secret_field_patterns_json: "[]",
+        },
+      ]);
+    } finally {
+      opened.database.close();
+    }
+  });
+
+  it("rejects singleton deletion, revision jumps, raw retention changes, and incomplete provider tuples", () => {
+    const opened = openConfiguredDatabase(":memory:");
+    try {
+      runMigrations(opened.database);
+      expect(() => opened.database.exec("DELETE FROM local_settings")).toThrow();
+      expect(() => opened.database.exec("UPDATE local_settings SET revision = 3")).toThrow();
+      expect(() =>
+        opened.database.exec(
+          "UPDATE local_settings SET revision = 2, raw_source_payload_retention = 'on'",
+        ),
+      ).toThrow();
+      expect(() =>
+        opened.database.exec(
+          `UPDATE local_settings SET
+             revision = 2,
+             provider_family = 'responses_json_v1',
+             provider_base_url = 'https://api.provider.example.org/v1'`,
+        ),
+      ).toThrow();
     } finally {
       opened.database.close();
     }

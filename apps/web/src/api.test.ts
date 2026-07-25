@@ -1,3 +1,4 @@
+import type { LocalSettingsUpdateRequestV1 } from "@ownloop/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createMomentInteractionId, createReplayApiClient, ReplayApiError } from "./api.js";
@@ -385,5 +386,113 @@ describe("replay browser API client", () => {
         ),
     });
     await expect(unauthorized.listRuns()).rejects.toMatchObject({ code: "unauthorized" });
+  });
+});
+
+describe("settings browser API client", () => {
+  const settingsResponse = {
+    ok: true,
+    schemaVersion: 1,
+    settings: {
+      schemaVersion: 1,
+      id: "local",
+      revision: 2,
+      externalAiEnabled: true,
+      provider: {
+        providerFamily: "responses_json_v1",
+        baseUrl: "https://api.provider.example.org/v1",
+        modelId: "model-1",
+        modelRevision: null,
+        timeoutMs: 30_000,
+        maxResponseBytes: 65_536,
+        retryPolicy: { maxAttempts: 2, baseDelayMs: 100, maxRetryAfterMs: 1_000 },
+      },
+      retentionPolicy: "keep_until_deleted",
+      diagnosticMode: "off",
+      rawSourcePayloadRetention: "off",
+      customSecretFieldPatterns: [],
+      updatedAt: "2026-07-25T22:30:00.000Z",
+    },
+    providerSecretStatus: "absent",
+    providerGenerationConfigured: false,
+  } as const;
+
+  it("loads and updates strict settings without returning the provider secret", async () => {
+    const calls: Array<{ method: string; body: string | null }> = [];
+    const client = createReplayApiClient(TOKEN, {
+      fetcher: async (_input, init) => {
+        calls.push({
+          method: init?.method ?? "GET",
+          body: typeof init?.body === "string" ? init.body : null,
+        });
+        return new Response(JSON.stringify(settingsResponse), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    expect(await client.getSettings()).toEqual(settingsResponse);
+    const request: LocalSettingsUpdateRequestV1 = {
+      schemaVersion: 1,
+      expectedRevision: 2,
+      replacement: {
+        schemaVersion: 1,
+        externalAiEnabled: false,
+        provider: null,
+        retentionPolicy: "keep_until_deleted",
+        diagnosticMode: "off",
+        rawSourcePayloadRetention: "off",
+        customSecretFieldPatterns: [],
+      },
+    };
+    expect(await client.updateSettings(request)).toEqual(settingsResponse);
+    expect(calls).toEqual([
+      { method: "GET", body: null },
+      { method: "PUT", body: JSON.stringify(request) },
+    ]);
+
+    const secret = "provider-secret-never-echoed";
+    const secretClient = createReplayApiClient(TOKEN, {
+      fetcher: async (_input, init) => {
+        expect(String(init?.body)).toContain(secret);
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            schemaVersion: 1,
+            providerSecretStatus: "loaded",
+            providerGenerationConfigured: true,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    });
+    expect(JSON.stringify(await secretClient.loadProviderSecret(secret))).not.toContain(secret);
+  });
+
+  it("binds controlled Run deletion results to the requested Run and preserves conflicts", async () => {
+    const result = {
+      ok: true,
+      schemaVersion: 1,
+      runId: "run-1",
+      outcome: "active_conflict",
+      artifactGc: { scanned: 0, deleted: 0, retained: 0, failures: 0 },
+    } as const;
+    const client = createReplayApiClient(TOKEN, {
+      fetcher: async () =>
+        new Response(JSON.stringify(result), {
+          status: 409,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+    expect(await client.deleteRun("run-1")).toEqual(result);
+
+    const foreign = createReplayApiClient(TOKEN, {
+      fetcher: async () =>
+        new Response(JSON.stringify({ ...result, runId: "run-2" }), {
+          status: 409,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+    await expect(foreign.deleteRun("run-1")).rejects.toMatchObject({ code: "conflict" });
   });
 });

@@ -38,3 +38,10 @@ export {
 export type { PrepareIngressReceiptOptions } from "./prepare.js";
 export { prepareIngressReceipt } from "./prepare.js";
 export { PERSISTED_HOOK_FIELD_ALLOWLISTS, reduceAndRedactHookPayload } from "./reduction.js";
+
+export {
+  isSecretFieldName,
+  matchesCustomSecretFieldPattern,
+  normalizeSecretFieldName,
+  secretFieldMatch,
+} from "./redaction.js";

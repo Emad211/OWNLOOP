@@ -25,7 +25,10 @@ import {
   preferNewerBuildReplay,
   ReplayViewer,
 } from "./App.js";
-import { createReplayApiClient } from "./api.js";
+import { createReplayApiClient, type ReplayApiClient } from "./api.js";
+import { SettingsPanel } from "./Settings.js";
+
+const settingsClient = Object.freeze({}) as ReplayApiClient;
 
 const summary: ReplayRunSummaryV1 = {
   runId: "run-1",
@@ -274,6 +277,8 @@ describe("Raw Replay viewer", () => {
         buildReplayState="idle"
         buildReplayStatusMessage=""
         selectedRunId="run-1"
+        selectedRun={summary}
+        settingsClient={settingsClient}
         nextCursor={null}
         onSelectRun={() => undefined}
         onLoadMore={() => undefined}
@@ -283,6 +288,8 @@ describe("Raw Replay viewer", () => {
         onRecordMomentInteraction={async () => {
           throw new Error("not invoked during static rendering");
         }}
+        onSettingsUnauthorized={() => undefined}
+        onRunsDeleted={() => undefined}
         onDisconnect={() => undefined}
       />,
     );
@@ -294,6 +301,7 @@ describe("Raw Replay viewer", () => {
     expect(html).toContain("Evidence Graph");
     expect(html).toContain("diff hunks not retained");
     expect(html).toContain("View evidence");
+    expect(html).toContain("Settings and privacy");
     expect(html).not.toContain("dangerouslySetInnerHTML");
   });
 
@@ -315,6 +323,8 @@ describe("Raw Replay viewer", () => {
         buildReplayState="idle"
         buildReplayStatusMessage=""
         selectedRunId="run-1"
+        selectedRun={summary}
+        settingsClient={settingsClient}
         nextCursor={null}
         onSelectRun={() => undefined}
         onLoadMore={() => undefined}
@@ -324,6 +334,8 @@ describe("Raw Replay viewer", () => {
         onRecordMomentInteraction={async () => {
           throw new Error("not invoked during static rendering");
         }}
+        onSettingsUnauthorized={() => undefined}
+        onRunsDeleted={() => undefined}
         onDisconnect={() => undefined}
       />,
     );
@@ -347,7 +359,7 @@ describe("Raw Replay viewer", () => {
       schemaVersion: 1,
       runId: "run-1",
       validationId: momentsProjection.validationId,
-      states: momentsProjection.moments.map((moment, index) => ({
+      states: momentsProjection.moments.map((moment) => ({
         momentId: moment.displayId,
         sourceIndex: moment.sourceIndex,
         sourceCandidateFingerprint: moment.sourceCandidateFingerprint,
@@ -451,6 +463,8 @@ describe("Raw Replay viewer", () => {
         buildReplayState="idle"
         buildReplayStatusMessage=""
         selectedRunId="run-1"
+        selectedRun={summary}
+        settingsClient={settingsClient}
         nextCursor={null}
         onSelectRun={() => undefined}
         onLoadMore={() => undefined}
@@ -460,6 +474,8 @@ describe("Raw Replay viewer", () => {
         onRecordMomentInteraction={async () => {
           throw new Error("not invoked during static rendering");
         }}
+        onSettingsUnauthorized={() => undefined}
+        onRunsDeleted={() => undefined}
         onDisconnect={() => undefined}
       />,
     );
@@ -536,7 +552,7 @@ describe("Raw Replay viewer", () => {
     try {
       const html = renderToStaticMarkup(<App />);
       expect(html).toContain('type="password"');
-      const implementationText = `${App.toString()}\n${createReplayApiClient.toString()}`;
+      const implementationText = `${App.toString()}\n${createReplayApiClient.toString()}\n${SettingsPanel.toString()}`;
       for (const forbidden of [
         "localStorage",
         "sessionStorage",

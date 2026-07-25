@@ -15,6 +15,7 @@ import type {
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { BuildReplaySection, type BuildReplayLoadState } from "./BuildReplay.js";
+import { SettingsPanel } from "./Settings.js";
 import {
   createMomentInteractionId,
   createReplayApiClient,
@@ -44,6 +45,8 @@ type ViewerProps = Readonly<{
   buildReplayState: BuildReplayLoadState;
   buildReplayStatusMessage: string;
   selectedRunId: string | null;
+  selectedRun: ReplayRunSummaryV1 | null;
+  settingsClient: ReplayApiClient;
   nextCursor: string | null;
   onSelectRun(runId: string): void;
   onLoadMore(): void;
@@ -59,6 +62,8 @@ type ViewerProps = Readonly<{
     action: MomentInteractionActionV1,
     interactionId: string,
   ): Promise<MomentInteractionReceiptV1>;
+  onSettingsUnauthorized(message: string): void;
+  onRunsDeleted(runIds: readonly string[]): void;
   onDisconnect(): void;
 }>;
 
@@ -1108,6 +1113,12 @@ export function ReplayViewer(props: ViewerProps) {
               onRecordMomentInteraction={props.onRecordMomentInteraction}
             />
           ) : null}
+          <SettingsPanel
+            client={props.settingsClient}
+            selectedRun={props.selectedRun}
+            onUnauthorized={props.onSettingsUnauthorized}
+            onRunsDeleted={props.onRunsDeleted}
+          />
         </main>
       </div>
     </div>
@@ -1166,6 +1177,53 @@ export function App() {
     setSelectedRunId(null);
     setNextCursor(null);
     window.history.replaceState(null, "", window.location.pathname);
+  }
+
+  function clearSelectedRunState(): void {
+    loadRequestRef.current += 1;
+    setReplay(null);
+    setManifest(null);
+    setMoments(null);
+    setMomentState("idle");
+    setMomentStatusMessage("");
+    setInteractionState(null);
+    setInteractionLoadState("idle");
+    setInteractionStatusMessage("");
+    setBuildReplay(null);
+    setBuildReplayState("idle");
+    setBuildReplayStatusMessage("");
+    setSelectedRunId(null);
+    window.history.replaceState(null, "", window.location.pathname);
+  }
+
+  async function handleRunsDeleted(runIds: readonly string[]): Promise<void> {
+    if (runIds.length === 0) return;
+    const deleted = new Set(runIds);
+    const selectedWasDeleted = selectedRunId !== null && deleted.has(selectedRunId);
+    if (selectedWasDeleted) clearSelectedRunState();
+
+    const client = clientRef.current;
+    if (client === null) return;
+    try {
+      const list = await client.listRuns();
+      if (clientRef.current !== client) return;
+      setRuns(list.runs);
+      setNextCursor(list.nextCursor);
+      if (!selectedWasDeleted) {
+        setStatusMessage(`${runIds.length} Run${runIds.length === 1 ? "" : "s"} deleted locally.`);
+        return;
+      }
+      const nextRunId = list.runs[0]?.runId ?? null;
+      if (nextRunId === null) {
+        setState("empty");
+        setStatusMessage("The selected Run was deleted locally.");
+        return;
+      }
+      setStatusMessage("The selected Run was deleted locally.");
+      await loadRun(client, nextRunId);
+    } catch (error) {
+      handleApiError(error, "The Run list could not be refreshed after deletion.");
+    }
   }
 
   function handleApiError(error: unknown, fallback: string): void {
@@ -1486,9 +1544,14 @@ export function App() {
     }
   }
 
+  const selectedRun =
+    selectedRunId === null ? null : (runs.find((run) => run.runId === selectedRunId) ?? null);
+
+  const settingsClient = clientRef.current;
+
   return (
     <>
-      {!connected ? (
+      {!connected || settingsClient === null ? (
         <main className="landing">
           <header className="landing-header">
             <p className="eyebrow">Human ownership layer</p>
@@ -1523,6 +1586,8 @@ export function App() {
           buildReplayState={buildReplayState}
           buildReplayStatusMessage={buildReplayStatusMessage}
           selectedRunId={selectedRunId}
+          selectedRun={selectedRun}
+          settingsClient={settingsClient}
           nextCursor={nextCursor}
           onSelectRun={selectRun}
           onLoadMore={loadMore}
@@ -1530,6 +1595,8 @@ export function App() {
           onResolveEvidence={resolveEvidence}
           onResolveMomentEvidence={resolveMomentEvidence}
           onRecordMomentInteraction={recordMomentInteractionAction}
+          onSettingsUnauthorized={(message) => clearConnection(message)}
+          onRunsDeleted={(runIds) => void handleRunsDeleted(runIds)}
           onDisconnect={() => clearConnection()}
         />
       )}
