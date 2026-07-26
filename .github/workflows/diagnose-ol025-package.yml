@@ -28,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(sha256sum .ol025-diagnosis/package-fix.patch | cut -d' ' -f1)" = "02cdf7c8dc5be34d5565af7f432baeee610c7a40f6fcd5aec6cb1b1dffb8628a"
+          test "$(sha256sum .ol025-diagnosis/package-fix.patch | cut -d' ' -f1)" = "099b2ab8d29276c0fbace90668a0b379cb7d28f03e6e1bfe5376c3096bc9e60b"
           python - <<'PY'
           from pathlib import Path
           import base64, gzip, hashlib
