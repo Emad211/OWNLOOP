@@ -6,7 +6,7 @@ import {
 } from "@ownloop/test-fixtures";
 import { describe, expect, it } from "vitest";
 
-import { CodexAdapterIngressSchema, CodexSourceMetadataSchema } from "../src/index.js";
+import { CodexAdapterIngressSchema, CodexSourceMetadataSchema } from "../src/codex.js";
 
 describe("Codex adapter ingress", () => {
   it("parses the controlled wrapper", () => {
