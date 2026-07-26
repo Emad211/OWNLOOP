@@ -45,83 +45,51 @@ jobs:
           git apply .ol025-diagnosis/package-fix.patch
           rm -rf .ol025-transfer .ol025-diagnosis .github/workflows/finalize-ol025.yml .github/workflows/diagnose-ol025-package.yml
       - run: pnpm install --frozen-lockfile
-      - name: Focused validation
+      - name: Build source and run instrumented package builder
         shell: bash
         run: |
           set -euo pipefail
-          pnpm format:check
-          pnpm lint
-          pnpm --filter @ownloop/local-installer typecheck
-          pnpm vitest run tools/local-installer/tests/package-builder.test.ts
-      - name: Capture two independent package builds
-        shell: bash
-        run: |
-          set +e
-          pnpm build > /tmp/build.stdout 2> /tmp/build.stderr
-          printf '%s\n' "$?" > /tmp/build.exit
-          rm -rf /tmp/ol025-package-a /tmp/ol025-package-b
-          pnpm package:windows /tmp/ol025-package-a > /tmp/package-a.stdout 2> /tmp/package-a.stderr
-          printf '%s\n' "$?" > /tmp/package-a.exit
-          pnpm package:windows /tmp/ol025-package-b > /tmp/package-b.stdout 2> /tmp/package-b.stderr
-          printf '%s\n' "$?" > /tmp/package-b.exit
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          result={}
-          for name in ('a','b'):
-              stdout=Path(f'/tmp/package-{name}.stdout').read_text()
-              parsed=None
-              for line in reversed([line for line in stdout.splitlines() if line.strip()]):
-                  try:
-                      candidate=json.loads(line)
-                  except Exception:
-                      continue
-                  if isinstance(candidate, dict):
-                      parsed=candidate
-                      break
-              result[name]=parsed
-          a=result['a'] or {}
-          b=result['b'] or {}
-          result['sameFingerprint']=bool(a.get('fingerprint')) and a.get('fingerprint') == b.get('fingerprint')
-          result['sameFileCount']=a.get('fileCount') == b.get('fileCount')
-          for name in ('a','b'):
-              root=Path(f'/tmp/ol025-package-{name}/ownloop-windows-0.1.0')
-              result[f'{name}Exists']=root.is_dir()
-              result[f'{name}Symlinks']=sum(1 for path in root.rglob('*') if path.is_symlink()) if root.is_dir() else None
-          Path('/tmp/package-diagnosis.json').write_text(json.dumps(result, sort_keys=True, indent=2)+'\n')
-          PY
-          for name in a b; do
-            root="/tmp/ol025-package-${name}/ownloop-windows-0.1.0"
-            if test -d "$root"; then
-              find "$root" -mindepth 1 -printf '%P\n' | LC_ALL=C sort > "/tmp/package-${name}.files"
-              du -sb "$root" > "/tmp/package-${name}.size"
-              tar -czf "/tmp/ol025-package-${name}.tar.gz" -C "/tmp/ol025-package-${name}" ownloop-windows-0.1.0
-            fi
-          done
-          cat /tmp/package-diagnosis.json
-          tail -n 100 /tmp/package-a.stdout
-          tail -n 100 /tmp/package-a.stderr
-          exit 0
+          pnpm build
+          cat > /tmp/debug-package.mjs <<'JS'
+          import { execFile } from 'node:child_process';
+          import { appendFile, rm } from 'node:fs/promises';
+          import { promisify } from 'node:util';
+          import { resolve } from 'node:path';
+          import { buildWindowsReleasePackage } from './tools/local-installer/dist/package-builder.js';
+          const execFileAsync=promisify(execFile);
+          const log='/tmp/package-debug.log';
+          await rm(log,{force:true});
+          const runner=async(executable,args,options)=>{
+            await appendFile(log,`START ${JSON.stringify({executable,args,cwd:options.cwd})}\n`);
+            try {
+              const result=await execFileAsync(executable,[...args],{cwd:options.cwd,windowsHide:true,timeout:10*60_000,maxBuffer:16*1024*1024});
+              await appendFile(log,`OK ${JSON.stringify({stdout:result.stdout,stderr:result.stderr})}\n`);
+              return {stdout:result.stdout,stderr:result.stderr};
+            } catch(error) {
+              await appendFile(log,`FAIL ${JSON.stringify({name:error?.name,message:error?.message,code:error?.code,stdout:error?.stdout,stderr:error?.stderr,stack:error?.stack})}\n`);
+              throw error;
+            }
+          };
+          try {
+            const result=await buildWindowsReleasePackage({repositoryRoot:resolve('.'),outputRoot:'/tmp/ol025-debug-output',runner,nodeVersion:'24.18.0'});
+            await appendFile(log,`RESULT ${JSON.stringify(result)}\n`);
+          } catch(error) {
+            await appendFile(log,`THROWN ${JSON.stringify({name:error?.name,message:error?.message,code:error?.code,stack:error?.stack})}\n`);
+          }
+          JS
+          node /tmp/debug-package.mjs
+          cat /tmp/package-debug.log
+          if test -d /tmp/ol025-debug-output; then
+            find /tmp/ol025-debug-output -mindepth 1 -printf '%P\n' | LC_ALL=C sort > /tmp/package-debug-files.txt
+          else
+            : > /tmp/package-debug-files.txt
+          fi
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: ol025-fixed-package-diagnosis-v2
+          name: ol025-package-command-debug
           path: |
-            /tmp/build.stdout
-            /tmp/build.stderr
-            /tmp/build.exit
-            /tmp/package-a.stdout
-            /tmp/package-a.stderr
-            /tmp/package-a.exit
-            /tmp/package-b.stdout
-            /tmp/package-b.stderr
-            /tmp/package-b.exit
-            /tmp/package-diagnosis.json
-            /tmp/package-a.files
-            /tmp/package-b.files
-            /tmp/package-a.size
-            /tmp/package-b.size
-            /tmp/ol025-package-a.tar.gz
-            /tmp/ol025-package-b.tar.gz
-          if-no-files-found: warn
+            /tmp/package-debug.log
+            /tmp/package-debug-files.txt
+          if-no-files-found: error
           retention-days: 1
