@@ -5,7 +5,7 @@ import {
 } from "@ownloop/test-fixtures";
 import { describe, expect, it } from "vitest";
 
-import { SUPPORTED_CODEX_HOOK_NAMES, SupportedCodexHookPayloadSchema } from "../src/index.js";
+import { SUPPORTED_CODEX_HOOK_NAMES, SupportedCodexHookPayloadSchema } from "../src/codex.js";
 
 describe("supported Codex hook payloads", () => {
   it.each(validCodexHookFixtures)("parses $name", ({ input }) => {
