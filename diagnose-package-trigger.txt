@@ -1,1 +1,1 @@
-diagnose modern hoisted locked deploy
+validate fixed deterministic package
