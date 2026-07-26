@@ -42,62 +42,31 @@ jobs:
           git apply /tmp/ol025.patch
           rm -rf .ol025-transfer .github/workflows/finalize-ol025.yml .github/workflows/diagnose-ol025-package.yml
       - run: pnpm install --frozen-lockfile
-      - name: Reproduce deploy staging
+      - name: Test hoisted deploy layout
         shell: bash
         run: |
           set -euo pipefail
           pnpm build
-          rm -rf /tmp/ol025-staging
-          mkdir -p /tmp/ol025-staging
-          pnpm --filter @ownloop/daemon deploy --prod --offline --legacy /tmp/ol025-staging/daemon
-          pnpm --filter @ownloop/hook-adapter deploy --prod --offline --legacy /tmp/ol025-staging/hook-adapter
-          pnpm --filter @ownloop/local-installer deploy --prod --offline --legacy /tmp/ol025-staging/installer
-          cp -a apps/web/dist /tmp/ol025-staging/web
-          cp -a tools/local-installer/scripts /tmp/ol025-staging/launchers
-          find /tmp/ol025-staging -mindepth 1 -printf '%P\n' | LC_ALL=C sort > /tmp/staging-files.txt
-          python - <<'PY'
-          from pathlib import Path
-          root=Path('/tmp/ol025-staging')
-          found=[]
-          for path in root.rglob('*'):
-              rel=path.relative_to(root).as_posix()
-              segments=rel.split('/')
-              filename=segments[-1].lower()
-              unconditional=(
-                  '.git' in segments or filename in {'secrets-v1.json','runtime-v1.json','install-manifest.json','.env'}
-                  or filename.startswith('.env.') or filename.endswith(('.sqlite','.sqlite3','.db'))
-              )
-              own_area=segments[0]
-              before_node_modules='node_modules' not in segments
-              scoped=(before_node_modules and (
-                  'src' in segments or 'tests' in segments or '.test.' in filename or '.spec.' in filename
-              ) and own_area in {'daemon','hook-adapter','installer'})
-              if unconditional or scoped or path.is_symlink():
-                  found.append(rel)
-          Path('/tmp/forbidden-paths.txt').write_text('\n'.join(sorted(found))+'\n')
-          PY
-          tar --exclude='.git' --exclude='node_modules' -czf /tmp/ol025-reconstructed-source.tar.gz .
-          tar -czf /tmp/ol025-staging.tar.gz -C /tmp ol025-staging
-      - name: Capture package builder output
-        shell: bash
-        run: |
-          set +e
-          pnpm package:windows > /tmp/package.log 2>&1
-          code=$?
-          printf '%s\n' "$code" > /tmp/package-exit.txt
-          cat /tmp/forbidden-paths.txt
-          tail -n 120 /tmp/package.log || true
-          exit 0
+          rm -rf /tmp/ol025-hoisted
+          mkdir -p /tmp/ol025-hoisted
+          pnpm --config.node-linker=hoisted --filter @ownloop/daemon deploy --prod --offline --legacy /tmp/ol025-hoisted/daemon
+          pnpm --config.node-linker=hoisted --filter @ownloop/hook-adapter deploy --prod --offline --legacy /tmp/ol025-hoisted/hook-adapter
+          pnpm --config.node-linker=hoisted --filter @ownloop/local-installer deploy --prod --offline --legacy /tmp/ol025-hoisted/installer
+          find /tmp/ol025-hoisted -type l -printf '%P -> %l\n' | LC_ALL=C sort > /tmp/hoisted-symlinks.txt
+          find /tmp/ol025-hoisted -mindepth 1 -printf '%P\n' | LC_ALL=C sort > /tmp/hoisted-files.txt
+          du -sb /tmp/ol025-hoisted > /tmp/hoisted-size.txt
+          node -e "import('/tmp/ol025-hoisted/daemon/dist/runtime/compatibility.js').then(()=>console.log('daemon-import-ok'))"
+          node -e "import('/tmp/ol025-hoisted/hook-adapter/dist/adapter.js').then(()=>console.log('hook-import-ok'))"
+          node -e "import('/tmp/ol025-hoisted/installer/dist/package-builder.js').then(()=>console.log('installer-import-ok'))"
+          tar -czf /tmp/ol025-hoisted.tar.gz -C /tmp ol025-hoisted
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: ol025-package-staging-diagnosis
+          name: ol025-hoisted-deploy-diagnosis
           path: |
-            /tmp/package.log
-            /tmp/package-exit.txt
-            /tmp/forbidden-paths.txt
-            /tmp/staging-files.txt
-            /tmp/ol025-reconstructed-source.tar.gz
-            /tmp/ol025-staging.tar.gz
+            /tmp/hoisted-symlinks.txt
+            /tmp/hoisted-files.txt
+            /tmp/hoisted-size.txt
+            /tmp/ol025-hoisted.tar.gz
           if-no-files-found: error
           retention-days: 1
