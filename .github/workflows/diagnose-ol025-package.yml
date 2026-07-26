@@ -11,7 +11,7 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v7
         with:
@@ -24,11 +24,11 @@ jobs:
         with:
           version: 11.4.0
           run_install: false
-      - name: Reconstruct exact OL-025 source and apply package fix
+      - name: Reconstruct exact OL-025 source and apply final package fix
         shell: bash
         run: |
           set -euo pipefail
-          test "$(sha256sum .ol025-diagnosis/package-fix.patch | cut -d' ' -f1)" = "099b2ab8d29276c0fbace90668a0b379cb7d28f03e6e1bfe5376c3096bc9e60b"
+          test "$(sha256sum .ol025-diagnosis/package-fix-v3.patch | cut -d' ' -f1)" = "bb38d254c04714bbe8ab4f160c98966013108d2fedf61fce6c63e84e9a01f2bd"
           python - <<'PY'
           from pathlib import Path
           import base64, gzip, hashlib
@@ -41,65 +41,82 @@ jobs:
           PY
           git apply --check /tmp/ol025.patch
           git apply /tmp/ol025.patch
-          git apply --check .ol025-diagnosis/package-fix.patch
-          git apply .ol025-diagnosis/package-fix.patch
+          git apply --check .ol025-diagnosis/package-fix-v3.patch
+          git apply .ol025-diagnosis/package-fix-v3.patch
           rm -rf .ol025-transfer .ol025-diagnosis .github/workflows/finalize-ol025.yml .github/workflows/diagnose-ol025-package.yml
       - run: pnpm install --frozen-lockfile
-      - name: Reveal original post-deploy failure
+      - name: Validate final package fix
         shell: bash
         run: |
           set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          path=Path('tools/local-installer/src/package-builder.ts')
-          text=path.read_text()
-          old='''    if (error instanceof PackageBuilderError) throw error;\n    throw new PackageBuilderError("build_failed");'''
-          if old not in text:
-              raise SystemExit('diagnostic catch boundary not found')
-          path.write_text(text.replace(old, '    throw error;', 1))
-          PY
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm vitest run packages/contracts/tests/local-installation.test.ts tools/local-installer/tests/*.test.ts
           pnpm build
-          cat > /tmp/debug-package.mjs <<'JS'
-          import { execFile } from 'node:child_process';
-          import { appendFile, rm } from 'node:fs/promises';
-          import { resolve } from 'node:path';
-          import { pathToFileURL } from 'node:url';
-          import { promisify } from 'node:util';
-          const moduleUrl=pathToFileURL(resolve('tools/local-installer/dist/package-builder.js')).href;
-          const { buildWindowsReleasePackage }=await import(moduleUrl);
-          const execFileAsync=promisify(execFile);
-          const log='/tmp/package-debug.log';
-          await rm(log,{force:true});
-          const runner=async(executable,args,options)=>{
-            await appendFile(log,`START ${JSON.stringify({executable,args,cwd:options.cwd})}\n`);
-            try {
-              const result=await execFileAsync(executable,[...args],{cwd:options.cwd,windowsHide:true,timeout:10*60_000,maxBuffer:16*1024*1024});
-              await appendFile(log,`OK ${JSON.stringify({stdout:result.stdout,stderr:result.stderr})}\n`);
-              return {stdout:result.stdout,stderr:result.stderr};
-            } catch(error) {
-              await appendFile(log,`FAIL ${JSON.stringify({name:error?.name,message:error?.message,code:error?.code,stdout:error?.stdout,stderr:error?.stderr,stack:error?.stack})}\n`);
-              throw error;
-            }
-          };
-          try {
-            const result=await buildWindowsReleasePackage({repositoryRoot:resolve('.'),outputRoot:'/tmp/ol025-debug-output',runner,nodeVersion:'24.18.0'});
-            await appendFile(log,`RESULT ${JSON.stringify(result)}\n`);
-          } catch(error) {
-            await appendFile(log,`THROWN ${JSON.stringify({name:error?.name,message:error?.message,code:error?.code,errno:error?.errno,path:error?.path,syscall:error?.syscall,stack:error?.stack})}\n`);
-          }
-          JS
-          node /tmp/debug-package.mjs
-          cat /tmp/package-debug.log
-          : > /tmp/package-debug-files.txt
-          if test -d /tmp/ol025-debug-output; then
-            find /tmp/ol025-debug-output -mindepth 1 -printf '%P\n' | LC_ALL=C sort > /tmp/package-debug-files.txt
-          fi
+      - name: Build and compare two independent packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/ol025-package-a /tmp/ol025-package-b
+          pnpm package:windows /tmp/ol025-package-a > /tmp/package-a.json 2> /tmp/package-a.stderr
+          pnpm package:windows /tmp/ol025-package-b > /tmp/package-b.json 2> /tmp/package-b.stderr
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          def load(path):
+              lines=[line for line in Path(path).read_text().splitlines() if line.strip()]
+              if len(lines)!=1:
+                  raise SystemExit(f'invalid package output: {path}: {lines}')
+              value=json.loads(lines[0])
+              if value.get('ok') is not True:
+                  raise SystemExit(f'package failed: {value}')
+              return value
+          a=load('/tmp/package-a.json')
+          b=load('/tmp/package-b.json')
+          if a['fingerprint'] != b['fingerprint'] or a['fileCount'] != b['fileCount']:
+              raise SystemExit('package outputs are not deterministic')
+          roots=[Path('/tmp/ol025-package-a/ownloop-windows-0.1.0'),Path('/tmp/ol025-package-b/ownloop-windows-0.1.0')]
+          forbidden=[os.environ['GITHUB_WORKSPACE'].encode(), b'/home/runner/setup-pnpm', b'\\home\\runner']
+          for root in roots:
+              if not root.is_dir(): raise SystemExit(f'missing package root: {root}')
+              links=[str(p) for p in root.rglob('*') if p.is_symlink()]
+              if links: raise SystemExit(f'package contains symlinks: {links[:10]}')
+              for rel in [
+                  'daemon/pnpm-lock.yaml','hook-adapter/pnpm-lock.yaml','installer/pnpm-lock.yaml',
+                  'daemon/node_modules/.bin','hook-adapter/node_modules/.bin','installer/node_modules/.bin',
+                  'daemon/node_modules/.modules.yaml','hook-adapter/node_modules/.modules.yaml','installer/node_modules/.modules.yaml',
+                  'daemon/node_modules/.pnpm-workspace-state-v1.json','hook-adapter/node_modules/.pnpm-workspace-state-v1.json','installer/node_modules/.pnpm-workspace-state-v1.json',
+                  'daemon/node_modules/.pnpm','hook-adapter/node_modules/.pnpm','installer/node_modules/.pnpm',
+              ]:
+                  if (root/rel).exists(): raise SystemExit(f'generated deploy metadata remains: {rel}')
+              for path in root.rglob('*'):
+                  if path.is_file():
+                      data=path.read_bytes()
+                      if any(marker in data for marker in forbidden):
+                          raise SystemExit(f'runner path leaked into package: {path.relative_to(root)}')
+          Path('/tmp/package-summary.json').write_text(json.dumps({
+              'fingerprint':a['fingerprint'],'fileCount':a['fileCount']
+          },sort_keys=True)+'\n')
+          PY
+          PACKAGE=/tmp/ol025-package-a/ownloop-windows-0.1.0
+          node -e "import('/tmp/ol025-package-a/ownloop-windows-0.1.0/daemon/dist/runtime/compatibility.js').then(()=>console.log('daemon-import-ok'))"
+          node -e "import('/tmp/ol025-package-a/ownloop-windows-0.1.0/hook-adapter/dist/adapter.js').then(()=>console.log('hook-import-ok'))"
+          node -e "import('/tmp/ol025-package-a/ownloop-windows-0.1.0/installer/dist/package-builder.js').then(()=>console.log('installer-import-ok'))"
+          du -sb "$PACKAGE" > /tmp/package-size.txt
+          find "$PACKAGE" -mindepth 1 -printf '%P\n' | LC_ALL=C sort > /tmp/package-files.txt
+          tar -czf /tmp/ol025-package-a.tar.gz -C /tmp/ol025-package-a ownloop-windows-0.1.0
       - uses: actions/upload-artifact@v6
-        if: always()
         with:
-          name: ol025-package-post-deploy-debug
+          name: ol025-final-package-proof
           path: |
-            /tmp/package-debug.log
-            /tmp/package-debug-files.txt
+            /tmp/package-a.json
+            /tmp/package-b.json
+            /tmp/package-a.stderr
+            /tmp/package-b.stderr
+            /tmp/package-summary.json
+            /tmp/package-size.txt
+            /tmp/package-files.txt
+            /tmp/ol025-package-a.tar.gz
           if-no-files-found: error
           retention-days: 1
