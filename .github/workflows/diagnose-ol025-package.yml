@@ -53,9 +53,11 @@ jobs:
           cat > /tmp/debug-package.mjs <<'JS'
           import { execFile } from 'node:child_process';
           import { appendFile, rm } from 'node:fs/promises';
-          import { promisify } from 'node:util';
           import { resolve } from 'node:path';
-          import { buildWindowsReleasePackage } from './tools/local-installer/dist/package-builder.js';
+          import { pathToFileURL } from 'node:url';
+          import { promisify } from 'node:util';
+          const moduleUrl=pathToFileURL(resolve('tools/local-installer/dist/package-builder.js')).href;
+          const { buildWindowsReleasePackage }=await import(moduleUrl);
           const execFileAsync=promisify(execFile);
           const log='/tmp/package-debug.log';
           await rm(log,{force:true});
