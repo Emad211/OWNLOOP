@@ -42,6 +42,14 @@ jobs:
           git apply /tmp/ol025.patch
           rm -rf .ol025-transfer .github/workflows/finalize-ol025.yml .github/workflows/diagnose-ol025-package.yml
       - run: pnpm install --frozen-lockfile
+      - name: Build and capture installer source
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm build
+          find tools/local-installer -maxdepth 5 -type f | LC_ALL=C sort > /tmp/installer-files.txt
+          tar --exclude='node_modules' -czf /tmp/ol025-installer-source.tar.gz \
+            package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json tsconfig.test.json tools/local-installer
       - name: Capture package builder output
         shell: bash
         run: |
@@ -54,9 +62,11 @@ jobs:
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: ol025-package-diagnosis
+          name: ol025-package-diagnosis-source
           path: |
             /tmp/package.log
             /tmp/package-exit.txt
+            /tmp/installer-files.txt
+            /tmp/ol025-installer-source.tar.gz
           if-no-files-found: error
           retention-days: 1
