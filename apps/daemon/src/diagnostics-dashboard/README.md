@@ -17,6 +17,12 @@ Persisted aggregates select controlled metadata only. Dashboard queries never se
 
 Validation outcomes and rejection reasons are counted only after the current OL-019 validation record and canonical report artifact pass existing read-back verification. Any provenance, artifact, count, or canonical-byte disagreement fails closed.
 
+## Operational interpretation
+
+Read process counters and persisted quality aggregates as separate time horizons. Process counters describe only the current daemon lifetime, while persisted redaction, Run, finalization, Evidence-gap, and verified validation aggregates survive restart. The dashboard never merges those horizons into an inferred historical total, and missing or zero values never become an absence claim.
+
+A dashboard refresh or bundle export performs a fresh verified read of the same controlled sources. It does not retry ingestion, regenerate Candidates, rerun validation, mutate diagnostics, or write any replay, artifact, or settings state.
+
 ## Routes
 
 The existing authenticated loopback server exposes:
