@@ -1,1 +1,1 @@
-reveal post deploy package failure
+prove final deterministic package fix v3
