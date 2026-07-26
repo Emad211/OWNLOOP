@@ -1,1 +1,1 @@
-validate fixed deterministic package v2
+capture fixed deterministic package v2 diagnostics
