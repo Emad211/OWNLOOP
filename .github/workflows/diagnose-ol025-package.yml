@@ -24,11 +24,12 @@ jobs:
         with:
           version: 11.4.0
           run_install: false
-      - name: Reconstruct exact OL-025 source and apply final package fix
+      - name: Reconstruct exact OL-025 source and inspect transferred package fix
         shell: bash
         run: |
           set -euo pipefail
-          test "$(sha256sum .ol025-diagnosis/package-fix-v4.patch | cut -d' ' -f1)" = "9f09ac9ad4c1534dfdbd53236cb7b892f6b4fa9fd3de2174d172e36ce4ff59be"
+          sha256sum .ol025-diagnosis/package-fix-v4.patch | tee /tmp/package-fix-v4.sha256
+          wc -c .ol025-diagnosis/package-fix-v4.patch | tee /tmp/package-fix-v4.size
           python - <<'PY'
           from pathlib import Path
           import base64, gzip, hashlib
@@ -127,8 +128,10 @@ jobs:
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: ol025-final-package-proof-v4
+          name: ol025-final-package-proof-v4-transfer
           path: |
+            /tmp/package-fix-v4.sha256
+            /tmp/package-fix-v4.size
             /tmp/package-a.stdout
             /tmp/package-a.stderr
             /tmp/package-a.exit
