@@ -24,26 +24,43 @@ jobs:
         with:
           version: 11.4.0
           run_install: false
-      - name: Reconstruct exact OL-025 source and inspect transferred package fix
+      - name: Reconstruct exact OL-025 source and content-addressed package fix
         shell: bash
         run: |
           set -euo pipefail
-          sha256sum .ol025-diagnosis/package-fix-v4.patch | tee /tmp/package-fix-v4.sha256
-          wc -c .ol025-diagnosis/package-fix-v4.patch | tee /tmp/package-fix-v4.size
           python - <<'PY'
           from pathlib import Path
           import base64, gzip, hashlib
-          b64=b''.join((Path('.ol025-transfer')/f'chunk-{i:02d}.txt').read_bytes() for i in range(13))
-          gz=base64.b64decode(b64, validate=True)
-          patch=gzip.decompress(gz)
-          if len(patch)!=307654 or hashlib.sha256(patch).hexdigest()!='81e01d5427b5dc75b1fab53d00824521b77aafcf9be4b90397dc388cd02d7fc9':
-              raise SystemExit('patch mismatch')
-          Path('/tmp/ol025.patch').write_bytes(patch)
+          original_b64=b''.join((Path('.ol025-transfer')/f'chunk-{i:02d}.txt').read_bytes() for i in range(13))
+          original=gzip.decompress(base64.b64decode(original_b64, validate=True))
+          if len(original)!=307654 or hashlib.sha256(original).hexdigest()!='81e01d5427b5dc75b1fab53d00824521b77aafcf9be4b90397dc388cd02d7fc9':
+              raise SystemExit('original patch mismatch')
+          expected=[
+            ('chunk-00.txt',7000,'1618ae53956267f12c6a8de5ec6821a9ecd737055dc58abda0c94180aab78146'),
+            ('chunk-01.txt',7000,'5a61faaeec5057b7b79a73661479c39aa39afc439ae6cbc2ccb009962461cb53'),
+            ('chunk-02.txt',7000,'c4beda277bb7cedc644b007c0c8405faad710d77a97e66a352b38e984022ca3c'),
+            ('chunk-03.txt',7000,'236b97a37a9bf5347d1199ece20b45b658d88a4ab53de27765f092c9058e0121'),
+            ('chunk-04.txt',2692,'3252f093368c25e978ff744120fb9f6c22cdd7a28067a49dcf7b5af69d3fe239'),
+          ]
+          parts=[]
+          for name,size,digest in expected:
+              data=(Path('.ol025-diagnosis/v4-chunks')/name).read_bytes()
+              if len(data)!=size or hashlib.sha256(data).hexdigest()!=digest:
+                  raise SystemExit(f'v4 chunk mismatch: {name}')
+              parts.append(data)
+          payload=b''.join(parts)
+          if len(payload)!=30692 or hashlib.sha256(payload).hexdigest()!='a1cb39a2e924eac2b48bbe5bf207749109703c0f70a1d0bac079b29c55b4f0ae':
+              raise SystemExit('v4 base64 mismatch')
+          fix=base64.b64decode(payload,validate=True)
+          if len(fix)!=23017 or hashlib.sha256(fix).hexdigest()!='9f09ac9ad4c1534dfdbd53236cb7b892f6b4fa9fd3de2174d172e36ce4ff59be':
+              raise SystemExit('v4 patch mismatch')
+          Path('/tmp/ol025.patch').write_bytes(original)
+          Path('/tmp/ol025-v4.patch').write_bytes(fix)
           PY
           git apply --check /tmp/ol025.patch
           git apply /tmp/ol025.patch
-          git apply --check .ol025-diagnosis/package-fix-v4.patch
-          git apply .ol025-diagnosis/package-fix-v4.patch
+          git apply --check /tmp/ol025-v4.patch
+          git apply /tmp/ol025-v4.patch
           rm -rf .ol025-transfer .ol025-diagnosis .github/workflows/finalize-ol025.yml .github/workflows/diagnose-ol025-package.yml
       - run: pnpm install --frozen-lockfile
       - name: Validate final package fix
@@ -55,30 +72,25 @@ jobs:
           pnpm typecheck
           pnpm vitest run packages/contracts/tests/local-installation.test.ts tools/local-installer/tests/*.test.ts
           pnpm build
-      - name: Capture package proof details
+      - name: Build and prove two independent packages
         shell: bash
         run: |
-          set +e
+          set -euo pipefail
           rm -rf /tmp/ol025-package-a /tmp/ol025-package-b
           pnpm package:windows /tmp/ol025-package-a > /tmp/package-a.stdout 2> /tmp/package-a.stderr
-          echo "$?" > /tmp/package-a.exit
           pnpm package:windows /tmp/ol025-package-b > /tmp/package-b.stdout 2> /tmp/package-b.stderr
-          echo "$?" > /tmp/package-b.exit
           python - <<'PY'
           import json, os, subprocess
           from pathlib import Path
-          result={}
-          def parse(name):
+          def load(name):
               lines=[line for line in Path(f'/tmp/package-{name}.stdout').read_text().splitlines() if line.strip()]
-              result[f'{name}Lines']=lines
-              if len(lines)!=1: return None
-              try: return json.loads(lines[0])
-              except Exception as exc:
-                  result[f'{name}ParseError']=repr(exc); return None
-          a=parse('a'); b=parse('b')
-          result['a']=a; result['b']=b
-          result['sameFingerprint']=bool(a and b and a.get('fingerprint') and a.get('fingerprint')==b.get('fingerprint'))
-          result['sameFileCount']=bool(a and b and a.get('fileCount')==b.get('fileCount'))
+              if len(lines)!=1: raise SystemExit(f'invalid package output {name}: {lines}')
+              value=json.loads(lines[0])
+              if value.get('ok') is not True: raise SystemExit(f'package {name} failed: {value}')
+              return value
+          a=load('a'); b=load('b')
+          if a['fingerprint']!=b['fingerprint'] or a['fileCount']!=b['fileCount']:
+              raise SystemExit('package outputs are not deterministic')
           metadata=[
             'daemon/pnpm-lock.yaml','hook-adapter/pnpm-lock.yaml','installer/pnpm-lock.yaml',
             'daemon/node_modules/.bin','hook-adapter/node_modules/.bin','installer/node_modules/.bin',
@@ -86,58 +98,52 @@ jobs:
             'daemon/node_modules/.pnpm-workspace-state-v1.json','hook-adapter/node_modules/.pnpm-workspace-state-v1.json','installer/node_modules/.pnpm-workspace-state-v1.json',
             'daemon/node_modules/.pnpm','hook-adapter/node_modules/.pnpm','installer/node_modules/.pnpm',
           ]
-          markers=[os.environ['GITHUB_WORKSPACE'].encode(),b'/home/runner/setup-pnpm',b'\\home\\runner',b'file:///home/runner']
+          markers=[os.environ['GITHUB_WORKSPACE'].encode(),b'/home/runner/setup-pnpm',b'file:///home/runner']
+          result={'fingerprint':a['fingerprint'],'fileCount':a['fileCount'],'packages':{}}
           for name in ('a','b'):
               root=Path(f'/tmp/ol025-package-{name}/ownloop-windows-0.1.0')
-              result[f'{name}Exists']=root.is_dir()
-              result[f'{name}Symlinks']=[str(p.relative_to(root)) for p in root.rglob('*') if p.is_symlink()] if root.is_dir() else None
-              result[f'{name}Metadata']=[rel for rel in metadata if (root/rel).exists()] if root.is_dir() else None
+              if not root.is_dir(): raise SystemExit(f'missing package root {name}')
+              links=[str(p.relative_to(root)) for p in root.rglob('*') if p.is_symlink()]
+              leftovers=[rel for rel in metadata if (root/rel).exists()]
               leaks=[]
-              if root.is_dir():
-                  for path in root.rglob('*'):
-                      if path.is_file():
-                          data=path.read_bytes()
-                          if any(marker in data for marker in markers): leaks.append(str(path.relative_to(root)))
-              result[f'{name}Leaks']=leaks
+              for path in root.rglob('*'):
+                  if path.is_file() and any(marker in path.read_bytes() for marker in markers):
+                      leaks.append(str(path.relative_to(root)))
+              if links or leftovers or leaks:
+                  raise SystemExit(f'package hygiene failure {name}: links={links[:5]} metadata={leftovers} leaks={leaks}')
               manifests={}
-              if root.is_dir():
-                  for label,rel in {'daemon':'daemon/package.json','hook':'hook-adapter/package.json','installer':'installer/package.json'}.items():
-                      manifests[label]=json.loads((root/rel).read_text())
-              result[f'{name}Manifests']=manifests
+              for label,rel in {'daemon':'daemon/package.json','hook':'hook-adapter/package.json','installer':'installer/package.json'}.items():
+                  value=json.loads((root/rel).read_text())
+                  if 'scripts' in value or 'devDependencies' in value:
+                      raise SystemExit(f'non-runtime metadata remains: {name}/{rel}')
+                  manifests[label]=value
               imports={}
-              if root.is_dir():
-                  for label,rel in {
-                      'daemon':'daemon/dist/runtime/compatibility.js',
-                      'hook':'hook-adapter/dist/adapter.js',
-                      'installer':'installer/dist/package-builder.js',
-                  }.items():
-                      completed=subprocess.run(['node','-e',f"import({json.dumps((root/rel).as_uri())})"],capture_output=True,text=True)
-                      imports[label]={'code':completed.returncode,'stderr':completed.stderr}
-              result[f'{name}Imports']=imports
+              for label,rel in {
+                  'daemon':'daemon/dist/runtime/compatibility.js',
+                  'hook':'hook-adapter/dist/adapter.js',
+                  'installer':'installer/dist/package-builder.js',
+              }.items():
+                  completed=subprocess.run(['node','-e',f"import({json.dumps((root/rel).as_uri())})"],capture_output=True,text=True)
+                  if completed.returncode!=0: raise SystemExit(f'import failed {name}/{label}: {completed.stderr}')
+                  imports[label]=0
+              result['packages'][name]={'symlinks':0,'metadata':0,'leaks':0,'imports':imports,'manifests':manifests}
           Path('/tmp/package-proof-result.json').write_text(json.dumps(result,sort_keys=True,indent=2)+'\n')
           PY
           for name in a b; do
             root="/tmp/ol025-package-${name}/ownloop-windows-0.1.0"
-            if test -d "$root"; then
-              find "$root" -mindepth 1 -printf '%P\n' | LC_ALL=C sort > "/tmp/package-${name}.files"
-              du -sb "$root" > "/tmp/package-${name}.size"
-            fi
+            find "$root" -mindepth 1 -printf '%P\n' | LC_ALL=C sort > "/tmp/package-${name}.files"
+            du -sb "$root" > "/tmp/package-${name}.size"
           done
           cat /tmp/package-proof-result.json
-          exit 0
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: ol025-final-package-proof-v4-transfer
+          name: ol025-final-package-proof-v4-content-addressed
           path: |
-            /tmp/package-fix-v4.sha256
-            /tmp/package-fix-v4.size
             /tmp/package-a.stdout
             /tmp/package-a.stderr
-            /tmp/package-a.exit
             /tmp/package-b.stdout
             /tmp/package-b.stderr
-            /tmp/package-b.exit
             /tmp/package-proof-result.json
             /tmp/package-a.files
             /tmp/package-b.files
