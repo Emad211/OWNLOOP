@@ -1,1 +1,1 @@
-diagnose package deploy staging
+diagnose hoisted package deploy
