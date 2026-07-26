@@ -1,7 +1,55 @@
 diff --git a/tools/local-installer/src/package-builder.ts b/tools/local-installer/src/package-builder.ts
 --- a/tools/local-installer/src/package-builder.ts
 +++ b/tools/local-installer/src/package-builder.ts
-@@ -173,19 +173,27 @@
+@@ -53,6 +53,47 @@
+   if (!isAbsolute(path) || path.includes("\0"))
+     throw new PackageBuilderError("invalid_configuration");
+   return resolve(path);
++}
++
++function fsCode(error: unknown): string | null {
++  return typeof error === "object" &&
++    error !== null &&
++    "code" in error &&
++    typeof error.code === "string"
++    ? error.code
++    : null;
++}
++
++async function optionalLstat(path: string) {
++  try {
++    return await lstat(path);
++  } catch (error) {
++    if (fsCode(error) === "ENOENT") return null;
++    throw new PackageBuilderError("build_failed");
++  }
++}
++
++async function removeGeneratedFile(path: string): Promise<void> {
++  const stats = await optionalLstat(path);
++  if (stats === null) return;
++  if (!stats.isFile()) throw new PackageBuilderError("forbidden_file");
++  await rm(path, { force: true });
++}
++
++async function removeGeneratedDirectory(
++  path: string,
++  allowedEntries?: ReadonlySet<string>,
++): Promise<void> {
++  const stats = await optionalLstat(path);
++  if (stats === null) return;
++  if (!stats.isDirectory()) throw new PackageBuilderError("forbidden_file");
++  if (allowedEntries !== undefined) {
++    const entries = await readdir(path);
++    if (entries.some((entry) => !allowedEntries.has(entry))) {
++      throw new PackageBuilderError("forbidden_file");
++    }
++  }
++  await rm(path, { recursive: true, force: true });
+ }
+ 
+ async function copyTree(source: string, destination: string): Promise<void> {
+@@ -173,19 +214,27 @@
        ["@ownloop/local-installer", "installer"],
      ] as const;
      for (const [workspace, destination] of deploys) {
@@ -22,12 +70,12 @@ diff --git a/tools/local-installer/src/package-builder.ts b/tools/local-installe
          ],
          { cwd: repositoryRoot },
        );
-+      const executableShimRoot = join(deploymentRoot, "node_modules", ".bin");
-+      const executableShimStats = await lstat(executableShimRoot).catch(() => null);
-+      if (executableShimStats !== null && !executableShimStats.isDirectory()) {
-+        throw new PackageBuilderError("forbidden_file");
-+      }
-+      await rm(executableShimRoot, { recursive: true, force: true });
++      const nodeModulesRoot = join(deploymentRoot, "node_modules");
++      await removeGeneratedDirectory(join(nodeModulesRoot, ".bin"));
++      await removeGeneratedFile(join(deploymentRoot, "pnpm-lock.yaml"));
++      await removeGeneratedFile(join(nodeModulesRoot, ".modules.yaml"));
++      await removeGeneratedFile(join(nodeModulesRoot, ".pnpm-workspace-state-v1.json"));
++      await removeGeneratedDirectory(join(nodeModulesRoot, ".pnpm"), new Set(["lock.yaml"]));
      }
      await copyTree(join(repositoryRoot, "apps", "web", "dist"), join(stagingRoot, "web"));
      await copyTree(
@@ -40,19 +88,49 @@ diff --git a/tools/local-installer/tests/package-builder.test.ts b/tools/local-i
  import { tmpdir } from "node:os";
  import { join } from "node:path";
  
-@@ -35,7 +35,10 @@
+@@ -29,13 +29,30 @@
+   return { repositoryRoot, outputRoot };
+ }
+ 
+-function runner(forbidden = false) {
++function runner(
++  options: Readonly<{ forbidden?: boolean; unexpectedVirtualStoreEntry?: boolean }> = {},
++) {
+   return vi.fn(async (_executable: string, args: readonly string[]) => {
+     if (args[0] === "--version") return { stdout: "11.4.0\n", stderr: "" };
      if (args[0] === "build") return { stdout: "", stderr: "" };
      const destination = args.at(-1)!;
      await mkdir(join(destination, "dist"), { recursive: true });
 -    const workspace = args[1];
-+    await mkdir(join(destination, "node_modules", ".bin"), { recursive: true });
-+    await writeFile(join(destination, "node_modules", ".bin", "unused-runtime-bin"), "shim\n");
++    const nodeModulesRoot = join(destination, "node_modules");
++    await mkdir(join(nodeModulesRoot, ".bin"), { recursive: true });
++    await writeFile(join(nodeModulesRoot, ".bin", "unused-runtime-bin"), "shim\n");
++    await writeFile(join(destination, "pnpm-lock.yaml"), `root: ${destination}\n`);
++    await writeFile(join(nodeModulesRoot, ".modules.yaml"), `storeDir: ${destination}\n`);
++    await writeFile(
++      join(nodeModulesRoot, ".pnpm-workspace-state-v1.json"),
++      `${JSON.stringify({ lastValidatedTimestamp: Date.now(), root: destination })}\n`,
++    );
++    await mkdir(join(nodeModulesRoot, ".pnpm"), { recursive: true });
++    await writeFile(join(nodeModulesRoot, ".pnpm", "lock.yaml"), `root: ${destination}\n`);
++    if (options.unexpectedVirtualStoreEntry) {
++      await writeFile(join(nodeModulesRoot, ".pnpm", "runtime.js"), "unexpected\n");
++    }
 +    const filterIndex = args.indexOf("--filter");
 +    const workspace = args[filterIndex + 1];
      if (workspace === "@ownloop/daemon")
        await writeFile(join(destination, "dist", "main.js"), "daemon\n");
      if (workspace === "@ownloop/hook-adapter")
-@@ -67,11 +70,23 @@
+@@ -43,7 +60,7 @@
+     if (workspace === "@ownloop/local-installer") {
+       await writeFile(join(destination, "dist", "cli.js"), "cli\n");
+       await writeFile(join(destination, "dist", "hook-main.js"), "hook main\n");
+-      if (forbidden) await writeFile(join(destination, "dist", ".env"), "SECRET=x\n");
++      if (options.forbidden) await writeFile(join(destination, "dist", ".env"), "SECRET=x\n");
+     }
+     return { stdout: "", stderr: "" };
+   });
+@@ -67,11 +84,29 @@
      expect(await readFile(join(first.packageRoot, "web", "index.html"), "utf8")).toContain(
        "doctype",
      );
@@ -75,9 +153,40 @@ diff --git a/tools/local-installer/tests/package-builder.test.ts b/tools/local-i
 +      );
 +      expect(args).not.toContain("--legacy");
 +    }
-+    expect(
-+      await lstat(join(first.packageRoot, "daemon", "node_modules", ".bin")).catch(() => null),
-+    ).toBeNull();
++    for (const path of [
++      join(first.packageRoot, "daemon", "pnpm-lock.yaml"),
++      join(first.packageRoot, "daemon", "node_modules", ".bin"),
++      join(first.packageRoot, "daemon", "node_modules", ".modules.yaml"),
++      join(first.packageRoot, "daemon", "node_modules", ".pnpm-workspace-state-v1.json"),
++      join(first.packageRoot, "daemon", "node_modules", ".pnpm"),
++    ]) {
++      expect(await lstat(path).catch(() => null)).toBeNull();
++    }
  
      const secondFixture = await fixture();
      const second = await buildWindowsReleasePackage({
+@@ -85,7 +120,23 @@
+   it("cleans staging and rejects credentials or developer environment files", async () => {
+     const setup = await fixture();
+     await expect(
+-      buildWindowsReleasePackage({ ...setup, runner: runner(true), nodeVersion: "24.18.0" }),
++      buildWindowsReleasePackage({
++        ...setup,
++        runner: runner({ forbidden: true }),
++        nodeVersion: "24.18.0",
++      }),
++    ).rejects.toThrowError(expect.objectContaining({ code: "forbidden_file" }));
++    expect(await readdir(setup.outputRoot)).toEqual([]);
++  });
++
++  it("rejects unexpected content in the generated virtual-store metadata directory", async () => {
++    const setup = await fixture();
++    await expect(
++      buildWindowsReleasePackage({
++        ...setup,
++        runner: runner({ unexpectedVirtualStoreEntry: true }),
++        nodeVersion: "24.18.0",
++      }),
+     ).rejects.toThrowError(expect.objectContaining({ code: "forbidden_file" }));
+     expect(await readdir(setup.outputRoot)).toEqual([]);
+   });
