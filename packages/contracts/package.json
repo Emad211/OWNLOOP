@@ -11,6 +11,11 @@
       "types": "./src/index.ts",
       "development": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./codex": {
+      "types": "./src/codex.ts",
+      "development": "./src/codex.ts",
+      "default": "./dist/codex.js"
     }
   },
   "scripts": {
