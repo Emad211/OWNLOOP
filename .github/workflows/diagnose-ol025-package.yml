@@ -11,7 +11,7 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
         with:
@@ -24,10 +24,11 @@ jobs:
         with:
           version: 11.4.0
           run_install: false
-      - name: Reconstruct exact OL-025 source
+      - name: Reconstruct exact OL-025 source and apply package fix
         shell: bash
         run: |
           set -euo pipefail
+          test "$(sha256sum .ol025-diagnosis/package-fix.patch | cut -d' ' -f1)" = "02cdf7c8dc5be34d5565af7f432baeee610c7a40f6fcd5aec6cb1b1dffb8628a"
           python - <<'PY'
           from pathlib import Path
           import base64, gzip, hashlib
@@ -40,48 +41,64 @@ jobs:
           PY
           git apply --check /tmp/ol025.patch
           git apply /tmp/ol025.patch
-          rm -rf .ol025-transfer .github/workflows/finalize-ol025.yml .github/workflows/diagnose-ol025-package.yml
+          git apply --check .ol025-diagnosis/package-fix.patch
+          git apply .ol025-diagnosis/package-fix.patch
+          rm -rf .ol025-transfer .ol025-diagnosis .github/workflows/finalize-ol025.yml .github/workflows/diagnose-ol025-package.yml
       - run: pnpm install --frozen-lockfile
-      - name: Capture modern hoisted deploy behavior
+      - name: Focused validation
         shell: bash
         run: |
-          set +e
-          : > /tmp/modern.log
-          : > /tmp/modern-status.txt
-          pnpm build >> /tmp/modern.log 2>&1
-          printf 'build=%s\n' "$?" >> /tmp/modern-status.txt
-          rm -rf /tmp/ol025-modern
-          mkdir -p /tmp/ol025-modern
-          pnpm --config.node-linker=hoisted --config.inject-workspace-packages=true --filter @ownloop/daemon deploy --prod --offline /tmp/ol025-modern/daemon >> /tmp/modern.log 2>&1
-          printf 'daemon_deploy=%s\n' "$?" >> /tmp/modern-status.txt
-          pnpm --config.node-linker=hoisted --config.inject-workspace-packages=true --filter @ownloop/hook-adapter deploy --prod --offline /tmp/ol025-modern/hook-adapter >> /tmp/modern.log 2>&1
-          printf 'hook_deploy=%s\n' "$?" >> /tmp/modern-status.txt
-          pnpm --config.node-linker=hoisted --config.inject-workspace-packages=true --filter @ownloop/local-installer deploy --prod --offline /tmp/ol025-modern/installer >> /tmp/modern.log 2>&1
-          printf 'installer_deploy=%s\n' "$?" >> /tmp/modern-status.txt
-          find /tmp/ol025-modern -type l -printf '%P -> %l\n' | LC_ALL=C sort > /tmp/modern-symlinks.txt 2>> /tmp/modern.log
-          find /tmp/ol025-modern -mindepth 1 -printf '%P\n' | LC_ALL=C sort > /tmp/modern-files.txt 2>> /tmp/modern.log
-          du -sb /tmp/ol025-modern > /tmp/modern-size.txt 2>> /tmp/modern.log
-          node -e "import('/tmp/ol025-modern/daemon/dist/runtime/compatibility.js').then(()=>console.log('daemon-import-ok'))" >> /tmp/modern.log 2>&1
-          printf 'daemon_import=%s\n' "$?" >> /tmp/modern-status.txt
-          node -e "import('/tmp/ol025-modern/hook-adapter/dist/adapter.js').then(()=>console.log('hook-import-ok'))" >> /tmp/modern.log 2>&1
-          printf 'hook_import=%s\n' "$?" >> /tmp/modern-status.txt
-          node -e "import('/tmp/ol025-modern/installer/dist/package-builder.js').then(()=>console.log('installer-import-ok'))" >> /tmp/modern.log 2>&1
-          printf 'installer_import=%s\n' "$?" >> /tmp/modern-status.txt
-          tar -czf /tmp/ol025-modern.tar.gz -C /tmp ol025-modern >> /tmp/modern.log 2>&1
-          printf 'archive=%s\n' "$?" >> /tmp/modern-status.txt
-          cat /tmp/modern-status.txt
-          tail -n 180 /tmp/modern.log
-          exit 0
+          set -euo pipefail
+          pnpm format:check
+          pnpm lint
+          pnpm --filter @ownloop/local-installer typecheck
+          pnpm vitest run tools/local-installer/tests/package-builder.test.ts
+      - name: Build two independent verified packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm build
+          rm -rf /tmp/ol025-package-a /tmp/ol025-package-b
+          pnpm package:windows /tmp/ol025-package-a | tee /tmp/package-a.json
+          pnpm package:windows /tmp/ol025-package-b | tee /tmp/package-b.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          a=json.loads(Path('/tmp/package-a.json').read_text())
+          b=json.loads(Path('/tmp/package-b.json').read_text())
+          if a.get('ok') is not True or b.get('ok') is not True:
+              raise SystemExit('package build failed')
+          if a.get('fingerprint') != b.get('fingerprint'):
+              raise SystemExit('package fingerprints differ')
+          if a.get('fileCount') != b.get('fileCount'):
+              raise SystemExit('package file counts differ')
+          Path('/tmp/package-summary.json').write_text(json.dumps({
+              'fingerprint': a['fingerprint'],
+              'fileCount': a['fileCount'],
+          }, sort_keys=True)+'\n')
+          PY
+          PACKAGE_A=/tmp/ol025-package-a/ownloop-windows-0.1.0
+          PACKAGE_B=/tmp/ol025-package-b/ownloop-windows-0.1.0
+          test "$(find "$PACKAGE_A" -type l | wc -l | tr -d ' ')" = "0"
+          test "$(find "$PACKAGE_B" -type l | wc -l | tr -d ' ')" = "0"
+          test ! -e "$PACKAGE_A/daemon/node_modules/.bin"
+          test ! -e "$PACKAGE_A/hook-adapter/node_modules/.bin"
+          test ! -e "$PACKAGE_A/installer/node_modules/.bin"
+          node -e "import('/tmp/ol025-package-a/ownloop-windows-0.1.0/daemon/dist/runtime/compatibility.js').then(()=>console.log('daemon-import-ok'))"
+          node -e "import('/tmp/ol025-package-a/ownloop-windows-0.1.0/hook-adapter/dist/adapter.js').then(()=>console.log('hook-import-ok'))"
+          node -e "import('/tmp/ol025-package-a/ownloop-windows-0.1.0/installer/dist/package-builder.js').then(()=>console.log('installer-import-ok'))"
+          du -sb "$PACKAGE_A" > /tmp/package-size.txt
+          find "$PACKAGE_A" -mindepth 1 -printf '%P\n' | LC_ALL=C sort > /tmp/package-files.txt
+          tar -czf /tmp/ol025-package-a.tar.gz -C /tmp/ol025-package-a ownloop-windows-0.1.0
       - uses: actions/upload-artifact@v6
-        if: always()
         with:
-          name: ol025-modern-hoisted-deploy-diagnosis
+          name: ol025-fixed-package-proof
           path: |
-            /tmp/modern.log
-            /tmp/modern-status.txt
-            /tmp/modern-symlinks.txt
-            /tmp/modern-files.txt
-            /tmp/modern-size.txt
-            /tmp/ol025-modern.tar.gz
-          if-no-files-found: warn
+            /tmp/package-a.json
+            /tmp/package-b.json
+            /tmp/package-summary.json
+            /tmp/package-size.txt
+            /tmp/package-files.txt
+            /tmp/ol025-package-a.tar.gz
+          if-no-files-found: error
           retention-days: 1
