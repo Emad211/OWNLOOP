@@ -54,69 +54,86 @@ jobs:
           pnpm typecheck
           pnpm vitest run packages/contracts/tests/local-installation.test.ts tools/local-installer/tests/*.test.ts
           pnpm build
-      - name: Build and compare two independent packages
+      - name: Capture package proof details
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
           rm -rf /tmp/ol025-package-a /tmp/ol025-package-b
-          pnpm package:windows /tmp/ol025-package-a > /tmp/package-a.json 2> /tmp/package-a.stderr
-          pnpm package:windows /tmp/ol025-package-b > /tmp/package-b.json 2> /tmp/package-b.stderr
+          pnpm package:windows /tmp/ol025-package-a > /tmp/package-a.stdout 2> /tmp/package-a.stderr
+          echo "$?" > /tmp/package-a.exit
+          pnpm package:windows /tmp/ol025-package-b > /tmp/package-b.stdout 2> /tmp/package-b.stderr
+          echo "$?" > /tmp/package-b.exit
           python - <<'PY'
-          import json, os
+          import json, os, subprocess
           from pathlib import Path
-          def load(path):
-              lines=[line for line in Path(path).read_text().splitlines() if line.strip()]
-              if len(lines)!=1:
-                  raise SystemExit(f'invalid package output: {path}: {lines}')
-              value=json.loads(lines[0])
-              if value.get('ok') is not True:
-                  raise SystemExit(f'package failed: {value}')
-              return value
-          a=load('/tmp/package-a.json')
-          b=load('/tmp/package-b.json')
-          if a['fingerprint'] != b['fingerprint'] or a['fileCount'] != b['fileCount']:
-              raise SystemExit('package outputs are not deterministic')
-          roots=[Path('/tmp/ol025-package-a/ownloop-windows-0.1.0'),Path('/tmp/ol025-package-b/ownloop-windows-0.1.0')]
-          forbidden=[os.environ['GITHUB_WORKSPACE'].encode(), b'/home/runner/setup-pnpm', b'\\home\\runner']
-          for root in roots:
-              if not root.is_dir(): raise SystemExit(f'missing package root: {root}')
-              links=[str(p) for p in root.rglob('*') if p.is_symlink()]
-              if links: raise SystemExit(f'package contains symlinks: {links[:10]}')
-              for rel in [
-                  'daemon/pnpm-lock.yaml','hook-adapter/pnpm-lock.yaml','installer/pnpm-lock.yaml',
-                  'daemon/node_modules/.bin','hook-adapter/node_modules/.bin','installer/node_modules/.bin',
-                  'daemon/node_modules/.modules.yaml','hook-adapter/node_modules/.modules.yaml','installer/node_modules/.modules.yaml',
-                  'daemon/node_modules/.pnpm-workspace-state-v1.json','hook-adapter/node_modules/.pnpm-workspace-state-v1.json','installer/node_modules/.pnpm-workspace-state-v1.json',
-                  'daemon/node_modules/.pnpm','hook-adapter/node_modules/.pnpm','installer/node_modules/.pnpm',
-              ]:
-                  if (root/rel).exists(): raise SystemExit(f'generated deploy metadata remains: {rel}')
-              for path in root.rglob('*'):
-                  if path.is_file():
-                      data=path.read_bytes()
-                      if any(marker in data for marker in forbidden):
-                          raise SystemExit(f'runner path leaked into package: {path.relative_to(root)}')
-          Path('/tmp/package-summary.json').write_text(json.dumps({
-              'fingerprint':a['fingerprint'],'fileCount':a['fileCount']
-          },sort_keys=True)+'\n')
+          result={}
+          def parse(name):
+              lines=[line for line in Path(f'/tmp/package-{name}.stdout').read_text().splitlines() if line.strip()]
+              result[f'{name}Lines']=lines
+              if len(lines)!=1: return None
+              try: return json.loads(lines[0])
+              except Exception as exc:
+                  result[f'{name}ParseError']=repr(exc); return None
+          a=parse('a'); b=parse('b')
+          result['a']=a; result['b']=b
+          result['sameFingerprint']=bool(a and b and a.get('fingerprint') and a.get('fingerprint')==b.get('fingerprint'))
+          result['sameFileCount']=bool(a and b and a.get('fileCount')==b.get('fileCount'))
+          metadata=[
+            'daemon/pnpm-lock.yaml','hook-adapter/pnpm-lock.yaml','installer/pnpm-lock.yaml',
+            'daemon/node_modules/.bin','hook-adapter/node_modules/.bin','installer/node_modules/.bin',
+            'daemon/node_modules/.modules.yaml','hook-adapter/node_modules/.modules.yaml','installer/node_modules/.modules.yaml',
+            'daemon/node_modules/.pnpm-workspace-state-v1.json','hook-adapter/node_modules/.pnpm-workspace-state-v1.json','installer/node_modules/.pnpm-workspace-state-v1.json',
+            'daemon/node_modules/.pnpm','hook-adapter/node_modules/.pnpm','installer/node_modules/.pnpm',
+          ]
+          markers=[os.environ['GITHUB_WORKSPACE'].encode(),b'/home/runner/setup-pnpm',b'\\home\\runner']
+          for name in ('a','b'):
+              root=Path(f'/tmp/ol025-package-{name}/ownloop-windows-0.1.0')
+              result[f'{name}Exists']=root.is_dir()
+              result[f'{name}Symlinks']=[str(p.relative_to(root)) for p in root.rglob('*') if p.is_symlink()] if root.is_dir() else None
+              result[f'{name}Metadata']=[rel for rel in metadata if (root/rel).exists()] if root.is_dir() else None
+              leaks=[]
+              if root.is_dir():
+                  for path in root.rglob('*'):
+                      if path.is_file():
+                          data=path.read_bytes()
+                          if any(marker in data for marker in markers): leaks.append(str(path.relative_to(root)))
+              result[f'{name}Leaks']=leaks
+              imports={}
+              if root.is_dir():
+                  for label,rel in {
+                      'daemon':'daemon/dist/runtime/compatibility.js',
+                      'hook':'hook-adapter/dist/adapter.js',
+                      'installer':'installer/dist/package-builder.js',
+                  }.items():
+                      completed=subprocess.run(['node','-e',f"import({json.dumps((root/rel).as_uri())})"],capture_output=True,text=True)
+                      imports[label]={'code':completed.returncode,'stderr':completed.stderr}
+              result[f'{name}Imports']=imports
+          Path('/tmp/package-proof-result.json').write_text(json.dumps(result,sort_keys=True,indent=2)+'\n')
           PY
-          PACKAGE=/tmp/ol025-package-a/ownloop-windows-0.1.0
-          node -e "import('/tmp/ol025-package-a/ownloop-windows-0.1.0/daemon/dist/runtime/compatibility.js').then(()=>console.log('daemon-import-ok'))"
-          node -e "import('/tmp/ol025-package-a/ownloop-windows-0.1.0/hook-adapter/dist/adapter.js').then(()=>console.log('hook-import-ok'))"
-          node -e "import('/tmp/ol025-package-a/ownloop-windows-0.1.0/installer/dist/package-builder.js').then(()=>console.log('installer-import-ok'))"
-          du -sb "$PACKAGE" > /tmp/package-size.txt
-          find "$PACKAGE" -mindepth 1 -printf '%P\n' | LC_ALL=C sort > /tmp/package-files.txt
-          tar -czf /tmp/ol025-package-a.tar.gz -C /tmp/ol025-package-a ownloop-windows-0.1.0
+          for name in a b; do
+            root="/tmp/ol025-package-${name}/ownloop-windows-0.1.0"
+            if test -d "$root"; then
+              find "$root" -mindepth 1 -printf '%P\n' | LC_ALL=C sort > "/tmp/package-${name}.files"
+              du -sb "$root" > "/tmp/package-${name}.size"
+            fi
+          done
+          cat /tmp/package-proof-result.json
+          exit 0
       - uses: actions/upload-artifact@v6
+        if: always()
         with:
-          name: ol025-final-package-proof
+          name: ol025-final-package-proof-details
           path: |
-            /tmp/package-a.json
-            /tmp/package-b.json
+            /tmp/package-a.stdout
             /tmp/package-a.stderr
+            /tmp/package-a.exit
+            /tmp/package-b.stdout
             /tmp/package-b.stderr
-            /tmp/package-summary.json
-            /tmp/package-size.txt
-            /tmp/package-files.txt
-            /tmp/ol025-package-a.tar.gz
-          if-no-files-found: error
+            /tmp/package-b.exit
+            /tmp/package-proof-result.json
+            /tmp/package-a.files
+            /tmp/package-b.files
+            /tmp/package-a.size
+            /tmp/package-b.size
+          if-no-files-found: warn
           retention-days: 1
