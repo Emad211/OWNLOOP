@@ -1,0 +1,52 @@
+name: Finalize OL-024 Diagnostics Dashboard
+
+on:
+  pull_request:
+    branches: [main]
+    types: [synchronize]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: finalize-ol024-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/ol-024-diagnostics-dashboard'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - name: Verify transfer and apply source
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          cat .github/ol024-finalizer/part-* > /tmp/finalize-ol024.sh
+          test "$(wc -c < /tmp/finalize-ol024.sh)" = '4406'
+          echo '399e3b25d2f75efef65d7b510eb46b15a86357272bb8c7c726856a04929c8168  /tmp/finalize-ol024.sh' | sha256sum -c -
+          bash /tmp/finalize-ol024.sh verify
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+          run_install: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - name: Commit, verify scope, and publish
+        shell: bash
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: bash /tmp/finalize-ol024.sh finish

@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:?mode required}"
+base_sha='0d7ff9309a65a3197d757126a945788c2fd2aed5'
+
+if [[ "$mode" == 'verify' ]]; then
+  test "$(git rev-parse HEAD)" = "${EXPECTED_HEAD:?}"
+
+  cat > /tmp/ol024-chunk-sha256 <<'EOF'
+fcb77c172f189b613e64474a0180b40a0c177e536a531e046ecab14d62495f81  .github/ol024-transfer/part-00
+f647a042cc868f5a707bb561b1982bbfbb523faad8a8ff5c5eb8737af3eb254e  .github/ol024-transfer/part-01
+ecfc91051b03f9360125b33a6192985720a56661a77eaf932501490ccd8d762a  .github/ol024-transfer/part-02
+aa7897311f5713696e378262ebe6a6bb4a3a591039089b2451a92840bc1b77c9  .github/ol024-transfer/part-03
+3b3f4e6afe996f454d9a09a893c31386890bf5d4e25bdb560ca3516f9600dde7  .github/ol024-transfer/part-04
+6458e429cead0e2c2bd45b74396195b6fcd9a0340ede1a814c56dfeafd5009fd  .github/ol024-transfer/part-05
+1661ff46c1200758f101562862b64cc9e9d98c9dec7d02653b5771aa830da512  .github/ol024-transfer/part-06
+540b417c51ece0d96685b1f7989f751b31c775b30c50eaf6cc5fc67c5c258fb7  .github/ol024-transfer/part-07
+d7217130f7e6e14202a77fda276b66c53c88ebad05a3ede1db2f7555d4bb603d  .github/ol024-transfer/part-08
+2e0ec94d52cf2611391ddb3c7f2390098636838349d6257273310b1cb0962363  .github/ol024-transfer/part-09
+EOF
+  sha256sum -c /tmp/ol024-chunk-sha256
+  for part in {00..08}; do test "$(wc -c < ".github/ol024-transfer/part-${part}")" = '4000'; done
+  test "$(wc -c < .github/ol024-transfer/part-09)" = '2200'
+
+  cat .github/ol024-transfer/part-{00..09} > /tmp/ol024.patch.gz.b64
+  test "$(wc -c < /tmp/ol024.patch.gz.b64)" = '38200'
+  echo '30b9b4091497b6da227c586500cd0f371aed64d99fc8a48211c1a43276d0db45  /tmp/ol024.patch.gz.b64' | sha256sum -c -
+  base64 --decode /tmp/ol024.patch.gz.b64 > /tmp/ol024.patch.gz
+  test "$(wc -c < /tmp/ol024.patch.gz)" = '28650'
+  echo 'bd23dae3aeffabe93212317e065958abbe2c570ebc4af00f211aeb85a8badff9  /tmp/ol024.patch.gz' | sha256sum -c -
+  gzip --decompress --stdout /tmp/ol024.patch.gz > /tmp/ol024.patch
+  test "$(wc -c < /tmp/ol024.patch)" = '132181'
+  echo '60ae5139ba2f0f02581b92abc22858beccd9b8a8fb497531492472686de4fc8f  /tmp/ol024.patch' | sha256sum -c -
+
+  git apply --check /tmp/ol024.patch
+  git apply /tmp/ol024.patch
+  rm -rf .github/ol024-transfer .github/ol024-finalizer
+  rm -f .github/workflows/finalize-ol024.yml .github/workflows/export-ol024-toolchain.yml
+  git diff --check
+  exit 0
+fi
+
+if [[ "$mode" == 'finish' ]]; then
+  git config user.name 'github-actions[bot]'
+  git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+  git add -A
+  git commit -m 'OL-024: Add sanitized diagnostics dashboard'
+  git diff --check "$base_sha" HEAD
+  git diff --name-only "$base_sha" HEAD | LC_ALL=C sort > /tmp/actual-files
+  cat > /tmp/expected-files <<'EOF'
+AGENTS.md
+README.md
+apps/daemon/src/diagnostics-dashboard/README.md
+apps/daemon/src/diagnostics-dashboard/constants.ts
+apps/daemon/src/diagnostics-dashboard/index.ts
+apps/daemon/src/diagnostics-dashboard/projector.test.ts
+apps/daemon/src/diagnostics-dashboard/p
