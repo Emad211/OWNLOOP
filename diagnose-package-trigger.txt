@@ -1,1 +1,1 @@
-diagnose package build source export
+diagnose package deploy staging
