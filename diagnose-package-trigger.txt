@@ -1,1 +1,1 @@
-diagnose package build
+diagnose package build source export
