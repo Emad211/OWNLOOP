@@ -42,31 +42,45 @@ jobs:
           git apply /tmp/ol025.patch
           rm -rf .ol025-transfer .github/workflows/finalize-ol025.yml .github/workflows/diagnose-ol025-package.yml
       - run: pnpm install --frozen-lockfile
-      - name: Test hoisted deploy layout
+      - name: Capture hoisted deploy behavior
         shell: bash
         run: |
-          set -euo pipefail
-          pnpm build
+          set +e
+          : > /tmp/hoisted.log
+          pnpm build >> /tmp/hoisted.log 2>&1
+          printf 'build=%s\n' "$?" >> /tmp/hoisted-status.txt
           rm -rf /tmp/ol025-hoisted
           mkdir -p /tmp/ol025-hoisted
-          pnpm --config.node-linker=hoisted --filter @ownloop/daemon deploy --prod --offline --legacy /tmp/ol025-hoisted/daemon
-          pnpm --config.node-linker=hoisted --filter @ownloop/hook-adapter deploy --prod --offline --legacy /tmp/ol025-hoisted/hook-adapter
-          pnpm --config.node-linker=hoisted --filter @ownloop/local-installer deploy --prod --offline --legacy /tmp/ol025-hoisted/installer
-          find /tmp/ol025-hoisted -type l -printf '%P -> %l\n' | LC_ALL=C sort > /tmp/hoisted-symlinks.txt
-          find /tmp/ol025-hoisted -mindepth 1 -printf '%P\n' | LC_ALL=C sort > /tmp/hoisted-files.txt
-          du -sb /tmp/ol025-hoisted > /tmp/hoisted-size.txt
-          node -e "import('/tmp/ol025-hoisted/daemon/dist/runtime/compatibility.js').then(()=>console.log('daemon-import-ok'))"
-          node -e "import('/tmp/ol025-hoisted/hook-adapter/dist/adapter.js').then(()=>console.log('hook-import-ok'))"
-          node -e "import('/tmp/ol025-hoisted/installer/dist/package-builder.js').then(()=>console.log('installer-import-ok'))"
-          tar -czf /tmp/ol025-hoisted.tar.gz -C /tmp ol025-hoisted
+          pnpm --config.node-linker=hoisted --filter @ownloop/daemon deploy --prod --offline --legacy /tmp/ol025-hoisted/daemon >> /tmp/hoisted.log 2>&1
+          printf 'daemon_deploy=%s\n' "$?" >> /tmp/hoisted-status.txt
+          pnpm --config.node-linker=hoisted --filter @ownloop/hook-adapter deploy --prod --offline --legacy /tmp/ol025-hoisted/hook-adapter >> /tmp/hoisted.log 2>&1
+          printf 'hook_deploy=%s\n' "$?" >> /tmp/hoisted-status.txt
+          pnpm --config.node-linker=hoisted --filter @ownloop/local-installer deploy --prod --offline --legacy /tmp/ol025-hoisted/installer >> /tmp/hoisted.log 2>&1
+          printf 'installer_deploy=%s\n' "$?" >> /tmp/hoisted-status.txt
+          find /tmp/ol025-hoisted -type l -printf '%P -> %l\n' | LC_ALL=C sort > /tmp/hoisted-symlinks.txt 2>> /tmp/hoisted.log
+          find /tmp/ol025-hoisted -mindepth 1 -printf '%P\n' | LC_ALL=C sort > /tmp/hoisted-files.txt 2>> /tmp/hoisted.log
+          du -sb /tmp/ol025-hoisted > /tmp/hoisted-size.txt 2>> /tmp/hoisted.log
+          node -e "import('/tmp/ol025-hoisted/daemon/dist/runtime/compatibility.js').then(()=>console.log('daemon-import-ok'))" >> /tmp/hoisted.log 2>&1
+          printf 'daemon_import=%s\n' "$?" >> /tmp/hoisted-status.txt
+          node -e "import('/tmp/ol025-hoisted/hook-adapter/dist/adapter.js').then(()=>console.log('hook-import-ok'))" >> /tmp/hoisted.log 2>&1
+          printf 'hook_import=%s\n' "$?" >> /tmp/hoisted-status.txt
+          node -e "import('/tmp/ol025-hoisted/installer/dist/package-builder.js').then(()=>console.log('installer-import-ok'))" >> /tmp/hoisted.log 2>&1
+          printf 'installer_import=%s\n' "$?" >> /tmp/hoisted-status.txt
+          tar -czf /tmp/ol025-hoisted.tar.gz -C /tmp ol025-hoisted >> /tmp/hoisted.log 2>&1
+          printf 'archive=%s\n' "$?" >> /tmp/hoisted-status.txt
+          cat /tmp/hoisted-status.txt
+          tail -n 160 /tmp/hoisted.log
+          exit 0
       - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: ol025-hoisted-deploy-diagnosis
           path: |
+            /tmp/hoisted.log
+            /tmp/hoisted-status.txt
             /tmp/hoisted-symlinks.txt
             /tmp/hoisted-files.txt
             /tmp/hoisted-size.txt
             /tmp/ol025-hoisted.tar.gz
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 1
