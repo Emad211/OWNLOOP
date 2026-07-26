@@ -1,1 +1,1 @@
-diagnose hoisted package deploy captured
+diagnose modern hoisted locked deploy
