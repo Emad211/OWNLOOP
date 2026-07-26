@@ -1,1 +1,1 @@
-instrument package builder with absolute import
+reveal post deploy package failure
