@@ -53,52 +53,75 @@ jobs:
           pnpm lint
           pnpm --filter @ownloop/local-installer typecheck
           pnpm vitest run tools/local-installer/tests/package-builder.test.ts
-      - name: Build two independent verified packages
+      - name: Capture two independent package builds
         shell: bash
         run: |
-          set -euo pipefail
-          pnpm build
+          set +e
+          pnpm build > /tmp/build.stdout 2> /tmp/build.stderr
+          printf '%s\n' "$?" > /tmp/build.exit
           rm -rf /tmp/ol025-package-a /tmp/ol025-package-b
-          pnpm package:windows /tmp/ol025-package-a | tee /tmp/package-a.json
-          pnpm package:windows /tmp/ol025-package-b | tee /tmp/package-b.json
+          pnpm package:windows /tmp/ol025-package-a > /tmp/package-a.stdout 2> /tmp/package-a.stderr
+          printf '%s\n' "$?" > /tmp/package-a.exit
+          pnpm package:windows /tmp/ol025-package-b > /tmp/package-b.stdout 2> /tmp/package-b.stderr
+          printf '%s\n' "$?" > /tmp/package-b.exit
           python - <<'PY'
           import json
           from pathlib import Path
-          a=json.loads(Path('/tmp/package-a.json').read_text())
-          b=json.loads(Path('/tmp/package-b.json').read_text())
-          if a.get('ok') is not True or b.get('ok') is not True:
-              raise SystemExit('package build failed')
-          if a.get('fingerprint') != b.get('fingerprint'):
-              raise SystemExit('package fingerprints differ')
-          if a.get('fileCount') != b.get('fileCount'):
-              raise SystemExit('package file counts differ')
-          Path('/tmp/package-summary.json').write_text(json.dumps({
-              'fingerprint': a['fingerprint'],
-              'fileCount': a['fileCount'],
-          }, sort_keys=True)+'\n')
+          result={}
+          for name in ('a','b'):
+              stdout=Path(f'/tmp/package-{name}.stdout').read_text()
+              parsed=None
+              for line in reversed([line for line in stdout.splitlines() if line.strip()]):
+                  try:
+                      candidate=json.loads(line)
+                  except Exception:
+                      continue
+                  if isinstance(candidate, dict):
+                      parsed=candidate
+                      break
+              result[name]=parsed
+          a=result['a'] or {}
+          b=result['b'] or {}
+          result['sameFingerprint']=bool(a.get('fingerprint')) and a.get('fingerprint') == b.get('fingerprint')
+          result['sameFileCount']=a.get('fileCount') == b.get('fileCount')
+          for name in ('a','b'):
+              root=Path(f'/tmp/ol025-package-{name}/ownloop-windows-0.1.0')
+              result[f'{name}Exists']=root.is_dir()
+              result[f'{name}Symlinks']=sum(1 for path in root.rglob('*') if path.is_symlink()) if root.is_dir() else None
+          Path('/tmp/package-diagnosis.json').write_text(json.dumps(result, sort_keys=True, indent=2)+'\n')
           PY
-          PACKAGE_A=/tmp/ol025-package-a/ownloop-windows-0.1.0
-          PACKAGE_B=/tmp/ol025-package-b/ownloop-windows-0.1.0
-          test "$(find "$PACKAGE_A" -type l | wc -l | tr -d ' ')" = "0"
-          test "$(find "$PACKAGE_B" -type l | wc -l | tr -d ' ')" = "0"
-          test ! -e "$PACKAGE_A/daemon/node_modules/.bin"
-          test ! -e "$PACKAGE_A/hook-adapter/node_modules/.bin"
-          test ! -e "$PACKAGE_A/installer/node_modules/.bin"
-          node -e "import('/tmp/ol025-package-a/ownloop-windows-0.1.0/daemon/dist/runtime/compatibility.js').then(()=>console.log('daemon-import-ok'))"
-          node -e "import('/tmp/ol025-package-a/ownloop-windows-0.1.0/hook-adapter/dist/adapter.js').then(()=>console.log('hook-import-ok'))"
-          node -e "import('/tmp/ol025-package-a/ownloop-windows-0.1.0/installer/dist/package-builder.js').then(()=>console.log('installer-import-ok'))"
-          du -sb "$PACKAGE_A" > /tmp/package-size.txt
-          find "$PACKAGE_A" -mindepth 1 -printf '%P\n' | LC_ALL=C sort > /tmp/package-files.txt
-          tar -czf /tmp/ol025-package-a.tar.gz -C /tmp/ol025-package-a ownloop-windows-0.1.0
+          for name in a b; do
+            root="/tmp/ol025-package-${name}/ownloop-windows-0.1.0"
+            if test -d "$root"; then
+              find "$root" -mindepth 1 -printf '%P\n' | LC_ALL=C sort > "/tmp/package-${name}.files"
+              du -sb "$root" > "/tmp/package-${name}.size"
+              tar -czf "/tmp/ol025-package-${name}.tar.gz" -C "/tmp/ol025-package-${name}" ownloop-windows-0.1.0
+            fi
+          done
+          cat /tmp/package-diagnosis.json
+          tail -n 100 /tmp/package-a.stdout
+          tail -n 100 /tmp/package-a.stderr
+          exit 0
       - uses: actions/upload-artifact@v6
+        if: always()
         with:
-          name: ol025-fixed-package-proof
+          name: ol025-fixed-package-diagnosis-v2
           path: |
-            /tmp/package-a.json
-            /tmp/package-b.json
-            /tmp/package-summary.json
-            /tmp/package-size.txt
-            /tmp/package-files.txt
+            /tmp/build.stdout
+            /tmp/build.stderr
+            /tmp/build.exit
+            /tmp/package-a.stdout
+            /tmp/package-a.stderr
+            /tmp/package-a.exit
+            /tmp/package-b.stdout
+            /tmp/package-b.stderr
+            /tmp/package-b.exit
+            /tmp/package-diagnosis.json
+            /tmp/package-a.files
+            /tmp/package-b.files
+            /tmp/package-a.size
+            /tmp/package-b.size
             /tmp/ol025-package-a.tar.gz
-          if-no-files-found: error
+            /tmp/ol025-package-b.tar.gz
+          if-no-files-found: warn
           retention-days: 1
