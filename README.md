@@ -8,12 +8,12 @@ The project observes a coding-agent Task Run, captures verifiable changes and ev
 
 ## Current status
 
-- Stage: v0.1 local settings and privacy controls
+- Stage: v0.1 diagnostics and evidence-quality dashboard
 - Product scope: proposed v0.1
 - First coding-agent adapter: Claude Code
 - First project languages: JavaScript and TypeScript
 - Runtime model: local single-user prototype
-- Repository state: trustworthy deterministic evidence foundation, finite validated Ownership Moments, durable append-only local interaction history, deterministic enriched Build Replay, and local settings/privacy controls in development
+- Repository state: trustworthy deterministic evidence foundation, finite validated Ownership Moments, durable append-only local interaction history, deterministic enriched Build Replay, accepted local settings/privacy controls, and a sanitized diagnostics/evidence-quality dashboard in development
 
 ## Local setup
 
@@ -55,7 +55,7 @@ pnpm build
 
 Use `pnpm format` to apply formatting.
 
-The shared packages provide strict ingress, Event, Raw Replay, change-classification, verification-evidence, Evidence Graph, Candidate Moment, semantic-input, Candidate-generation, Candidate-validation, Ownership-Moment projection, Moment-interaction, enriched Build Replay, and local-settings/privacy contracts. The daemon exposes authenticated ingress, deterministic evidence processing, selected-Moment projection, append-only interaction persistence tied to exact verified validations and Moments, read-only enriched Build Replay composition, compare-and-swap public settings, memory-only provider-secret handling, explicit retention/deletion actions, bounded custom secret-field redaction, and allowlisted process-lifetime diagnostic counts. The React viewer renders provider proposals separately from persisted support, hydrates recorded interaction state and settings from the local daemon, and never treats a stored action as proof of comprehension or ownership. The Claude Code hook adapter remains fail-open and outside the agent critical path.
+The shared packages provide strict ingress, Event, Raw Replay, change-classification, verification-evidence, Evidence Graph, Candidate Moment, semantic-input, Candidate-generation, Candidate-validation, Ownership-Moment projection, Moment-interaction, enriched Build Replay, and local-settings/privacy contracts. The daemon exposes authenticated ingress, deterministic evidence processing, selected-Moment projection, append-only interaction persistence tied to exact verified validations and Moments, read-only enriched Build Replay composition, compare-and-swap public settings, memory-only provider-secret handling, explicit retention/deletion actions, bounded custom secret-field redaction, allowlisted process-lifetime diagnostic counts, and a read-only diagnostics/evidence-quality projection with ephemeral sanitized bundle export. The React viewer renders provider proposals separately from persisted support, hydrates recorded interaction state and settings from the local daemon, and never treats a stored action as proof of comprehension or ownership. The Claude Code hook adapter remains fail-open and outside the agent critical path.
 
 ## Design principles
 
@@ -90,6 +90,7 @@ The shared packages provide strict ingress, Event, Raw Replay, change-classifica
 - [ADR-0023: Append-Only Moment Interactions and Ownership Records](docs/adr/0023-append-only-moment-interactions-and-ownership-records.md)
 - [ADR-0024: Deterministic Enriched Build Replay](docs/adr/0024-deterministic-enriched-build-replay.md)
 - [ADR-0025: Local Settings and Privacy Controls](docs/adr/0025-local-settings-and-privacy-controls.md)
+- [ADR-0026: Sanitized Diagnostics and Evidence-Quality Dashboard](docs/adr/0026-sanitized-diagnostics-and-evidence-quality-dashboard.md)
 
 ### Architecture
 
@@ -115,6 +116,7 @@ Claude Code hook
 → append-only Moment interactions and bounded no-comprehension records
 → deterministic enriched Build Replay
 → local settings, privacy controls, explicit retention, and Run deletion
+→ sanitized diagnostics and evidence-quality dashboard
 ```
 
 Candidate generation is an explicit, disabled-by-default proposal boundary. Provider output is never treated as evidence. OL-019 validates and finitely selects source Candidates; OL-020 joins only that verified selection and renders proposal wording separately from deterministic support. OL-021 records only explicit actions against exact displayed Moments as append-only local history. A stored action attests to recording, not comprehension, correctness, agreement, authorship, safety, or legal ownership.
@@ -125,4 +127,6 @@ The project is currently maintained by a one-person team. Architecture and scope
 
 ## Current milestone
 
-OL-023 adds one strict local settings and privacy-control boundary on top of the accepted loopback daemon. Public provider configuration, retention policy, diagnostics mode, raw-payload policy, and bounded custom secret-field patterns are persisted through migration v18 with compare-and-swap revisions. Provider API keys remain process-memory-only and disappear on restart. Retention cleanup and terminal Task Run deletion require explicit authenticated user actions and reuse existing cascade and artifact-GC boundaries; no scheduler, background purge, durable secret storage, raw diagnostic payload archive, browser storage, cloud, analytics, telemetry, billing, account system, or new listener is introduced.
+OL-024 adds an observational diagnostics and evidence-quality surface on top of the accepted settings/privacy boundary. The dashboard combines only allowlisted process-lifetime counters, validated persisted redaction summaries, controlled Run/finalization/Evidence-gap facts, and verified current-policy OL-019 validation reports. It displays bounded exact aggregates and recent Run-quality rows without reading payload JSON, prompts, repository/source content, Candidate prose, Evidence IDs/text, provider data, secrets, exceptions, or stacks.
+
+The sanitized diagnostic bundle is generated in memory on explicit authenticated GET, returned as bounded canonical JSON with fixed exclusion declarations, and immediately downloaded through an ephemeral browser object URL. No migration, diagnostics table, bundle artifact, raw-log archive, worker, scheduler, provider call, new listener, CORS surface, browser storage, cloud, analytics, telemetry, billing, or account system is introduced.

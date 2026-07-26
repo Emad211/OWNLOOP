@@ -16,6 +16,7 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { BuildReplaySection, type BuildReplayLoadState } from "./BuildReplay.js";
 import { SettingsPanel } from "./Settings.js";
+import { DiagnosticsPanel } from "./Diagnostics.js";
 import {
   createMomentInteractionId,
   createReplayApiClient,
@@ -1118,6 +1119,10 @@ export function ReplayViewer(props: ViewerProps) {
             selectedRun={props.selectedRun}
             onUnauthorized={props.onSettingsUnauthorized}
             onRunsDeleted={props.onRunsDeleted}
+          />
+          <DiagnosticsPanel
+            client={props.settingsClient}
+            onUnauthorized={props.onSettingsUnauthorized}
           />
         </main>
       </div>

@@ -1,4 +1,8 @@
 import {
+  type DiagnosticsBundleV1,
+  DiagnosticsBundleV1Schema,
+  type DiagnosticsDashboardV1,
+  DiagnosticsDashboardV1Schema,
   type EnrichedBuildReplayV1,
   EnrichedBuildReplayV1Schema,
   type EvidenceResolutionV1,
@@ -88,6 +92,8 @@ export type ReplayApiClient = Readonly<{
   getRetentionPreview(): Promise<LocalRetentionPreviewV1>;
   applyRetention(): Promise<LocalRetentionApplyResultV1>;
   deleteRun(runId: string): Promise<LocalRunDeletionResultV1>;
+  getDiagnosticsDashboard(): Promise<DiagnosticsDashboardV1>;
+  getDiagnosticsBundle(): Promise<DiagnosticsBundleV1>;
 }>;
 
 async function responseJson(response: Response): Promise<unknown> {
@@ -387,6 +393,22 @@ export function createReplayApiClient(
         if (!response.ok) throw mapErrorStatus(response.status);
         throw new ReplayApiError("invalid_response");
       }
+      return result.data;
+    },
+
+    async getDiagnosticsDashboard(): Promise<DiagnosticsDashboardV1> {
+      const result = DiagnosticsDashboardV1Schema.safeParse(
+        await requestJson("/v1/diagnostics/dashboard"),
+      );
+      if (!result.success) throw new ReplayApiError("invalid_response");
+      return result.data;
+    },
+
+    async getDiagnosticsBundle(): Promise<DiagnosticsBundleV1> {
+      const result = DiagnosticsBundleV1Schema.safeParse(
+        await requestJson("/v1/diagnostics/bundle"),
+      );
+      if (!result.success) throw new ReplayApiError("invalid_response");
       return result.data;
     },
   });
