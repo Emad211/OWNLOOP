@@ -1,1 +1,1 @@
-prove final deterministic package fix v3
+capture final package proof details
