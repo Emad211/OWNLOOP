@@ -28,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(sha256sum .ol025-diagnosis/package-fix-v3.patch | cut -d' ' -f1)" = "bb38d254c04714bbe8ab4f160c98966013108d2fedf61fce6c63e84e9a01f2bd"
+          test "$(sha256sum .ol025-diagnosis/package-fix-v4.patch | cut -d' ' -f1)" = "9f09ac9ad4c1534dfdbd53236cb7b892f6b4fa9fd3de2174d172e36ce4ff59be"
           python - <<'PY'
           from pathlib import Path
           import base64, gzip, hashlib
@@ -41,8 +41,8 @@ jobs:
           PY
           git apply --check /tmp/ol025.patch
           git apply /tmp/ol025.patch
-          git apply --check .ol025-diagnosis/package-fix-v3.patch
-          git apply .ol025-diagnosis/package-fix-v3.patch
+          git apply --check .ol025-diagnosis/package-fix-v4.patch
+          git apply .ol025-diagnosis/package-fix-v4.patch
           rm -rf .ol025-transfer .ol025-diagnosis .github/workflows/finalize-ol025.yml .github/workflows/diagnose-ol025-package.yml
       - run: pnpm install --frozen-lockfile
       - name: Validate final package fix
@@ -85,7 +85,7 @@ jobs:
             'daemon/node_modules/.pnpm-workspace-state-v1.json','hook-adapter/node_modules/.pnpm-workspace-state-v1.json','installer/node_modules/.pnpm-workspace-state-v1.json',
             'daemon/node_modules/.pnpm','hook-adapter/node_modules/.pnpm','installer/node_modules/.pnpm',
           ]
-          markers=[os.environ['GITHUB_WORKSPACE'].encode(),b'/home/runner/setup-pnpm',b'\\home\\runner']
+          markers=[os.environ['GITHUB_WORKSPACE'].encode(),b'/home/runner/setup-pnpm',b'\\home\\runner',b'file:///home/runner']
           for name in ('a','b'):
               root=Path(f'/tmp/ol025-package-{name}/ownloop-windows-0.1.0')
               result[f'{name}Exists']=root.is_dir()
@@ -98,6 +98,11 @@ jobs:
                           data=path.read_bytes()
                           if any(marker in data for marker in markers): leaks.append(str(path.relative_to(root)))
               result[f'{name}Leaks']=leaks
+              manifests={}
+              if root.is_dir():
+                  for label,rel in {'daemon':'daemon/package.json','hook':'hook-adapter/package.json','installer':'installer/package.json'}.items():
+                      manifests[label]=json.loads((root/rel).read_text())
+              result[f'{name}Manifests']=manifests
               imports={}
               if root.is_dir():
                   for label,rel in {
@@ -122,7 +127,7 @@ jobs:
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: ol025-final-package-proof-details
+          name: ol025-final-package-proof-v4
           path: |
             /tmp/package-a.stdout
             /tmp/package-a.stderr
