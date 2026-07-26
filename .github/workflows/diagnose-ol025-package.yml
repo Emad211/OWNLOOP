@@ -45,10 +45,19 @@ jobs:
           git apply .ol025-diagnosis/package-fix.patch
           rm -rf .ol025-transfer .ol025-diagnosis .github/workflows/finalize-ol025.yml .github/workflows/diagnose-ol025-package.yml
       - run: pnpm install --frozen-lockfile
-      - name: Build source and run instrumented package builder
+      - name: Reveal original post-deploy failure
         shell: bash
         run: |
           set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path=Path('tools/local-installer/src/package-builder.ts')
+          text=path.read_text()
+          old='''    if (error instanceof PackageBuilderError) throw error;\n    throw new PackageBuilderError("build_failed");'''
+          if old not in text:
+              raise SystemExit('diagnostic catch boundary not found')
+          path.write_text(text.replace(old, '    throw error;', 1))
+          PY
           pnpm build
           cat > /tmp/debug-package.mjs <<'JS'
           import { execFile } from 'node:child_process';
@@ -76,20 +85,19 @@ jobs:
             const result=await buildWindowsReleasePackage({repositoryRoot:resolve('.'),outputRoot:'/tmp/ol025-debug-output',runner,nodeVersion:'24.18.0'});
             await appendFile(log,`RESULT ${JSON.stringify(result)}\n`);
           } catch(error) {
-            await appendFile(log,`THROWN ${JSON.stringify({name:error?.name,message:error?.message,code:error?.code,stack:error?.stack})}\n`);
+            await appendFile(log,`THROWN ${JSON.stringify({name:error?.name,message:error?.message,code:error?.code,errno:error?.errno,path:error?.path,syscall:error?.syscall,stack:error?.stack})}\n`);
           }
           JS
           node /tmp/debug-package.mjs
           cat /tmp/package-debug.log
+          : > /tmp/package-debug-files.txt
           if test -d /tmp/ol025-debug-output; then
             find /tmp/ol025-debug-output -mindepth 1 -printf '%P\n' | LC_ALL=C sort > /tmp/package-debug-files.txt
-          else
-            : > /tmp/package-debug-files.txt
           fi
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: ol025-package-command-debug
+          name: ol025-package-post-deploy-debug
           path: |
             /tmp/package-debug.log
             /tmp/package-debug-files.txt
