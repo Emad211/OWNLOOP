@@ -1,0 +1,83 @@
+diff --git a/tools/local-installer/src/package-builder.ts b/tools/local-installer/src/package-builder.ts
+--- a/tools/local-installer/src/package-builder.ts
++++ b/tools/local-installer/src/package-builder.ts
+@@ -173,19 +173,27 @@
+       ["@ownloop/local-installer", "installer"],
+     ] as const;
+     for (const [workspace, destination] of deploys) {
++      const deploymentRoot = join(stagingRoot, destination);
+       await runner(
+         "pnpm",
+         [
++          "--config.node-linker=hoisted",
++          "--config.inject-workspace-packages=true",
+           "--filter",
+           workspace,
+           "deploy",
+           "--prod",
+           "--offline",
+-          "--legacy",
+-          join(stagingRoot, destination),
++          deploymentRoot,
+         ],
+         { cwd: repositoryRoot },
+       );
++      const executableShimRoot = join(deploymentRoot, "node_modules", ".bin");
++      const executableShimStats = await lstat(executableShimRoot).catch(() => null);
++      if (executableShimStats !== null && !executableShimStats.isDirectory()) {
++        throw new PackageBuilderError("forbidden_file");
++      }
++      await rm(executableShimRoot, { recursive: true, force: true });
+     }
+     await copyTree(join(repositoryRoot, "apps", "web", "dist"), join(stagingRoot, "web"));
+     await copyTree(
+diff --git a/tools/local-installer/tests/package-builder.test.ts b/tools/local-installer/tests/package-builder.test.ts
+--- a/tools/local-installer/tests/package-builder.test.ts
++++ b/tools/local-installer/tests/package-builder.test.ts
+@@ -1,4 +1,4 @@
+-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
++import { lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+ 
+@@ -35,7 +35,10 @@
+     if (args[0] === "build") return { stdout: "", stderr: "" };
+     const destination = args.at(-1)!;
+     await mkdir(join(destination, "dist"), { recursive: true });
+-    const workspace = args[1];
++    await mkdir(join(destination, "node_modules", ".bin"), { recursive: true });
++    await writeFile(join(destination, "node_modules", ".bin", "unused-runtime-bin"), "shim\n");
++    const filterIndex = args.indexOf("--filter");
++    const workspace = args[filterIndex + 1];
+     if (workspace === "@ownloop/daemon")
+       await writeFile(join(destination, "dist", "main.js"), "daemon\n");
+     if (workspace === "@ownloop/hook-adapter")
+@@ -67,11 +70,23 @@
+     expect(await readFile(join(first.packageRoot, "web", "index.html"), "utf8")).toContain(
+       "doctype",
+     );
+-    expect(firstRunner).toHaveBeenCalledWith(
+-      "pnpm",
+-      expect.arrayContaining(["deploy", "--prod", "--offline", "--legacy"]),
+-      expect.anything(),
+-    );
++    const deployCalls = firstRunner.mock.calls.filter(([, args]) => args.includes("deploy"));
++    expect(deployCalls).toHaveLength(3);
++    for (const [, args] of deployCalls) {
++      expect(args).toEqual(
++        expect.arrayContaining([
++          "--config.node-linker=hoisted",
++          "--config.inject-workspace-packages=true",
++          "deploy",
++          "--prod",
++          "--offline",
++        ]),
++      );
++      expect(args).not.toContain("--legacy");
++    }
++    expect(
++      await lstat(join(first.packageRoot, "daemon", "node_modules", ".bin")).catch(() => null),
++    ).toBeNull();
+ 
+     const secondFixture = await fixture();
+     const second = await buildWindowsReleasePackage({
