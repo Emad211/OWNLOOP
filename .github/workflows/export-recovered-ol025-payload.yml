@@ -1,7 +1,7 @@
 name: Export recovered OL-025 payload
 
 on:
-  push:
+  pull_request:
     branches:
       - agent/ol025-payload-recovery
 
