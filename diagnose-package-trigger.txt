@@ -1,1 +1,1 @@
-inspect transferred package fix v4
+prove content addressed package fix v4
