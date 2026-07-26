@@ -15,3 +15,12 @@ export {
   invalidNormalizedEventFixtures,
   validNormalizedEventFixtures,
 } from "./normalized-event-fixtures.js";
+export {
+  forwardCompatibleCodexHookFixtures,
+  invalidCodexAdapterIngressFixtures,
+  invalidCodexHookPayloadFixtures,
+  invalidCodexSourceMetadataFixtures,
+  validCodexAdapterIngressFixture,
+  validCodexHookFixtures,
+  validCodexSourceMetadataFixture,
+} from "./codex-hook-fixtures.js";
