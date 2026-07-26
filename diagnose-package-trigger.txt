@@ -1,1 +1,1 @@
-instrument package builder command failure
+instrument package builder with absolute import
