@@ -1,0 +1,565 @@
+diff --git a/packages/contracts/src/local-installation.ts b/packages/contracts/src/local-installation.ts
+index 0b7c6a0..1d8ba19 100644
+--- a/packages/contracts/src/local-installation.ts
++++ b/packages/contracts/src/local-installation.ts
+@@ -63,14 +63,30 @@ const safeIdentifierSchema = z
+   .min(1)
+   .max(128)
+   .regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/u);
+-const safeVersionSchema = z.string().regex(/^0\.1\.0$/u);
++const windowsReservedDeviceNamePattern = /^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$/iu;
++
++function isCanonicalWindowsPackagePath(value: string): boolean {
++  return value
++    .split("/")
++    .every(
++      (segment) =>
++        segment.length > 0 &&
++        segment !== "." &&
++        segment !== ".." &&
++        /^[A-Za-z0-9._@ -]+$/u.test(segment) &&
++        !segment.startsWith(" ") &&
++        !segment.endsWith(" ") &&
++        !segment.endsWith(".") &&
++        !windowsReservedDeviceNamePattern.test(segment),
++    );
++}
++
+ const canonicalRelativePathSchema = z
+   .string()
+   .min(1)
+   .max(512)
+-  .regex(/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/u)
+-  .refine((value) => !value.split("/").some((segment) => segment === "." || segment === ".."), {
+-    message: "Package paths must be canonical and traversal-free.",
++  .refine(isCanonicalWindowsPackagePath, {
++    message: "Package paths must be canonical, traversal-free, and Windows-safe.",
+   });
+ 
+ function isSortedUnique(values: readonly string[]): boolean {
+diff --git a/packages/contracts/tests/local-installation.test.ts b/packages/contracts/tests/local-installation.test.ts
+index cb2273c..6380417 100644
+--- a/packages/contracts/tests/local-installation.test.ts
++++ b/packages/contracts/tests/local-installation.test.ts
+@@ -93,6 +93,36 @@ describe("OL-025 local installation contracts", () => {
+     expect(() =>
+       OwnLoopReleaseManifestV1Schema.parse({ ...releaseManifest(), rawPath: "C:\\x" }),
+     ).toThrow();
++
++    expect(
++      OwnLoopReleaseManifestV1Schema.parse({
++        ...releaseManifest(),
++        files: [
++          {
++            path: "daemon/node_modules/@fastify/forwarded/dir with spaces/test-package.zip",
++            sizeBytes: 1,
++            sha256: "b".repeat(64),
++            executableCritical: true,
++          },
++          releaseManifest().files[1],
++        ],
++      }).files[0]?.path,
++    ).toContain("@fastify");
++
++    for (const path of [
++      "daemon/../escape.js",
++      "daemon/node_modules/bad?.js",
++      "daemon/node_modules/CON/readme.txt",
++      "daemon/node_modules/trailing./index.js",
++      "daemon/node_modules/ trailing/index.js",
++    ]) {
++      expect(() =>
++        OwnLoopReleaseManifestV1Schema.parse({
++          ...releaseManifest(),
++          files: [{ ...releaseManifest().files[0], path }, releaseManifest().files[1]],
++        }),
++      ).toThrow();
++    }
+   });
+ 
+   it("requires distinct canonical installation secrets", () => {
+diff --git a/tools/local-installer/src/manifest.ts b/tools/local-installer/src/manifest.ts
+index 50244da..9c19b91 100644
+--- a/tools/local-installer/src/manifest.ts
++++ b/tools/local-installer/src/manifest.ts
+@@ -16,9 +16,9 @@ import {
+   OWNLOOP_SUPPORTED_ARCHITECTURE,
+   OWNLOOP_SUPPORTED_PLATFORM,
+   OWNLOOP_WEB_VERSION,
+-  OwnLoopReleaseManifestV1Schema,
+   type OwnLoopReleaseFileV1,
+   type OwnLoopReleaseManifestV1,
++  OwnLoopReleaseManifestV1Schema,
+ } from "@ownloop/contracts";
+ 
+ export class ReleasePackageError extends Error {
+@@ -80,7 +80,7 @@ async function scanDirectory(
+   } catch {
+     throw new ReleasePackageError("operation_failed");
+   }
+-  entries.sort((left, right) => left.name.localeCompare(right.name, "en"));
++  entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+   for (const entry of entries) {
+     const absolute = resolve(directory, entry.name);
+     const relativePath = canonicalRelative(root, absolute);
+@@ -121,7 +121,7 @@ export async function buildReleaseManifest(
+   }
+   const files: OwnLoopReleaseFileV1[] = [];
+   await scanDirectory(root, root, critical, files);
+-  files.sort((left, right) => left.path.localeCompare(right.path, "en"));
++  files.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+   if ([...critical].some((path) => !files.some((file) => file.path === path))) {
+     throw new ReleasePackageError("missing_file");
+   }
+diff --git a/tools/local-installer/src/package-builder.ts b/tools/local-installer/src/package-builder.ts
+index 39bb150..1a03fa5 100644
+--- a/tools/local-installer/src/package-builder.ts
++++ b/tools/local-installer/src/package-builder.ts
+@@ -1,5 +1,5 @@
+ import { execFile } from "node:child_process";
+-import { copyFile, lstat, mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
++import { copyFile, lstat, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+ import { isAbsolute, join, relative, resolve, sep } from "node:path";
+ import { promisify } from "node:util";
+ 
+@@ -53,6 +53,144 @@ function absolute(path: string): string {
+   if (!isAbsolute(path) || path.includes("\0"))
+     throw new PackageBuilderError("invalid_configuration");
+   return resolve(path);
++}
++
++function fsCode(error: unknown): string | null {
++  return typeof error === "object" &&
++    error !== null &&
++    "code" in error &&
++    typeof error.code === "string"
++    ? error.code
++    : null;
++}
++
++async function optionalLstat(path: string) {
++  try {
++    return await lstat(path);
++  } catch (error) {
++    if (fsCode(error) === "ENOENT") return null;
++    throw new PackageBuilderError("build_failed");
++  }
++}
++
++async function removeGeneratedFile(path: string): Promise<void> {
++  const stats = await optionalLstat(path);
++  if (stats === null) return;
++  if (!stats.isFile()) throw new PackageBuilderError("forbidden_file");
++  await rm(path, { force: true });
++}
++
++async function removeGeneratedDirectory(
++  path: string,
++  allowedEntries?: ReadonlySet<string>,
++): Promise<void> {
++  const stats = await optionalLstat(path);
++  if (stats === null) return;
++  if (!stats.isDirectory()) throw new PackageBuilderError("forbidden_file");
++  if (allowedEntries !== undefined) {
++    const entries = await readdir(path);
++    if (entries.some((entry) => !allowedEntries.has(entry))) {
++      throw new PackageBuilderError("forbidden_file");
++    }
++  }
++  await rm(path, { recursive: true, force: true });
++}
++
++type JsonObject = Record<string, unknown>;
++
++function jsonObject(value: unknown): JsonObject {
++  if (typeof value !== "object" || value === null || Array.isArray(value)) {
++    throw new PackageBuilderError("forbidden_file");
++  }
++  return value as JsonObject;
++}
++
++function sortedStringRecord(
++  value: unknown,
++  mapValue: (name: string, specifier: string) => string,
++): Record<string, string> | undefined {
++  if (value === undefined) return undefined;
++  const record = jsonObject(value);
++  const result: Record<string, string> = {};
++  for (const name of Object.keys(record).sort()) {
++    const specifier = record[name];
++    if (typeof specifier !== "string") throw new PackageBuilderError("forbidden_file");
++    result[name] = mapValue(name, specifier);
++  }
++  return result;
++}
++
++function canonicalRuntimeDependency(name: string, specifier: string): string {
++  if (name.startsWith("@ownloop/")) {
++    if (specifier !== "workspace:*") throw new PackageBuilderError("forbidden_file");
++    return OWNLOOP_APPLICATION_VERSION;
++  }
++  if (!/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/u.test(specifier)) {
++    throw new PackageBuilderError("forbidden_file");
++  }
++  return specifier;
++}
++
++function canonicalStringArray(value: unknown): string[] | undefined {
++  if (value === undefined) return undefined;
++  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
++    throw new PackageBuilderError("forbidden_file");
++  }
++  return [...value].sort();
++}
++
++async function rewriteDeployedPackageMetadata(
++  repositoryRoot: string,
++  sourcePackagePath: string,
++  deploymentRoot: string,
++  expectedName: string,
++): Promise<void> {
++  const sourcePath = join(repositoryRoot, sourcePackagePath);
++  const deployedPath = join(deploymentRoot, "package.json");
++  const sourceStats = await optionalLstat(sourcePath);
++  const deployedStats = await optionalLstat(deployedPath);
++  if (sourceStats?.isFile() !== true || deployedStats?.isFile() !== true) {
++    throw new PackageBuilderError("forbidden_file");
++  }
++  let source: JsonObject;
++  try {
++    const bytes = await readFile(sourcePath);
++    if (bytes.length > 64 * 1024) throw new PackageBuilderError("forbidden_file");
++    source = jsonObject(JSON.parse(bytes.toString("utf8")) as unknown);
++  } catch (error) {
++    if (error instanceof PackageBuilderError) throw error;
++    throw new PackageBuilderError("forbidden_file");
++  }
++  if (
++    source.name !== expectedName ||
++    source.version !== OWNLOOP_APPLICATION_VERSION ||
++    source.private !== true ||
++    source.type !== "module"
++  ) {
++    throw new PackageBuilderError("forbidden_file");
++  }
++  const files = canonicalStringArray(source.files);
++  const bin = sortedStringRecord(source.bin, (_name, path) => {
++    if (!/^\.\/dist\/[A-Za-z0-9._/-]+$/u.test(path) || path.includes("../")) {
++      throw new PackageBuilderError("forbidden_file");
++    }
++    return path;
++  });
++  const dependencies = sortedStringRecord(source.dependencies, canonicalRuntimeDependency);
++  const optionalDependencies = sortedStringRecord(
++    source.optionalDependencies,
++    canonicalRuntimeDependency,
++  );
++  const canonical: JsonObject = {
++    name: expectedName,
++    version: OWNLOOP_APPLICATION_VERSION,
++    private: true,
++    type: "module",
++  };
++  if (files !== undefined) canonical.files = files;
++  if (bin !== undefined) canonical.bin = bin;
++  if (dependencies !== undefined) canonical.dependencies = dependencies;
++  if (optionalDependencies !== undefined) canonical.optionalDependencies = optionalDependencies;
++  await writeFile(deployedPath, `${JSON.stringify(canonical)}\n`, { mode: 0o600 });
+ }
+ 
+ async function copyTree(source: string, destination: string): Promise<void> {
+@@ -170,12 +308,12 @@ export async function buildWindowsReleasePackage(
+     await runner("pnpm", ["build"], { cwd: repositoryRoot });
+     const deploys = [
+-      ["@ownloop/daemon", "daemon"],
+-      ["@ownloop/hook-adapter", "hook-adapter"],
+-      ["@ownloop/local-installer", "installer"],
++      ["@ownloop/daemon", "daemon", "apps/daemon/package.json"],
++      ["@ownloop/hook-adapter", "hook-adapter", "tools/hook-adapter/package.json"],
++      ["@ownloop/local-installer", "installer", "tools/local-installer/package.json"],
+     ] as const;
+-    for (const [workspace, destination] of deploys) {
++    for (const [workspace, destination, sourcePackagePath] of deploys) {
+       const deploymentRoot = join(stagingRoot, destination);
+       await runner(
+         "pnpm",
+@@ -183,17 +321,29 @@ export async function buildWindowsReleasePackage(
+         [
++          "--config.node-linker=hoisted",
++          "--config.inject-workspace-packages=true",
+           "--filter",
+           workspace,
+           "deploy",
+           "--prod",
+           "--offline",
+-          "--legacy",
+-          join(stagingRoot, destination),
++          deploymentRoot,
+         ],
+         { cwd: repositoryRoot },
+       );
++      const nodeModulesRoot = join(deploymentRoot, "node_modules");
++      await removeGeneratedDirectory(join(nodeModulesRoot, ".bin"));
++      await removeGeneratedFile(join(deploymentRoot, "pnpm-lock.yaml"));
++      await removeGeneratedFile(join(nodeModulesRoot, ".modules.yaml"));
++      await removeGeneratedFile(join(nodeModulesRoot, ".pnpm-workspace-state-v1.json"));
++      await removeGeneratedDirectory(join(nodeModulesRoot, ".pnpm"), new Set(["lock.yaml"]));
++      await rewriteDeployedPackageMetadata(
++        repositoryRoot,
++        sourcePackagePath,
++        deploymentRoot,
++        workspace,
++      );
+     }
+     await copyTree(join(repositoryRoot, "apps", "web", "dist"), join(stagingRoot, "web"));
+     await copyTree(
+diff --git a/tools/local-installer/tests/manifest-layout.test.ts b/tools/local-installer/tests/manifest-layout.test.ts
+index 4e83902..d0899f3 100644
+--- a/tools/local-installer/tests/manifest-layout.test.ts
++++ b/tools/local-installer/tests/manifest-layout.test.ts
+@@ -1,15 +1,15 @@
+-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
++import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+ 
+ import { afterEach, describe, expect, it } from "vitest";
+ 
+ import {
+-  InstallLayoutError,
+-  ReleasePackageError,
+   assertWindowsInstallLayout,
+   buildReleaseManifest,
+   createWindowsInstallLayout,
++  InstallLayoutError,
++  ReleasePackageError,
+   verifyReleasePackage,
+ } from "../src/index.js";
+ 
+@@ -31,11 +31,21 @@ describe("release package manifest", () => {
+   it("builds a byte-identical canonical manifest and verifies read-back", async () => {
+     const root = await packageFixture();
++    await mkdir(join(root, "node_modules", "@scope", "dir with spaces"), { recursive: true });
++    await mkdir(join(root, "node_modules", "alpha"), { recursive: true });
++    await writeFile(
++      join(root, "node_modules", "@scope", "dir with spaces", "fixture.txt"),
++      "fixture\n",
++    );
++    await writeFile(join(root, "node_modules", "alpha", "index.js"), "alpha\n");
++
+     const first = await buildReleaseManifest(root, ["daemon/dist/index.js"]);
+     const second = await buildReleaseManifest(root, ["daemon/dist/index.js"]);
+     expect(second).toEqual(first);
+     expect(first.files.map((file) => file.path)).toEqual([
+       "daemon/dist/index.js",
++      "node_modules/@scope/dir with spaces/fixture.txt",
++      "node_modules/alpha/index.js",
+       "web/index.html",
+     ]);
+     expect((await verifyReleasePackage(root, first)).fingerprint).toBe(first.fingerprint);
+diff --git a/tools/local-installer/tests/package-builder.test.ts b/tools/local-installer/tests/package-builder.test.ts
+index 86b4804..fc1f448 100644
+--- a/tools/local-installer/tests/package-builder.test.ts
++++ b/tools/local-installer/tests/package-builder.test.ts
+@@ -1,4 +1,4 @@
+-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
++import { lstat, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+ 
+@@ -20,6 +20,57 @@ async function fixture() {
+   await mkdir(join(repositoryRoot, "apps", "web", "dist"), { recursive: true });
+   await mkdir(join(repositoryRoot, "tools", "local-installer", "scripts"), { recursive: true });
+   await writeFile(join(repositoryRoot, "apps", "web", "dist", "index.html"), "<!doctype html>\n");
++  const packageFixtures = [
++    [
++      "apps/daemon/package.json",
++      {
++        name: "@ownloop/daemon",
++        version: "0.1.0",
++        private: true,
++        type: "module",
++        files: ["dist"],
++        bin: { "ownloop-daemon": "./dist/main.js" },
++        scripts: { build: "tsc" },
++        dependencies: { "@ownloop/contracts": "workspace:*", fastify: "5.10.0" },
++      },
++    ],
++    [
++      "tools/hook-adapter/package.json",
++      {
++        name: "@ownloop/hook-adapter",
++        version: "0.1.0",
++        private: true,
++        type: "module",
++        files: ["dist"],
++        bin: { "ownloop-hook-adapter": "./dist/index.js" },
++        dependencies: { "@ownloop/contracts": "workspace:*" },
++        devDependencies: { "@ownloop/test-fixtures": "workspace:*" },
++      },
++    ],
++    [
++      "tools/local-installer/package.json",
++      {
++        name: "@ownloop/local-installer",
++        version: "0.1.0",
++        private: true,
++        type: "module",
++        files: ["scripts", "dist"],
++        bin: { "ownloop-package": "./dist/build-package.js" },
++        dependencies: { "@ownloop/contracts": "workspace:*" },
++      },
++    ],
++  ] as const;
++  for (const [relativePath, value] of packageFixtures) {
++    const path = join(repositoryRoot, relativePath);
++    await mkdir(join(path, ".."), { recursive: true });
++    await writeFile(path, `${JSON.stringify(value)}\n`);
++  }
+   for (const name of [
+     "ownloop.ps1",
+     "ownloop.cmd",
+@@ -29,13 +80,39 @@ async function fixture() {
+   return { repositoryRoot, outputRoot };
+ }
+ 
+-function runner(forbidden = false) {
++function runner(
++  options: Readonly<{ forbidden?: boolean; unexpectedVirtualStoreEntry?: boolean }> = {},
++) {
+   return vi.fn(async (_executable: string, args: readonly string[]) => {
+     if (args[0] === "--version") return { stdout: "11.4.0\n", stderr: "" };
+     if (args[0] === "build") return { stdout: "", stderr: "" };
+     const destination = args.at(-1)!;
+     await mkdir(join(destination, "dist"), { recursive: true });
+-    const workspace = args[1];
++    const nodeModulesRoot = join(destination, "node_modules");
++    await mkdir(join(nodeModulesRoot, ".bin"), { recursive: true });
++    await writeFile(join(nodeModulesRoot, ".bin", "unused-runtime-bin"), "shim\n");
++    await writeFile(join(destination, "pnpm-lock.yaml"), `root: ${destination}\n`);
++    await writeFile(join(nodeModulesRoot, ".modules.yaml"), `storeDir: ${destination}\n`);
++    await writeFile(
++      join(nodeModulesRoot, ".pnpm-workspace-state-v1.json"),
++      `${JSON.stringify({ lastValidatedTimestamp: Date.now(), root: destination })}\n`,
++    );
++    await mkdir(join(nodeModulesRoot, ".pnpm"), { recursive: true });
++    await writeFile(join(nodeModulesRoot, ".pnpm", "lock.yaml"), `root: ${destination}\n`);
++    if (options.unexpectedVirtualStoreEntry) {
++      await writeFile(join(nodeModulesRoot, ".pnpm", "runtime.js"), "unexpected\n");
++    }
++    const filterIndex = args.indexOf("--filter");
++    const workspace = args[filterIndex + 1];
++    await writeFile(
++      join(destination, "package.json"),
++      `${JSON.stringify({
++        name: workspace,
++        version: "0.1.0",
++        dependencies: {
++          "@ownloop/contracts": `@ownloop/contracts@file://${destination}/contracts`,
++        },
++      })}\n`,
++    );
+     if (workspace === "@ownloop/daemon")
+       await writeFile(join(destination, "dist", "main.js"), "daemon\n");
+     if (workspace === "@ownloop/hook-adapter")
+@@ -43,7 +120,7 @@ function runner(
+     if (workspace === "@ownloop/local-installer") {
+       await writeFile(join(destination, "dist", "cli.js"), "cli\n");
+       await writeFile(join(destination, "dist", "hook-main.js"), "hook main\n");
+-      if (forbidden) await writeFile(join(destination, "dist", ".env"), "SECRET=x\n");
++      if (options.forbidden) await writeFile(join(destination, "dist", ".env"), "SECRET=x\n");
+     }
+     return { stdout: "", stderr: "" };
+   });
+@@ -67,11 +144,49 @@ describe("Windows package builder", () => {
+     expect(await readFile(join(first.packageRoot, "web", "index.html"), "utf8")).toContain(
+       "doctype",
+     );
+-    expect(firstRunner).toHaveBeenCalledWith(
+-      "pnpm",
+-      expect.arrayContaining(["deploy", "--prod", "--offline", "--legacy"]),
+-      expect.anything(),
+-    );
++    const deployCalls = firstRunner.mock.calls.filter(([, args]) => args.includes("deploy"));
++    expect(deployCalls).toHaveLength(3);
++    for (const [, args] of deployCalls) {
++      expect(args).toEqual(
++        expect.arrayContaining([
++          "--config.node-linker=hoisted",
++          "--config.inject-workspace-packages=true",
++          "deploy",
++          "--prod",
++          "--offline",
++        ]),
++      );
++      expect(args).not.toContain("--legacy");
++    }
++    const daemonPackage = JSON.parse(
++      await readFile(join(first.packageRoot, "daemon", "package.json"), "utf8"),
++    ) as Record<string, unknown>;
++    expect(daemonPackage).toEqual({
++      name: "@ownloop/daemon",
++      version: "0.1.0",
++      private: true,
++      type: "module",
++      files: ["dist"],
++      bin: { "ownloop-daemon": "./dist/main.js" },
++      dependencies: { "@ownloop/contracts": "0.1.0", fastify: "5.10.0" },
++    });
++    expect(JSON.stringify(daemonPackage)).not.toContain(firstFixture.repositoryRoot);
++    expect(JSON.stringify(daemonPackage)).not.toContain(firstFixture.outputRoot);
++    const hookPackage = JSON.parse(
++      await readFile(join(first.packageRoot, "hook-adapter", "package.json"), "utf8"),
++    ) as Record<string, unknown>;
++    expect(hookPackage).not.toHaveProperty("devDependencies");
++    expect(hookPackage).not.toHaveProperty("scripts");
++
++    for (const path of [
++      join(first.packageRoot, "daemon", "pnpm-lock.yaml"),
++      join(first.packageRoot, "daemon", "node_modules", ".bin"),
++      join(first.packageRoot, "daemon", "node_modules", ".modules.yaml"),
++      join(first.packageRoot, "daemon", "node_modules", ".pnpm-workspace-state-v1.json"),
++      join(first.packageRoot, "daemon", "node_modules", ".pnpm"),
++    ]) {
++      expect(await lstat(path).catch(() => null)).toBeNull();
++    }
+ 
+     const secondFixture = await fixture();
+     const second = await buildWindowsReleasePackage({
+@@ -85,7 +200,39 @@ describe("Windows package builder", () => {
+   it("cleans staging and rejects credentials or developer environment files", async () => {
+     const setup = await fixture();
+     await expect(
+-      buildWindowsReleasePackage({ ...setup, runner: runner(true), nodeVersion: "24.18.0" }),
++      buildWindowsReleasePackage({
++        ...setup,
++        runner: runner({ forbidden: true }),
++        nodeVersion: "24.18.0",
++      }),
++    ).rejects.toThrowError(expect.objectContaining({ code: "forbidden_file" }));
++    expect(await readdir(setup.outputRoot)).toEqual([]);
++  });
++
++  it("rejects unexpected content in the generated virtual-store metadata directory", async () => {
++    const setup = await fixture();
++    await expect(
++      buildWindowsReleasePackage({
++        ...setup,
++        runner: runner({ unexpectedVirtualStoreEntry: true }),
++        nodeVersion: "24.18.0",
++      }),
++    ).rejects.toThrowError(expect.objectContaining({ code: "forbidden_file" }));
++    expect(await readdir(setup.outputRoot)).toEqual([]);
++  });
++
++  it("rejects non-exact external dependency specifiers in source package metadata", async () => {
++    const setup = await fixture();
++    const packagePath = join(setup.repositoryRoot, "apps", "daemon", "package.json");
++    const source = JSON.parse(await readFile(packagePath, "utf8")) as Record<string, unknown>;
++    source.dependencies = { "@ownloop/contracts": "workspace:*", fastify: "file:///tmp/fastify" };
++    await writeFile(packagePath, `${JSON.stringify(source)}\n`);
++    await expect(
++      buildWindowsReleasePackage({ ...setup, runner: runner(), nodeVersion: "24.18.0" }),
+     ).rejects.toThrowError(expect.objectContaining({ code: "forbidden_file" }));
+     expect(await readdir(setup.outputRoot)).toEqual([]);
+   });
