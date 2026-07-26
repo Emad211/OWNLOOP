@@ -42,45 +42,46 @@ jobs:
           git apply /tmp/ol025.patch
           rm -rf .ol025-transfer .github/workflows/finalize-ol025.yml .github/workflows/diagnose-ol025-package.yml
       - run: pnpm install --frozen-lockfile
-      - name: Capture hoisted deploy behavior
+      - name: Capture modern hoisted deploy behavior
         shell: bash
         run: |
           set +e
-          : > /tmp/hoisted.log
-          pnpm build >> /tmp/hoisted.log 2>&1
-          printf 'build=%s\n' "$?" >> /tmp/hoisted-status.txt
-          rm -rf /tmp/ol025-hoisted
-          mkdir -p /tmp/ol025-hoisted
-          pnpm --config.node-linker=hoisted --filter @ownloop/daemon deploy --prod --offline --legacy /tmp/ol025-hoisted/daemon >> /tmp/hoisted.log 2>&1
-          printf 'daemon_deploy=%s\n' "$?" >> /tmp/hoisted-status.txt
-          pnpm --config.node-linker=hoisted --filter @ownloop/hook-adapter deploy --prod --offline --legacy /tmp/ol025-hoisted/hook-adapter >> /tmp/hoisted.log 2>&1
-          printf 'hook_deploy=%s\n' "$?" >> /tmp/hoisted-status.txt
-          pnpm --config.node-linker=hoisted --filter @ownloop/local-installer deploy --prod --offline --legacy /tmp/ol025-hoisted/installer >> /tmp/hoisted.log 2>&1
-          printf 'installer_deploy=%s\n' "$?" >> /tmp/hoisted-status.txt
-          find /tmp/ol025-hoisted -type l -printf '%P -> %l\n' | LC_ALL=C sort > /tmp/hoisted-symlinks.txt 2>> /tmp/hoisted.log
-          find /tmp/ol025-hoisted -mindepth 1 -printf '%P\n' | LC_ALL=C sort > /tmp/hoisted-files.txt 2>> /tmp/hoisted.log
-          du -sb /tmp/ol025-hoisted > /tmp/hoisted-size.txt 2>> /tmp/hoisted.log
-          node -e "import('/tmp/ol025-hoisted/daemon/dist/runtime/compatibility.js').then(()=>console.log('daemon-import-ok'))" >> /tmp/hoisted.log 2>&1
-          printf 'daemon_import=%s\n' "$?" >> /tmp/hoisted-status.txt
-          node -e "import('/tmp/ol025-hoisted/hook-adapter/dist/adapter.js').then(()=>console.log('hook-import-ok'))" >> /tmp/hoisted.log 2>&1
-          printf 'hook_import=%s\n' "$?" >> /tmp/hoisted-status.txt
-          node -e "import('/tmp/ol025-hoisted/installer/dist/package-builder.js').then(()=>console.log('installer-import-ok'))" >> /tmp/hoisted.log 2>&1
-          printf 'installer_import=%s\n' "$?" >> /tmp/hoisted-status.txt
-          tar -czf /tmp/ol025-hoisted.tar.gz -C /tmp ol025-hoisted >> /tmp/hoisted.log 2>&1
-          printf 'archive=%s\n' "$?" >> /tmp/hoisted-status.txt
-          cat /tmp/hoisted-status.txt
-          tail -n 160 /tmp/hoisted.log
+          : > /tmp/modern.log
+          : > /tmp/modern-status.txt
+          pnpm build >> /tmp/modern.log 2>&1
+          printf 'build=%s\n' "$?" >> /tmp/modern-status.txt
+          rm -rf /tmp/ol025-modern
+          mkdir -p /tmp/ol025-modern
+          pnpm --config.node-linker=hoisted --config.inject-workspace-packages=true --filter @ownloop/daemon deploy --prod --offline /tmp/ol025-modern/daemon >> /tmp/modern.log 2>&1
+          printf 'daemon_deploy=%s\n' "$?" >> /tmp/modern-status.txt
+          pnpm --config.node-linker=hoisted --config.inject-workspace-packages=true --filter @ownloop/hook-adapter deploy --prod --offline /tmp/ol025-modern/hook-adapter >> /tmp/modern.log 2>&1
+          printf 'hook_deploy=%s\n' "$?" >> /tmp/modern-status.txt
+          pnpm --config.node-linker=hoisted --config.inject-workspace-packages=true --filter @ownloop/local-installer deploy --prod --offline /tmp/ol025-modern/installer >> /tmp/modern.log 2>&1
+          printf 'installer_deploy=%s\n' "$?" >> /tmp/modern-status.txt
+          find /tmp/ol025-modern -type l -printf '%P -> %l\n' | LC_ALL=C sort > /tmp/modern-symlinks.txt 2>> /tmp/modern.log
+          find /tmp/ol025-modern -mindepth 1 -printf '%P\n' | LC_ALL=C sort > /tmp/modern-files.txt 2>> /tmp/modern.log
+          du -sb /tmp/ol025-modern > /tmp/modern-size.txt 2>> /tmp/modern.log
+          node -e "import('/tmp/ol025-modern/daemon/dist/runtime/compatibility.js').then(()=>console.log('daemon-import-ok'))" >> /tmp/modern.log 2>&1
+          printf 'daemon_import=%s\n' "$?" >> /tmp/modern-status.txt
+          node -e "import('/tmp/ol025-modern/hook-adapter/dist/adapter.js').then(()=>console.log('hook-import-ok'))" >> /tmp/modern.log 2>&1
+          printf 'hook_import=%s\n' "$?" >> /tmp/modern-status.txt
+          node -e "import('/tmp/ol025-modern/installer/dist/package-builder.js').then(()=>console.log('installer-import-ok'))" >> /tmp/modern.log 2>&1
+          printf 'installer_import=%s\n' "$?" >> /tmp/modern-status.txt
+          tar -czf /tmp/ol025-modern.tar.gz -C /tmp ol025-modern >> /tmp/modern.log 2>&1
+          printf 'archive=%s\n' "$?" >> /tmp/modern-status.txt
+          cat /tmp/modern-status.txt
+          tail -n 180 /tmp/modern.log
           exit 0
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: ol025-hoisted-deploy-diagnosis
+          name: ol025-modern-hoisted-deploy-diagnosis
           path: |
-            /tmp/hoisted.log
-            /tmp/hoisted-status.txt
-            /tmp/hoisted-symlinks.txt
-            /tmp/hoisted-files.txt
-            /tmp/hoisted-size.txt
-            /tmp/ol025-hoisted.tar.gz
+            /tmp/modern.log
+            /tmp/modern-status.txt
+            /tmp/modern-symlinks.txt
+            /tmp/modern-files.txt
+            /tmp/modern-size.txt
+            /tmp/ol025-modern.tar.gz
           if-no-files-found: warn
           retention-days: 1
