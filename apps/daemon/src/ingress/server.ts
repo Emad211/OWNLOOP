@@ -18,6 +18,7 @@ import Fastify, {
   LogController,
 } from "fastify";
 import type { LocalArtifactStore } from "../artifact-store/index.js";
+import { diagnosticsError, registerDiagnosticsRoutes } from "../diagnostics-dashboard/index.js";
 import {
   localSettingsError,
   registerLocalSettingsRoutes,
@@ -216,6 +217,15 @@ export function createLoopbackIngressServer(
   if (dependencies.settings !== undefined) {
     registerLocalSettingsRoutes(server, { service: dependencies.settings, tokenVerifier });
   }
+  if (dependencies.settings !== undefined && dependencies.replay !== undefined) {
+    registerDiagnosticsRoutes(server, {
+      persistence: dependencies.replay.persistence,
+      artifactStore: dependencies.replay.artifactStore,
+      settings: dependencies.settings,
+      tokenVerifier,
+      clock,
+    });
+  }
   if (dependencies.replay !== undefined) {
     registerReplayRoutes(server, {
       persistence: dependencies.replay.persistence,
@@ -227,6 +237,14 @@ export function createLoopbackIngressServer(
   const staticSite = createContainedStaticSite(dependencies.replay?.webRoot);
 
   server.setNotFoundHandler((request, reply) => {
+    if (request.url.startsWith("/v1/diagnostics")) {
+      void reply
+        .code(404)
+        .header("Cache-Control", "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .send(diagnosticsError("invalid_request"));
+      return;
+    }
     if (request.url.startsWith("/v1/settings")) {
       void reply
         .code(404)

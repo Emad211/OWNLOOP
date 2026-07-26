@@ -496,3 +496,104 @@ describe("settings browser API client", () => {
     await expect(foreign.deleteRun("run-1")).rejects.toMatchObject({ code: "conflict" });
   });
 });
+
+describe("diagnostics browser API client", () => {
+  const dashboard = {
+    schemaVersion: 1,
+    projectorVersion: "0.1.0",
+    diagnosticMode: "off",
+    limitations: ["diagnostics_off"],
+    process: null,
+    redaction: {
+      preparedReceiptCount: 0,
+      legacyReceiptCount: 0,
+      redactedFieldCount: 0,
+      redactedValueCount: 0,
+      pathReplacementCount: 0,
+      droppedUnknownFieldCount: 0,
+      truncatedValueCount: 0,
+      receiptsByHook: [],
+      receiptsByRule: [],
+    },
+    runs: { totalRuns: 0, byStatus: [] },
+    finalizations: {
+      total: 0,
+      byStatus: [],
+      byMode: [],
+      byDiagnosticCode: [],
+      withoutDiagnosticCode: 0,
+    },
+    evidenceGapCounts: [],
+    validations: {
+      totalValidations: 0,
+      byOutcome: [],
+      sourceCandidates: 0,
+      rejectedCandidates: 0,
+      duplicateCandidates: 0,
+      unselectedCandidates: 0,
+      selectedCandidates: 0,
+      reasonCounts: [],
+    },
+    recentRuns: [],
+    recentRunsTotal: 0,
+    recentRunsTruncated: false,
+    fingerprint: `sha256:${"a".repeat(64)}`,
+  } as const;
+
+  it("loads strict dashboard and bundle only from same-origin GET routes", async () => {
+    const calls: string[] = [];
+    const client = createReplayApiClient(TOKEN, {
+      fetcher: async (input, init) => {
+        const url = input instanceof URL ? input.toString() : String(input);
+        calls.push(url);
+        expect(init?.method).toBe("GET");
+        const value = url.endsWith("/bundle")
+          ? {
+              schemaVersion: 1,
+              applicationVersions: { app: "0.1.0", contracts: "0.1.0", daemon: "0.1.0" },
+              exportedAt: "2026-07-25T23:00:00.000Z",
+              dashboardFingerprint: dashboard.fingerprint,
+              dashboard,
+              excludedDataClasses: [
+                "artifact_metadata",
+                "candidate_prose",
+                "command_output",
+                "evidence_ids_and_text",
+                "exceptions_and_stacks",
+                "free_form_text",
+                "installation_credentials",
+                "provider_data_and_secrets",
+                "repository_and_source_content",
+                "source_payload_json",
+                "source_session_and_tool_ids",
+              ],
+              fingerprint: `sha256:${"b".repeat(64)}`,
+            }
+          : dashboard;
+        return new Response(JSON.stringify(value), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    expect(await client.getDiagnosticsDashboard()).toEqual(dashboard);
+    expect((await client.getDiagnosticsBundle()).dashboard).toEqual(dashboard);
+    expect(calls).toEqual([
+      `${PAGE_ORIGIN}/v1/diagnostics/dashboard`,
+      `${PAGE_ORIGIN}/v1/diagnostics/bundle`,
+    ]);
+  });
+
+  it("rejects dashboard responses containing forbidden extra fields", async () => {
+    const client = createReplayApiClient(TOKEN, {
+      fetcher: async () =>
+        new Response(JSON.stringify({ ...dashboard, repositoryRoot: "/private" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+    await expect(client.getDiagnosticsDashboard()).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+});

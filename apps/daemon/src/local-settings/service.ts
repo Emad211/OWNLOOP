@@ -181,6 +181,14 @@ export class LocalSettingsService {
     return this.#diagnostics.response();
   }
 
+  diagnosticsDashboardState() {
+    const settings = this.#persistence.localSettings.get();
+    return {
+      mode: settings.diagnosticMode,
+      process: this.#diagnostics.snapshot(),
+    } as const;
+  }
+
   retentionPreview(): LocalRetentionPreviewV1 {
     const settings = this.#persistence.localSettings.get();
     const now = this.#clock();

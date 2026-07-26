@@ -11,6 +11,7 @@ import { GitReconciliationRepository } from "./repositories/git-reconciliations.
 import { IngressReceiptRepository } from "./repositories/ingress-receipts.js";
 import { LifecycleResolutionRepository } from "./repositories/lifecycle-resolutions.js";
 import { LocalSettingsRepository } from "./repositories/local-settings.js";
+import { DiagnosticsRepository } from "./repositories/diagnostics.js";
 import { MomentInteractionRepository } from "./repositories/moment-interactions.js";
 import { RunFinalizationRepository } from "./repositories/run-finalizations.js";
 import { RunSupportRepository } from "./repositories/run-support.js";
@@ -22,6 +23,7 @@ export type PersistenceRepositories = Readonly<{
   ingressReceipts: IngressReceiptRepository;
   lifecycleResolutions: LifecycleResolutionRepository;
   localSettings: LocalSettingsRepository;
+  diagnostics: DiagnosticsRepository;
   workspaces: WorkspaceRepository;
   conversations: AgentConversationRepository;
   taskRuns: TaskRunRepository;
@@ -67,6 +69,7 @@ export function openPersistence(databasePath: string): OwnLoopPersistence {
     ingressReceipts: new IngressReceiptRepository(database),
     lifecycleResolutions: new LifecycleResolutionRepository(database),
     localSettings: new LocalSettingsRepository(database),
+    diagnostics: new DiagnosticsRepository(database),
     workspaces: new WorkspaceRepository(database),
     conversations: new AgentConversationRepository(database),
     taskRuns: new TaskRunRepository(database),
@@ -237,3 +240,9 @@ export { CandidateGenerationRepository } from "./repositories/candidate-generati
 export { MomentInteractionRepository } from "./repositories/moment-interactions.js";
 
 export { LocalSettingsRepository } from "./repositories/local-settings.js";
+
+export { DiagnosticsRepository } from "./repositories/diagnostics.js";
+export type {
+  DiagnosticsFinalizationRow,
+  DiagnosticsRunIndexRow,
+} from "./repositories/diagnostics.js";

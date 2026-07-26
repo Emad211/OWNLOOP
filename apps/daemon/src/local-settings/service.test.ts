@@ -200,6 +200,19 @@ describe("LocalSettingsService", () => {
         ],
         rejectedByCode: [{ errorCode: "invalid_payload", count: 1 }],
       });
+      expect(service.diagnosticsDashboardState()).toEqual({
+        mode: "counts_only",
+        process: {
+          serverStarted: 0,
+          serverStopped: 0,
+          acceptedReceipts: 1,
+          duplicateReceipts: 1,
+          rejectedRequests: 1,
+          acceptedByHook: [{ hookName: "Stop", count: 1 }],
+          duplicateByHook: [{ hookName: "Stop", count: 1 }],
+          rejectedByCode: [{ code: "invalid_payload", count: 1 }],
+        },
+      });
       service.update({
         schemaVersion: 1,
         expectedRevision: 2,
@@ -214,6 +227,50 @@ describe("LocalSettingsService", () => {
         },
       });
       expect(service.diagnostics()).toMatchObject({ mode: "off", counts: [], rejectedByCode: [] });
+    } finally {
+      persistence.close();
+    }
+  });
+
+  it("resets process counters after restart while preserving counts-only mode", () => {
+    const persistence = openPersistence(":memory:");
+    try {
+      const first = new LocalSettingsService({ persistence, artifactStore: artifactStore() });
+      first.update({
+        schemaVersion: 1,
+        expectedRevision: 1,
+        replacement: {
+          schemaVersion: 1,
+          externalAiEnabled: false,
+          provider: null,
+          retentionPolicy: "keep_until_deleted",
+          diagnosticMode: "counts_only",
+          rawSourcePayloadRetention: "off",
+          customSecretFieldPatterns: [],
+        },
+      });
+      first.diagnosticsSink({
+        type: "receipt.accepted",
+        receiptId: "receipt-restart",
+        hookName: "Stop",
+        duplicate: false,
+      });
+      expect(first.diagnosticsDashboardState().process?.acceptedReceipts).toBe(1);
+
+      const restarted = new LocalSettingsService({ persistence, artifactStore: artifactStore() });
+      expect(restarted.diagnosticsDashboardState()).toEqual({
+        mode: "counts_only",
+        process: {
+          serverStarted: 0,
+          serverStopped: 0,
+          acceptedReceipts: 0,
+          duplicateReceipts: 0,
+          rejectedRequests: 0,
+          acceptedByHook: [],
+          duplicateByHook: [],
+          rejectedByCode: [],
+        },
+      });
     } finally {
       persistence.close();
     }

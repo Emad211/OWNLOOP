@@ -1,6 +1,6 @@
 # ADR-0026: Sanitized Diagnostics and Evidence-Quality Dashboard
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-07-25
 **Decision owner:** Project founder
 **Related documents:**
