@@ -1,0 +1,29 @@
+name: Export recovered OL-025 payload
+
+on:
+  push:
+    branches:
+      - agent/ol025-payload-recovery
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+      - name: Verify recovered payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s payload.b64
+          sha256sum payload.b64
+      - uses: actions/upload-artifact@v6
+        with:
+          name: ol025-recovered-payload
+          path: payload.b64
+          if-no-files-found: error
+          retention-days: 1
