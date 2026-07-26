@@ -1,0 +1,127 @@
+name: Finalize OL-025 implementation
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/ol-025-windows-installation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out exact PR branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+          run_install: false
+
+      - name: Verify and reconstruct checksum-guarded patch
+        shell: bash
+        env:
+          EXPECTED_BASE: a33d1592545e5eeacaac0bd08421ae26f8b67d46
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_BASE"
+          python - <<'PYVERIFY'
+          from pathlib import Path
+          import base64, gzip, hashlib, json, subprocess
+          expected_staged = json.loads("[\".github/workflows/finalize-ol025.yml\",\".ol025-transfer/chunk-00.txt\",\".ol025-transfer/chunk-01.txt\",\".ol025-transfer/chunk-02.txt\",\".ol025-transfer/chunk-03.txt\",\".ol025-transfer/chunk-04.txt\",\".ol025-transfer/chunk-05.txt\",\".ol025-transfer/chunk-06.txt\",\".ol025-transfer/chunk-07.txt\",\".ol025-transfer/chunk-08.txt\",\".ol025-transfer/chunk-09.txt\",\".ol025-transfer/chunk-10.txt\",\".ol025-transfer/chunk-11.txt\",\".ol025-transfer/chunk-12.txt\"]")
+          observed = subprocess.check_output(["git","diff","--name-only","HEAD^","HEAD"], text=True).splitlines()
+          if sorted(observed) != sorted(expected_staged):
+              raise SystemExit(f"unexpected staging files: {observed}")
+          chunks = json.loads("[{\"name\":\"chunk-00.txt\",\"size\":7000,\"sha256\":\"8ef6925e43ca80e70e4c3441a54e778ea70fe9ecc38886008221600d07111081\"},{\"name\":\"chunk-01.txt\",\"size\":7000,\"sha256\":\"5ba15653ce1654216e6cf6a028700be2aeb33e95f36f372ae8233ede09e4f4f8\"},{\"name\":\"chunk-02.txt\",\"size\":7000,\"sha256\":\"1d576c6f7b8a719590a5d79a5754b3fec4003fbcf43fcf50dbc899ec7aa5d690\"},{\"name\":\"chunk-03.txt\",\"size\":7000,\"sha256\":\"f220776af8dd799bac146a467fb45a20a28503393d47f79ce65d3bb771020e6f\"},{\"name\":\"chunk-04.txt\",\"size\":7000,\"sha256\":\"2b4c3b3419ce205d6ba01d157438314b9cdd6527454c8106f39c7d7edd7dea64\"},{\"name\":\"chunk-05.txt\",\"size\":7000,\"sha256\":\"d307422a63433ad5159a8c60882a746ec0673259985c6b0004a8598204a8bd82\"},{\"name\":\"chunk-06.txt\",\"size\":7000,\"sha256\":\"fc5fe2473ebfd6dee9e974a5f1fac32168348c186e9e995241924866c06593c1\"},{\"name\":\"chunk-07.txt\",\"size\":7000,\"sha256\":\"4f9b76d10992329e99f8ecdd25a44596da6c0a6375d08ea4b6f87d5b71697b6a\"},{\"name\":\"chunk-08.txt\",\"size\":7000,\"sha256\":\"f786f0d29ff19265ffb079fad574550f661262863167d98f6da695ee82f8a2ab\"},{\"name\":\"chunk-09.txt\",\"size\":7000,\"sha256\":\"4e5a779ee47057334966573b6b292a852af79f77749f0ba1bd0481d29d299c06\"},{\"name\":\"chunk-10.txt\",\"size\":7000,\"sha256\":\"c2f01376e7e698f0315eea4e00d2379eb7dde512ba5afe811558138b02b04a2f\"},{\"name\":\"chunk-11.txt\",\"size\":7000,\"sha256\":\"3d52e86500b4400ea4ee997aacba87cd71d5e30913a2256d373bc6190b49d820\"},{\"name\":\"chunk-12.txt\",\"size\":372,\"sha256\":\"7730ce28942074597cd10634f8ae2338ed8f88a26d70dd4461c126c76dd4059c\"}]")
+          payload_parts=[]
+          for item in chunks:
+              path=Path('.ol025-transfer')/item['name']
+              data=path.read_bytes()
+              if len(data)!=item['size'] or hashlib.sha256(data).hexdigest()!=item['sha256']:
+                  raise SystemExit(f"chunk mismatch: {item['name']}")
+              payload_parts.append(data)
+          b64=b''.join(payload_parts)
+          if len(b64)!=84372 or hashlib.sha256(b64).hexdigest()!='43b726019ebbbd66730f9420fb430915184fd85c3e09fa4a38bb82834d44ca14':
+              raise SystemExit('base64 payload mismatch')
+          gz=base64.b64decode(b64, validate=True)
+          if len(gz)!=63278 or hashlib.sha256(gz).hexdigest()!='708099e24b4009c8a4785013e2670085376e78c46c2be5e43c7338310c12efe6':
+              raise SystemExit('gzip payload mismatch')
+          patch=gzip.decompress(gz)
+          if len(patch)!=307654 or hashlib.sha256(patch).hexdigest()!='81e01d5427b5dc75b1fab53d00824521b77aafcf9be4b90397dc388cd02d7fc9':
+              raise SystemExit('patch payload mismatch')
+          Path('/tmp/ol025.patch').write_bytes(patch)
+          PYVERIFY
+          git apply --check /tmp/ol025.patch
+          git apply /tmp/ol025.patch
+          rm -rf .ol025-transfer .github/workflows/finalize-ol025.yml
+
+      - name: Frozen install
+        run: pnpm install --frozen-lockfile
+
+      - name: Repository quality gates
+        run: |
+          set -euo pipefail
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
+      - name: Build and verify Windows release package
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm package:windows | tee /tmp/ol025-package.json
+          python - <<'PYPACKAGE'
+          import json
+          from pathlib import Path
+          lines=[line for line in Path('/tmp/ol025-package.json').read_text().splitlines() if line.strip()]
+          if len(lines)!=1:
+              raise SystemExit('invalid package builder output')
+          result=json.loads(lines[0])
+          if result.get('ok') is not True or not str(result.get('fingerprint','')).startswith('sha256:'):
+              raise SystemExit('package builder did not return a verified package')
+          if not isinstance(result.get('fileCount'), int) or result['fileCount'] < 1:
+              raise SystemExit('package file count is invalid')
+          PYPACKAGE
+          test -f dist/ownloop-windows-0.1.0/release-manifest.json
+          test -f dist/ownloop-windows-0.1.0/daemon/dist/main.js
+          test -f dist/ownloop-windows-0.1.0/hook-adapter/dist/index.js
+          test -f dist/ownloop-windows-0.1.0/installer/dist/cli.js
+          test -f dist/ownloop-windows-0.1.0/web/index.html
+
+      - name: Verify exact final source diff and publish clean head
+        shell: bash
+        env:
+          EXPECTED_BASE: a33d1592545e5eeacaac0bd08421ae26f8b67d46
+          EXPECTED_FILE_COUNT: '74'
+          EXPECTED_FILE_LIST_SHA256: e98ecf4472a64ae0b1533de10f3429cb67dcffd10b5b1a8d5ad56d2c204945b5
+        run: |
+          set -euo pipefail
+          git clean -fdX
+          test ! -e .ol025-transfer
+          test ! -e .github/workflows/finalize-ol025.yml
+          git diff --check
+          git diff --name-only "$EXPECTED_BASE" | LC_ALL=C sort > /tmp/ol025-files.txt
+          test "$(wc -l < /tmp/ol025-files.txt | tr -d ' ')" = "$EXPECTED_FILE_COUNT"
+          test "$(sha256sum /tmp/ol025-files.txt | cut -d' ' -f1)" = "$EXPECTED_FILE_LIST_SHA256"
+          git add -A
+          git diff --cached --check
+          git diff --cached --name-only "$EXPECTED_BASE" | LC_ALL=C sort > /tmp/ol025-cached-files.txt
+          cmp /tmp/ol025-files.txt /tmp/ol025-cached-files.txt
+          git config user.name 'Emad211'
+          git config user.email '82148680+Emad211@users.noreply.github.com'
+          git commit -m 'OL-025: Package Windows installation and Claude Code hooks'
+          git push origin "HEAD:${{ github.head_ref }}"
