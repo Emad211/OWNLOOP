@@ -16,6 +16,11 @@ replace_exact(
     '  "tool.requested",\n  "tool.succeeded",',
     '  "tool.requested",\n  "tool.completed",\n  "tool.succeeded",',
 )
+replace_exact(
+    "packages/event-model/tests/normalized-event.test.ts",
+    '  "tool.requested",\n  "tool.succeeded",',
+    '  "tool.requested",\n  "tool.completed",\n  "tool.succeeded",',
+)
 
 # Immutable migration v21. Existing v19/v20 definitions remain unchanged.
 replace_exact(
