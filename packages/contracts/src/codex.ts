@@ -63,5 +63,7 @@ export {
   CODEX_INGRESS_CONTRACT_VERSION,
   CodexAdapterIngressSchema,
 } from "./codex-ingress-wrapper.js";
+export type { PreparedCodexIngressReceiptV1 } from "./codex-ingress-security.js";
+export { PreparedCodexIngressReceiptV1Schema } from "./codex-ingress-security.js";
 export type { CodexSourceMetadata } from "./codex-source-metadata.js";
 export { CodexSourceMetadataSchema } from "./codex-source-metadata.js";
