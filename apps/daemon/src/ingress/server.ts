@@ -18,6 +18,10 @@ import Fastify, {
   LogController,
 } from "fastify";
 import type { LocalArtifactStore } from "../artifact-store/index.js";
+import {
+  type CodexCapabilityEnvironmentFacts,
+  registerCodexCapabilityRoute,
+} from "../codex-capability/index.js";
 import { diagnosticsError, registerDiagnosticsRoutes } from "../diagnostics-dashboard/index.js";
 import {
   type LocalSettingsService,
@@ -58,6 +62,7 @@ export type IngressServerDependencies = Readonly<{
   receiptIdGenerator?: () => string;
   diagnostics?: IngressDiagnosticSink;
   customSecretFieldPatterns?: () => readonly string[];
+  codexCapabilityEnvironment?: () => CodexCapabilityEnvironmentFacts;
   settings?: LocalSettingsService;
   replay?: Readonly<{
     persistence: ReplayPersistence;
@@ -230,6 +235,13 @@ export function createLoopbackIngressServer(
     });
   }
   if (dependencies.replay !== undefined) {
+    registerCodexCapabilityRoute(server, {
+      persistence: dependencies.replay.persistence,
+      tokenVerifier,
+      ...(dependencies.codexCapabilityEnvironment === undefined
+        ? {}
+        : { environment: dependencies.codexCapabilityEnvironment }),
+    });
     registerReplayRoutes(server, {
       persistence: dependencies.replay.persistence,
       artifactStore: dependencies.replay.artifactStore,

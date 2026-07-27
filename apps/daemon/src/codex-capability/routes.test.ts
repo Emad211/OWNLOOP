@@ -3,10 +3,7 @@ import type { AddressInfo } from "node:net";
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
 
-import {
-  createInstallationTokenVerifier,
-  generateInstallationToken,
-} from "../ingress/index.js";
+import { createInstallationTokenVerifier, generateInstallationToken } from "../ingress/index.js";
 import { openPersistence } from "../persistence/index.js";
 import { CODEX_CAPABILITY_ROUTE, registerCodexCapabilityRoute } from "./routes.js";
 
@@ -115,20 +112,12 @@ describe("Codex capability status route", () => {
     const running = await runningRoute();
     try {
       const missing = await get(running, CODEX_CAPABILITY_ROUTE, null);
-      const incorrect = await get(
-        running,
-        CODEX_CAPABILITY_ROUTE,
-        generateInstallationToken(),
-      );
+      const incorrect = await get(running, CODEX_CAPABILITY_ROUTE, generateInstallationToken());
       expect([missing.response.status, incorrect.response.status]).toEqual([401, 401]);
       expect(missing.body).toBe(incorrect.body);
       expect(JSON.parse(missing.body)).toEqual({ ok: false, error: "unauthorized" });
 
-      const query = await get(
-        running,
-        `${CODEX_CAPABILITY_ROUTE}?include=payloads`,
-        running.token,
-      );
+      const query = await get(running, `${CODEX_CAPABILITY_ROUTE}?include=payloads`, running.token);
       expect(query.response.status).toBe(400);
       expect(JSON.parse(query.body)).toEqual({ ok: false, error: "invalid_request" });
     } finally {
