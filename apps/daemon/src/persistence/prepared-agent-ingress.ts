@@ -1,7 +1,4 @@
-import {
-  type PreparedIngressReceiptV1,
-  PreparedIngressReceiptV1Schema,
-} from "@ownloop/contracts";
+import { type PreparedIngressReceiptV1, PreparedIngressReceiptV1Schema } from "@ownloop/contracts";
 import {
   type PreparedCodexIngressReceiptV1,
   PreparedCodexIngressReceiptV1Schema,

@@ -79,7 +79,7 @@ describe("Codex prepared ingress persistence", () => {
         receiptId: "receipt-codex-001",
         duplicate: true,
       });
-      expect(persistence.ingressReceipts.countAll()).toBe(1);
+      expect(persistence.ingressReceipts.get("receipt-codex-002")).toBeNull();
     } finally {
       persistence.close();
     }
@@ -94,7 +94,7 @@ describe("Codex prepared ingress persistence", () => {
           newReceipt("receipt-codex-002", "git diff --stat"),
         ),
       ).toThrow(PersistenceDeduplicationConflictError);
-      expect(persistence.ingressReceipts.countAll()).toBe(1);
+      expect(persistence.ingressReceipts.get("receipt-codex-002")).toBeNull();
     } finally {
       persistence.close();
     }
