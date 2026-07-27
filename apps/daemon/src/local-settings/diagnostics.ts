@@ -3,8 +3,8 @@ import type {
   IngestionErrorCode,
   IngressAgentSource,
   LOCAL_DIAGNOSTIC_EVENT_CODES,
-  LocalDiagnosticsResponseV1,
   LocalDiagnosticMode,
+  LocalDiagnosticsResponseV1,
   SupportedAgentHookName,
 } from "@ownloop/contracts";
 

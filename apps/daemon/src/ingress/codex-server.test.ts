@@ -1,19 +1,16 @@
 import { Buffer } from "node:buffer";
 import { createSecretKey } from "node:crypto";
 
-import {
-  type CodexAdapterIngress,
-  CodexAdapterIngressSchema,
-} from "@ownloop/contracts/codex";
+import { type CodexAdapterIngress, CodexAdapterIngressSchema } from "@ownloop/contracts/codex";
 import { describe, expect, it } from "vitest";
 
-import { openPersistence, type OwnLoopPersistence } from "../persistence/index.js";
+import { type OwnLoopPersistence, openPersistence } from "../persistence/index.js";
 import { generateInstallationToken } from "./auth.js";
 import {
   CODEX_INGRESS_ROUTE,
   createLoopbackIngressServer,
-  startLoopbackIngressServer,
   type IngressServerAddress,
+  startLoopbackIngressServer,
 } from "./server.js";
 
 const TOKEN = generateInstallationToken();
@@ -57,7 +54,9 @@ type Running = Readonly<{
   address: IngressServerAddress;
 }>;
 
-async function start(idsToUse = ["receipt-codex-route-001", "receipt-codex-route-002"]): Promise<Running> {
+async function start(
+  idsToUse = ["receipt-codex-route-001", "receipt-codex-route-002"],
+): Promise<Running> {
   const persistence = openPersistence(":memory:");
   const server = createLoopbackIngressServer({
     persistence,
@@ -159,7 +158,11 @@ describe("Codex loopback ingress route", () => {
   it("uses the same authorization and strict contract boundary as Claude ingress", async () => {
     const running = await start();
     try {
-      const unauthorized = await post(running.address, preToolIngress(), generateInstallationToken());
+      const unauthorized = await post(
+        running.address,
+        preToolIngress(),
+        generateInstallationToken(),
+      );
       expect(unauthorized.status).toBe(401);
 
       const unknownWrapper = await post(running.address, {

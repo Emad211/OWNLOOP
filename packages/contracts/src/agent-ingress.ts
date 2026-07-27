@@ -4,10 +4,7 @@ import {
   SUPPORTED_CLAUDE_HOOK_NAMES,
   SupportedClaudeHookNameSchema,
 } from "./claude-hook-common.js";
-import {
-  SUPPORTED_CODEX_HOOK_NAMES,
-  SupportedCodexHookNameSchema,
-} from "./codex-hook-common.js";
+import { SUPPORTED_CODEX_HOOK_NAMES, SupportedCodexHookNameSchema } from "./codex-hook-common.js";
 
 export const INGRESS_AGENT_SOURCES = ["claude_code", "codex"] as const;
 export const IngressAgentSourceSchema = z.enum(INGRESS_AGENT_SOURCES);

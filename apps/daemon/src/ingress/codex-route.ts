@@ -1,38 +1,15 @@
 import { type KeyObject, randomUUID } from "node:crypto";
 
 import type { IngestionErrorCode } from "@ownloop/contracts";
-import {
-  CodexAdapterIngressSchema,
-  SUPPORTED_CODEX_HOOK_NAMES,
-} from "@ownloop/contracts/codex";
-import {
-  IngressSecurityError,
-  prepareCodexIngressReceipt,
-} from "@ownloop/ingress-security";
-import type {
-  FastifyInstance,
-  FastifyReply,
-  FastifyRequest,
-} from "fastify";
+import { CodexAdapterIngressSchema, SUPPORTED_CODEX_HOOK_NAMES } from "@ownloop/contracts/codex";
+import { IngressSecurityError, prepareCodexIngressReceipt } from "@ownloop/ingress-security";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
-import type {
-  NewCodexPreparedIngressReceipt,
-  OwnLoopPersistence,
-} from "../persistence/index.js";
-import {
-  PersistenceDeduplicationConflictError,
-  PersistenceError,
-} from "../persistence/index.js";
+import type { NewCodexPreparedIngressReceipt, OwnLoopPersistence } from "../persistence/index.js";
+import { PersistenceDeduplicationConflictError, PersistenceError } from "../persistence/index.js";
 import type { InstallationTokenVerifier } from "./auth.js";
-import {
-  emitIngressDiagnostic,
-  type IngressDiagnosticSink,
-} from "./diagnostics.js";
-import {
-  acceptedResponse,
-  rejectedResponse,
-  summarizeZodError,
-} from "./responses.js";
+import { emitIngressDiagnostic, type IngressDiagnosticSink } from "./diagnostics.js";
+import { acceptedResponse, rejectedResponse, summarizeZodError } from "./responses.js";
 
 export const CODEX_INGRESS_ROUTE = "/v1/ingress/codex" as const;
 
@@ -40,10 +17,7 @@ const SAFE_RECEIPT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
 const SUPPORTED_CODEX_HOOK_SET = new Set<string>(SUPPORTED_CODEX_HOOK_NAMES);
 
 export type CodexIngressPersistence = Readonly<{
-  ingressReceipts: Pick<
-    OwnLoopPersistence["ingressReceipts"],
-    "insertPreparedOrGetExisting"
-  >;
+  ingressReceipts: Pick<OwnLoopPersistence["ingressReceipts"], "insertPreparedOrGetExisting">;
 }>;
 
 export type CodexIngressRouteDependencies = Readonly<{

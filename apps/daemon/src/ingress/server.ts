@@ -20,9 +20,9 @@ import Fastify, {
 import type { LocalArtifactStore } from "../artifact-store/index.js";
 import { diagnosticsError, registerDiagnosticsRoutes } from "../diagnostics-dashboard/index.js";
 import {
+  type LocalSettingsService,
   localSettingsError,
   registerLocalSettingsRoutes,
-  type LocalSettingsService,
 } from "../local-settings/index.js";
 import type {
   NewPreparedIngressReceipt,
@@ -32,12 +32,15 @@ import type {
 import { PersistenceDeduplicationConflictError, PersistenceError } from "../persistence/index.js";
 import { createContainedStaticSite, registerReplayRoutes, replayError } from "../replay/index.js";
 import { createInstallationTokenVerifier } from "./auth.js";
+import { CODEX_INGRESS_ROUTE, registerCodexIngressRoute } from "./codex-route.js";
 import { emitIngressDiagnostic, type IngressDiagnosticSink } from "./diagnostics.js";
 import { acceptedResponse, rejectedResponse, summarizeZodError } from "./responses.js";
 
 export const INGRESS_LOOPBACK_HOST = "127.0.0.1" as const;
 export const INGRESS_ROUTE = "/v1/ingress/claude" as const;
 export const INGRESS_BODY_LIMIT_BYTES = 1024 * 1024;
+
+export { CODEX_INGRESS_ROUTE };
 
 const SAFE_RECEIPT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const SUPPORTED_HOOK_SET = new Set<string>(SUPPORTED_CLAUDE_HOOK_NAMES);
@@ -234,6 +237,20 @@ export function createLoopbackIngressServer(
       clock,
     });
   }
+  registerCodexIngressRoute(server, {
+    persistence,
+    tokenVerifier,
+    hmacKey,
+    ...(homePath === undefined ? {} : { homePath }),
+    clock,
+    receiptIdGenerator,
+    ...(diagnostics === undefined ? {} : { diagnostics }),
+    customSecretFieldPatterns: () =>
+      dependencies.settings?.getCustomSecretFieldPatterns() ??
+      dependencies.customSecretFieldPatterns?.() ??
+      [],
+  });
+
   const staticSite = createContainedStaticSite(dependencies.replay?.webRoot);
 
   server.setNotFoundHandler((request, reply) => {

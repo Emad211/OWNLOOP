@@ -6,6 +6,21 @@ export function formatBootstrapName(name: string): string {
 }
 
 export type {
+  AgentIngressHookIdentity,
+  IngressAgentSource,
+  SupportedAgentHookName,
+} from "./agent-ingress.js";
+export {
+  AgentIngressHookIdentitySchema,
+  INGRESS_AGENT_SOURCES,
+  IngressAgentSourceSchema,
+  isSupportedAgentHook,
+  MAX_INGRESS_AGENT_HOOK_IDENTITIES,
+  SUPPORTED_AGENT_HOOK_NAMES,
+  SupportedAgentHookNameSchema,
+} from "./agent-ingress.js";
+
+export type {
   DiagnosticsBundleV1,
   DiagnosticsDashboardLimitation,
   DiagnosticsDashboardV1,
