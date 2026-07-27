@@ -20,4 +20,9 @@ The production command is observational:
 - no transcript-path reads;
 - no permission decisions, tool blocking, input rewriting, or additional context.
 
-The daemon Codex ingress route, normalization, configuration installation, trust diagnostics, and Windows launcher are separate OL-027 slices.
+Architecture and source assumptions are recorded in:
+
+- `docs/adr/0028-codex-lifecycle-hook-adapter-and-multi-agent-source-boundary.md`;
+- `docs/research/codex-lifecycle-hook-integration-2026-07.md`.
+
+The current adapter slice intentionally stops at the authenticated delivery boundary. The daemon Codex ingress route, normalization, configuration installation, trust diagnostics, and Windows launcher are separate OL-027 slices and must not be inferred from this workspace alone.
