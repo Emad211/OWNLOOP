@@ -5,39 +5,81 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   finalize:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/ol-027-codex-adapter'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref }}
-          fetch-depth: 3
+          fetch-depth: 2
 
-      - name: Capture exact patch diagnostics
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+          run_install: false
+
+      - name: Apply verified Codex deduplication patch
         shell: bash
         run: |
-          set +e
-          {
-            echo "HEAD=$(git rev-parse HEAD)"
-            echo "PARENT=$(git rev-parse HEAD^)"
-            echo "PATCH_SHA=$(sha256sum .ol027-transfer/codex-dedup.patch | cut -d' ' -f1)"
-            echo "PATCH_SIZE=$(wc -c < .ol027-transfer/codex-dedup.patch | tr -d ' ')"
-            git apply --numstat .ol027-transfer/codex-dedup.patch
-            echo "NUMSTAT_EXIT=$?"
-            git apply --check --verbose .ol027-transfer/codex-dedup.patch
-            echo "CHECK_EXIT=$?"
-          } > /tmp/ol027-codex-patch.log 2>&1
-          cat /tmp/ol027-codex-patch.log
-          exit 0
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "5b989a3c657e7bae241f8829b8112f6210580d86"
+          test "$(sha256sum .ol027-transfer/codex-dedup.patch | cut -d' ' -f1)" = "338471cd0e709af0f5dbe897d3234576ed569b59c0dd175b3bd9b9e8a7b579fc"
+          git apply --check .ol027-transfer/codex-dedup.patch
+          git apply .ol027-transfer/codex-dedup.patch
+          rm -rf .ol027-transfer .github/workflows/finalize-ol027-codex-security.yml
 
-      - uses: actions/upload-artifact@v6
-        with:
-          name: ol027-codex-patch-diagnostics
-          path: /tmp/ol027-codex-patch.log
-          if-no-files-found: error
-          retention-days: 1
+      - run: pnpm install --frozen-lockfile
+
+      - name: Format Codex security source
+        run: |
+          pnpm exec biome check --write \
+            packages/contracts/src/codex.ts \
+            packages/contracts/src/codex-ingress-security.ts \
+            packages/contracts/src/ingress-security.ts \
+            packages/contracts/tests/codex-ingress-security.test.ts \
+            packages/ingress-security/src/codex-fingerprint.ts \
+            packages/ingress-security/src/codex-prepare.ts \
+            packages/ingress-security/src/codex-reduction.ts \
+            packages/ingress-security/src/index.ts \
+            packages/ingress-security/tests/codex-prepare.test.ts
+
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test Codex security boundaries
+        run: pnpm vitest run packages/contracts/tests/codex-ingress-security.test.ts packages/ingress-security/tests/codex-prepare.test.ts packages/ingress-security/tests/prepare.test.ts packages/ingress-security/tests/fingerprint.test.ts
+
+      - name: Test full repository
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Publish clean source head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e .ol027-transfer
+          test ! -e .github/workflows/finalize-ol027-codex-security.yml
+          git diff --check
+          git add -A
+          git diff --cached --check
+          git config user.name 'Emad211'
+          git config user.email '82148680+Emad211@users.noreply.github.com'
+          git commit -m 'OL-027: Add secure Codex receipt preparation'
+          git push origin "HEAD:${{ github.head_ref }}"
