@@ -31,42 +31,62 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "951da0411b8d4fcd62cdb7bc0e59cb96a482392f"
+          test "$(git rev-parse HEAD^)" = "909662a11f01f36c9f897d60b76e9e996f333c48"
           python .ol027-transfer/finalize-codex-normalization.py
           python - <<'PY'
           from pathlib import Path
 
           migration_test = Path("apps/daemon/src/persistence/migration-v20.test.ts")
           migration_text = migration_test.read_text(encoding="utf-8")
-          old_migration_loop = '''      newTypes.forEach((eventType, index) =>
-            insertEvent(opened.database, `event-v20-${index}`, index + 2, eventType),
-          );
-          '''
-          new_migration_loop = '''      newTypes.forEach((eventType, index) => {
+          migration_start_marker = "      newTypes.forEach((eventType, index) =>"
+          migration_end_marker = "      );\n      expect("
+          if migration_text.count(migration_start_marker) != 1:
+              raise SystemExit("migration v20 callback start marker failed")
+          migration_start = migration_text.index(migration_start_marker)
+          migration_end = migration_text.index(migration_end_marker, migration_start)
+          migration_replacement = '''      newTypes.forEach((eventType, index) => {
             insertEvent(opened.database, `event-v20-${index}`, index + 2, eventType);
           });
-          '''
-          if migration_text.count(old_migration_loop) != 1:
-              raise SystemExit("migration v20 callback precondition failed")
+          expect('''
           migration_test.write_text(
-              migration_text.replace(old_migration_loop, new_migration_loop),
+              migration_text[:migration_start]
+              + migration_replacement
+              + migration_text[migration_end + len(migration_end_marker):],
               encoding="utf-8",
           )
 
           normalization_test = Path("apps/daemon/src/normalization/codex-normalization.test.ts")
           normalization_text = normalization_test.read_text(encoding="utf-8")
-          old_normalization_loop = '''      hookOrder.forEach((hookName, index) =>
-            process(persistence, nextEventId, `receipt-codex-normalization-${index}`, hookName),
-          );
-          '''
-          new_normalization_loop = '''      hookOrder.forEach((hookName, index) => {
-            process(persistence, nextEventId, `receipt-codex-normalization-${index}`, hookName);
+          normalization_start_marker = "      hookOrder.forEach((hookName, index) =>"
+          normalization_end_marker = (
+              '      );\n      process(persistence, nextEventId, '
+              '"receipt-codex-normalization-end", "SessionEnd");'
+          )
+          if normalization_text.count(normalization_start_marker) != 1:
+              raise SystemExit("Codex normalization callback start marker failed")
+          normalization_start = normalization_text.index(normalization_start_marker)
+          normalization_end = normalization_text.index(
+              normalization_end_marker,
+              normalization_start,
+          )
+          normalization_replacement = '''      hookOrder.forEach((hookName, index) => {
+            process(
+              persistence,
+              nextEventId,
+              `receipt-codex-normalization-${index}`,
+              hookName,
+            );
           });
-          '''
-          if normalization_text.count(old_normalization_loop) != 1:
-              raise SystemExit("Codex normalization callback precondition failed")
+          process(
+            persistence,
+            nextEventId,
+            "receipt-codex-normalization-end",
+            "SessionEnd",
+          );'''
           normalization_test.write_text(
-              normalization_text.replace(old_normalization_loop, new_normalization_loop),
+              normalization_text[:normalization_start]
+              + normalization_replacement
+              + normalization_text[normalization_end + len(normalization_end_marker):],
               encoding="utf-8",
           )
           PY
