@@ -1,4 +1,5 @@
 import {
+  CodexHookConfigurationError,
   type CodexHookConfigurationInspection,
   type CodexHookLauncherCommands,
   inspectCodexHookConfiguration,
@@ -30,16 +31,23 @@ export function planCodexHookConfigurationMutation(
 ): CodexHookConfigurationPlan {
   const sourceExisted = sourceJson !== null;
   const sourceDocument = sourceJson === null ? {} : parseCodexHookConfigurationJson(sourceJson);
-  const before = inspectCodexHookConfiguration(sourceDocument, launcherCommands);
-  const mutation =
-    operation === "install"
-      ? installCodexHookConfiguration(sourceDocument, launcherCommands)
-      : removeCodexHookConfiguration(sourceDocument, launcherCommands);
+  const mutation = (() => {
+    switch (operation) {
+      case "install":
+        return installCodexHookConfiguration(sourceDocument, launcherCommands);
+      case "remove":
+        return removeCodexHookConfiguration(sourceDocument, launcherCommands);
+      default: {
+        const _unreachable: never = operation;
+        throw new CodexHookConfigurationError("invalid_document");
+      }
+    }
+  })();
   return Object.freeze({
     operation,
     sourceExisted,
     changed: mutation.changed,
-    before,
+    before: inspectCodexHookConfiguration(sourceDocument, launcherCommands),
     after: mutation.inspection,
     outputJson: mutation.changed ? serializeCodexHookConfigurationJson(mutation.document) : null,
   });
