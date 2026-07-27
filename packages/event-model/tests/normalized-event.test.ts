@@ -25,6 +25,11 @@ const adrEventTypes = [
   "user.prompt_submitted",
   "agent.plan_observed",
   "agent.summary_observed",
+  "agent.subagent_started",
+  "agent.subagent_stopped",
+  "permission.requested",
+  "context.compaction_started",
+  "context.compaction_completed",
   "tool.requested",
   "tool.succeeded",
   "tool.failed",
@@ -53,7 +58,7 @@ const adrEventTypes = [
 ] as const;
 
 describe("normalized event taxonomy", () => {
-  it("matches the complete ADR-0003 taxonomy", () => {
+  it("matches the accepted provider-neutral taxonomy", () => {
     expect(NORMALIZED_EVENT_TYPES).toEqual(adrEventTypes);
     for (const eventType of adrEventTypes) {
       expect(NormalizedEventTypeSchema.safeParse(eventType).success).toBe(true);
