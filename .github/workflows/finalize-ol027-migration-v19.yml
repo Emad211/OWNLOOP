@@ -34,8 +34,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "954349bb1b62c32e2bc82bdb35861cc3f649f9cd"
-          test "$(sha256sum .ol027-transfer/migration-v19.patch | cut -d' ' -f1)" = "1ea1268e451307969a0fade56e18729340da7415af4e6c3037f78c18517a4f82"
+          test "$(git rev-parse HEAD^)" = "69ea8677f383801cedcd5b566362f9137e2346d8"
+          test "$(sha256sum .ol027-transfer/migration-v19.patch | cut -d' ' -f1)" = "f2eb5246406d3d2ec54dcb525d4f3b8ac474e3c0c0d1ab2740ae154d744581d7"
           git apply --check .ol027-transfer/migration-v19.patch
           git apply .ol027-transfer/migration-v19.patch
           rm -rf .ol027-transfer .github/workflows/finalize-ol027-migration-v19.yml
