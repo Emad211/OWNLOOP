@@ -188,7 +188,7 @@ describe("Codex Event normalization", () => {
         "user.prompt_submitted",
         "tool.requested",
         "permission.requested",
-        "tool.succeeded",
+        "tool.completed",
         "context.compaction_started",
         "context.compaction_completed",
         "agent.subagent_started",

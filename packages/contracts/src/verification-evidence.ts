@@ -41,7 +41,7 @@ export const VERIFICATION_TOOL_FAMILIES = [
 export const VerificationToolFamilySchema = z.enum(VERIFICATION_TOOL_FAMILIES);
 export type VerificationToolFamily = z.infer<typeof VerificationToolFamilySchema>;
 
-export const VERIFICATION_SOURCE_TOOL_OUTCOMES = ["succeeded", "failed"] as const;
+export const VERIFICATION_SOURCE_TOOL_OUTCOMES = ["completed", "succeeded", "failed"] as const;
 export const VerificationSourceToolOutcomeSchema = z.enum(VERIFICATION_SOURCE_TOOL_OUTCOMES);
 export type VerificationSourceToolOutcome = z.infer<typeof VerificationSourceToolOutcomeSchema>;
 
@@ -131,6 +131,7 @@ export const VerificationCommandObservationV1Schema = z
     }
 
     const exitConsistent =
+      value.sourceToolOutcome === "completed" ||
       (value.sourceToolOutcome === "succeeded" &&
         (value.exitCode === null || value.exitCode === 0)) ||
       (value.sourceToolOutcome === "failed" && (value.exitCode === null || value.exitCode !== 0));
@@ -157,7 +158,8 @@ export const VerificationCommandObservationV1Schema = z
         context.addIssue({ code: "custom", message: "Recognized command observation is invalid." });
       }
       const expectedStatus =
-        value.sourceToolOutcome === "failed"
+        value.sourceToolOutcome === "failed" ||
+        (value.sourceToolOutcome === "completed" && value.exitCode !== null && value.exitCode !== 0)
           ? "failed"
           : value.exitCode === 0
             ? "passed"

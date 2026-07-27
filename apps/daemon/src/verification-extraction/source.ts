@@ -21,7 +21,7 @@ const OUTPUT_FIELD_ORDER: readonly VerificationOutputField[] = [
 ];
 const encoder = new TextEncoder();
 
-export type AcceptedBashObservation = Readonly<{
+export type AcceptedCommandObservation = Readonly<{
   sourceEventId: string;
   occurredAt: string;
   sourceToolOutcome: VerificationSourceToolOutcome;
@@ -31,6 +31,8 @@ export type AcceptedBashObservation = Readonly<{
   reducedOutputs: readonly VerificationReducedOutputV1[];
   partial: boolean;
 }>;
+
+export type AcceptedBashObservation = AcceptedCommandObservation;
 
 function objectValue(value: JsonValue | undefined): JsonObject | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -123,36 +125,58 @@ function collectResponse(
   };
 }
 
-export function acceptedBashObservation(
+function acceptedSourceOutcome(
   event: NormalizedEventEnvelope,
-): AcceptedBashObservation | null {
-  if (
-    event.source !== "claude_code" ||
-    (event.type !== "tool.succeeded" && event.type !== "tool.failed")
-  ) {
-    return null;
+): VerificationSourceToolOutcome | null {
+  if (event.source === "claude_code") {
+    if (event.type !== "tool.succeeded" && event.type !== "tool.failed") return null;
+    const expectedHook = event.type === "tool.succeeded" ? "PostToolUse" : "PostToolUseFailure";
+    if (event.sourceEventName !== expectedHook) {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The Claude source tool Event hook linkage is inconsistent.",
+      );
+    }
+    return event.type === "tool.succeeded" ? "succeeded" : "failed";
   }
-  const expectedHook = event.type === "tool.succeeded" ? "PostToolUse" : "PostToolUseFailure";
-  if (event.sourceEventName !== expectedHook) {
-    throw new PersistenceError(
-      "invalid_persisted_row",
-      "The source tool Event hook linkage is inconsistent.",
-    );
+
+  if (event.source === "codex") {
+    if (event.type !== "tool.completed") return null;
+    if (event.sourceEventName !== "PostToolUse") {
+      throw new PersistenceError(
+        "invalid_persisted_row",
+        "The Codex source tool Event hook linkage is inconsistent.",
+      );
+    }
+    return "completed";
   }
+
+  return null;
+}
+
+function acceptedCommandToolName(event: NormalizedEventEnvelope, toolName: string): boolean {
+  return event.source === "claude_code" ? toolName === "Bash" : toolName === "shell_command";
+}
+
+export function acceptedCommandObservation(
+  event: NormalizedEventEnvelope,
+): AcceptedCommandObservation | null {
+  const sourceToolOutcome = acceptedSourceOutcome(event);
+  if (sourceToolOutcome === null) return null;
+
   if (typeof event.payload.tool_name !== "string") {
     throw new PersistenceError(
       "invalid_persisted_row",
       "The source tool Event is missing its controlled tool name.",
     );
   }
-  if (event.payload.tool_name !== "Bash") {
-    return null;
-  }
+  if (!acceptedCommandToolName(event, event.payload.tool_name)) return null;
+
   const toolInput = objectValue(event.payload.tool_input);
   if (toolInput === null) {
     throw new PersistenceError(
       "invalid_persisted_row",
-      "The accepted Bash Event has invalid tool input.",
+      "The accepted command Event has invalid tool input.",
     );
   }
   const commandValue = toolInput.command;
@@ -172,7 +196,7 @@ export function acceptedBashObservation(
   } else {
     partial = true;
   }
-  const sourceToolOutcome = event.type === "tool.succeeded" ? "succeeded" : "failed";
+
   const response = collectResponse(event, sourceToolOutcome);
   return {
     sourceEventId: event.eventId,
@@ -187,4 +211,10 @@ export function acceptedBashObservation(
     reducedOutputs: response.outputs,
     partial: partial || response.partial,
   };
+}
+
+export function acceptedBashObservation(
+  event: NormalizedEventEnvelope,
+): AcceptedBashObservation | null {
+  return acceptedCommandObservation(event);
 }

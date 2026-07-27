@@ -55,7 +55,9 @@ describe("accepted Codex command verification source", () => {
   });
 
   it("retains completion without inventing an exit code", () => {
-    expect(acceptedCommandObservation(event({ toolResponse: { stdout: "observed" } }))).toMatchObject({
+    expect(
+      acceptedCommandObservation(event({ toolResponse: { stdout: "observed" } })),
+    ).toMatchObject({
       sourceToolOutcome: "completed",
       exitCode: null,
       partial: false,

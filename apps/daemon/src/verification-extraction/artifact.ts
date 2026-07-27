@@ -10,12 +10,12 @@ import {
 } from "@ownloop/contracts";
 import type { NormalizedEventEnvelope } from "@ownloop/event-model";
 import {
+  type CanonicalJsonLimits,
   canonicalizeJson,
   DEFAULT_CANONICAL_INPUT_LIMITS,
-  type CanonicalJsonLimits,
 } from "@ownloop/ingress-security";
 
-import { type RunFinalization, PersistenceError } from "../persistence/index.js";
+import { PersistenceError, type RunFinalization } from "../persistence/index.js";
 import {
   VERIFICATION_COMMAND_RULE_SET_VERSION,
   VERIFICATION_EVIDENCE_SCHEMA_VERSION,
@@ -26,7 +26,7 @@ import {
   VERIFICATION_MAX_TEST_FILE_REFERENCES,
   VERIFICATION_OUTPUT_REDUCTION_POLICY_VERSION,
 } from "./constants.js";
-import { acceptedBashObservation } from "./source.js";
+import { acceptedCommandObservation } from "./source.js";
 
 const ARTIFACT_LIMITS: CanonicalJsonLimits = Object.freeze({
   ...DEFAULT_CANONICAL_INPUT_LIMITS,
@@ -165,7 +165,7 @@ export function prepareDeterministicVerificationEvidence(
   }
   validateEvents(input.runId, input.events);
   const accepted = input.events.flatMap((event) => {
-    const observation = acceptedBashObservation(event);
+    const observation = acceptedCommandObservation(event);
     return observation === null ? [] : [observation];
   });
   if (accepted.length > VERIFICATION_MAX_COMMAND_OBSERVATIONS) {
@@ -178,7 +178,10 @@ export function prepareDeterministicVerificationEvidence(
     const status =
       source.recognition.kind === "unknown"
         ? "unknown"
-        : source.sourceToolOutcome === "failed"
+        : source.sourceToolOutcome === "failed" ||
+            (source.sourceToolOutcome === "completed" &&
+              source.exitCode !== null &&
+              source.exitCode !== 0)
           ? "failed"
           : source.exitCode === 0
             ? "passed"

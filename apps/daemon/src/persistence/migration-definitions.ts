@@ -1,4 +1,5 @@
 import { MULTI_AGENT_EVENT_TAXONOMY_SQL } from "./multi-agent-event-taxonomy-migration.js";
+import { TOOL_COMPLETION_EVENT_TAXONOMY_SQL } from "./tool-completion-event-taxonomy-migration.js";
 
 export type MigrationDefinition = Readonly<{
   version: number;
@@ -2413,6 +2414,12 @@ export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
     version: 20,
     name: "provider_neutral_codex_event_taxonomy",
     sql: MULTI_AGENT_EVENT_TAXONOMY_SQL,
+    foreignKeyPolicy: "disable_during_table_rebuild",
+  }),
+  Object.freeze({
+    version: 21,
+    name: "neutral_tool_completion_event_taxonomy",
+    sql: TOOL_COMPLETION_EVENT_TAXONOMY_SQL,
     foreignKeyPolicy: "disable_during_table_rebuild",
   }),
 ]);

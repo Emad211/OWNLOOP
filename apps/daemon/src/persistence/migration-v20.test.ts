@@ -113,7 +113,7 @@ describe("provider-neutral Event taxonomy migration v20", () => {
       expect(() =>
         insertEvent(opened.database, "event-pre-v20", 2, "permission.requested"),
       ).toThrow();
-      runMigrations(opened.database);
+      runMigrations(opened.database, MIGRATIONS.slice(0, 20));
 
       expect(readAppliedMigrations(opened.database)).toHaveLength(20);
       expect(opened.database.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
@@ -146,7 +146,7 @@ describe("provider-neutral Event taxonomy migration v20", () => {
     try {
       runMigrations(opened.database, MIGRATIONS.slice(0, 19));
       seedVersion19Event(opened.database);
-      runMigrations(opened.database);
+      runMigrations(opened.database, MIGRATIONS.slice(0, 20));
 
       const newTypes = [
         "permission.requested",

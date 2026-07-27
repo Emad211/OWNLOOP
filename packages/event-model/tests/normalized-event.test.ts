@@ -31,6 +31,7 @@ const adrEventTypes = [
   "context.compaction_started",
   "context.compaction_completed",
   "tool.requested",
+  "tool.completed",
   "tool.succeeded",
   "tool.failed",
   "tool.batch_completed",

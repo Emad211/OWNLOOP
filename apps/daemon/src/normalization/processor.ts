@@ -288,7 +288,14 @@ function buildSpecifications(
       if (resolution.action !== "run_associated") {
         throw new ExpectedNormalizationFailure("invalid_event_mapping");
       }
-      return [sourceSpec(receipt.source, "tool.succeeded", payload, "sensitive")];
+      return [
+        sourceSpec(
+          receipt.source,
+          receipt.source === "codex" ? "tool.completed" : "tool.succeeded",
+          payload,
+          "sensitive",
+        ),
+      ];
     case "PostToolUseFailure":
       requireRun(resolution);
       if (resolution.action !== "run_associated") {
