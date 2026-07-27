@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "14eaa3db39979913a38e048cf812bb677d8080c5"
+          test "$(git rev-parse HEAD^)" = "b90cbedc364bc06699a0bc7f2c368d08dff69204"
           test "$(git hash-object .ol027-transfer/codex-dedup.patch)" = "d9666f923ee39651c1ba78828c96b03b1b5327d0"
           git apply --check .ol027-transfer/codex-dedup.patch
           git apply .ol027-transfer/codex-dedup.patch
@@ -52,9 +52,13 @@ jobs:
           old_refinement = '.refine((value) => !controlPattern.test(value))'
           if text.count(old_constant) != 1 or text.count(old_refinement) != 2:
               raise SystemExit("Codex contract edit precondition failed")
-          text = text.replace(old_constant, replacement)
-          text = text.replace(old_refinement, '.refine((value) => !hasControlCharacter(value))')
-          contract.write_text(text, encoding="utf-8")
+          contract.write_text(
+              text.replace(old_constant, replacement).replace(
+                  old_refinement,
+                  '.refine((value) => !hasControlCharacter(value))',
+              ),
+              encoding="utf-8",
+          )
 
           path_reduction = Path("packages/ingress-security/src/path-reduction.ts")
           path_text = path_reduction.read_text(encoding="utf-8")
@@ -62,75 +66,66 @@ jobs:
           old_iife = '  const transcript = (() => {\n    try {\n'
           if path_text.count(old_parameter) != 1 or path_text.count(old_iife) != 1:
               raise SystemExit("Path reduction edit precondition failed")
-          path_text = path_text.replace(old_parameter, '  transcriptPath: string | null,\n')
-          path_text = path_text.replace(old_iife, '  const transcript = (() => {\n    if (transcriptPath === null) {\n      return null;\n    }\n    try {\n')
-          path_reduction.write_text(path_text, encoding="utf-8")
+          path_reduction.write_text(
+              path_text.replace(old_parameter, '  transcriptPath: string | null,\n').replace(
+                  old_iife,
+                  '  const transcript = (() => {\n    if (transcriptPath === null) {\n      return null;\n    }\n    try {\n',
+              ),
+              encoding="utf-8",
+          )
 
           test_file = Path("packages/ingress-security/tests/codex-prepare.test.ts")
           test_text = test_file.read_text(encoding="utf-8")
           old_import = 'import { validCodexHookFixtures } from "@ownloop/test-fixtures";\n'
           old_input = '  input: (typeof validCodexHookFixtures)[number]["input"],\n'
-          if test_text.count(old_import) != 1 or test_text.count(old_input) != 1:
-              raise SystemExit("Codex test typing edit precondition failed")
+          authorization_rule = '        "string.authorization",\n'
+          if (
+              test_text.count(old_import) != 1
+              or test_text.count(old_input) != 1
+              or test_text.count(authorization_rule) != 1
+          ):
+              raise SystemExit("Codex test typing/expectation precondition failed")
           test_text = test_text.replace(old_import, 'import { validCodexHookFixtures } from "./codex-fixtures.js";\n')
           test_text = test_text.replace(old_input, '  input: CodexAdapterIngress["payload"],\n')
-
-          authorization_rule = '        "string.authorization",\n'
-          if test_text.count(authorization_rule) != 1:
-              raise SystemExit("Authorization expectation precondition failed")
           test_text = test_text.replace(authorization_rule, "")
 
-          old_title = 'it("strips unknown upstream wrapper and payload fields before persistence", () => {'
-          new_title = 'it("rejects unknown wrapper fields and strips unknown payload fields", () => {'
-          if test_text.count(old_title) != 1:
-              raise SystemExit("Unknown-field test title precondition failed")
-          test_text = test_text.replace(old_title, new_title)
+          start_marker = '  it("strips unknown upstream wrapper and payload fields before persistence", () => {'
+          end_marker = '  it("applies configured custom secret fields to arbitrary Codex tool data", () => {'
+          if test_text.count(start_marker) != 1 or test_text.count(end_marker) != 1:
+              raise SystemExit("Unknown-field test markers are not unique")
+          start = test_text.index(start_marker)
+          end = test_text.index(end_marker)
+          if end <= start:
+              raise SystemExit("Unknown-field test markers are out of order")
+          replacement_test = '''  it("rejects unknown wrapper fields and strips unknown payload fields", () => {
+            expect(() =>
+              CodexAdapterIngressSchema.parse({
+                ...ingressFor(validCodexHookFixtures[0].input),
+                future_wrapper: "reject",
+              }),
+            ).toThrow();
 
-          old_parse = '''    const parsed = CodexAdapterIngressSchema.parse({
-            ...ingressFor(validCodexHookFixtures[0].input),
-            future_wrapper: "drop",
-            payload: {
-          '''
-          new_parse = '''    expect(() =>
-            CodexAdapterIngressSchema.parse({
+            const parsed = CodexAdapterIngressSchema.parse({
               ...ingressFor(validCodexHookFixtures[0].input),
-              future_wrapper: "reject",
-            }),
-          ).toThrow();
+              payload: {
+                ...validCodexHookFixtures[0].input,
+                future_payload: "drop",
+              },
+            });
+            const payload = payloadOf(parsed);
+            expect(payload).not.toHaveProperty("future_payload");
+          });
 
-          const parsed = CodexAdapterIngressSchema.parse({
-            ...ingressFor(validCodexHookFixtures[0].input),
-            payload: {
           '''
-          if test_text.count(old_parse) != 1:
-              raise SystemExit("Unknown wrapper parse precondition failed")
-          test_text = test_text.replace(old_parse, new_parse)
-
-          old_wrapper_expectation = '    expect(payload).not.toHaveProperty("future_wrapper");\n'
-          if test_text.count(old_wrapper_expectation) != 1:
-              raise SystemExit("Unknown wrapper expectation precondition failed")
-          test_text = test_text.replace(old_wrapper_expectation, "")
-          test_file.write_text(test_text, encoding="utf-8")
+          test_file.write_text(test_text[:start] + replacement_test + test_text[end:], encoding="utf-8")
 
           fixture_file = Path("packages/ingress-security/tests/codex-fixtures.ts")
           fixture_text = fixture_file.read_text(encoding="utf-8")
-          old_turn_fields = '''const turnFields = {
-            ...commonFields,
-            turn_id: "turn-fixture-001",
-            model: "gpt-5.6-codex",
-            permission_mode: "default",
-          };
-          '''
-          new_turn_fields = '''const turnFields = {
-            ...commonFields,
-            turn_id: "turn-fixture-001",
-            model: "gpt-5.6-codex",
-            permission_mode: "default",
-          } as const;
-          '''
-          if fixture_text.count(old_turn_fields) != 1:
-              raise SystemExit("Codex fixture literal precondition failed")
-          fixture_file.write_text(fixture_text.replace(old_turn_fields, new_turn_fields), encoding="utf-8")
+          fixture_marker = '  permission_mode: "default",\n};\n\nexport const validCodexHookFixtures'
+          fixture_replacement = '  permission_mode: "default",\n} as const;\n\nexport const validCodexHookFixtures'
+          if fixture_text.count(fixture_marker) != 1:
+              raise SystemExit("Codex fixture literal marker precondition failed")
+          fixture_file.write_text(fixture_text.replace(fixture_marker, fixture_replacement), encoding="utf-8")
           PY
           rm -rf .ol027-transfer .github/workflows/finalize-ol027-codex-security.yml
 
