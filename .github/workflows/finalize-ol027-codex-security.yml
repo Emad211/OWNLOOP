@@ -11,7 +11,7 @@ jobs:
   finalize:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/ol-027-codex-adapter'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
         with:
@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "405483a9682b82210b27421841591a1cf02b9bb5"
+          test "$(git rev-parse HEAD^)" = "03bbb354b1129e86d594325bfef85257423935f8"
           test "$(git hash-object .ol027-transfer/codex-dedup.patch)" = "d9666f923ee39651c1ba78828c96b03b1b5327d0"
           git apply --check .ol027-transfer/codex-dedup.patch
           git apply .ol027-transfer/codex-dedup.patch
@@ -69,17 +69,21 @@ jobs:
           test_file = Path("packages/ingress-security/tests/codex-prepare.test.ts")
           test_text = test_file.read_text(encoding="utf-8")
           old_import = 'import { validCodexHookFixtures } from "@ownloop/test-fixtures";\n'
-          if test_text.count(old_import) != 1:
-              raise SystemExit("Codex test fixture import precondition failed")
-          test_file.write_text(
-              test_text.replace(old_import, 'import { validCodexHookFixtures } from "./codex-fixtures.js";\n'),
-              encoding="utf-8",
+          old_input = '  input: (typeof validCodexHookFixtures)[number]["input"],\n'
+          if test_text.count(old_import) != 1 or test_text.count(old_input) != 1:
+              raise SystemExit("Codex test edit precondition failed")
+          test_text = test_text.replace(
+              old_import,
+              'import { validCodexHookFixtures } from "./codex-fixtures.js";\n',
           )
+          test_text = test_text.replace(old_input, '  input: CodexAdapterIngress["payload"],\n')
+          test_file.write_text(test_text, encoding="utf-8")
           PY
+          rm -rf .ol027-transfer .github/workflows/finalize-ol027-codex-security.yml
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Format exact source
+      - name: Format Codex security source
         run: |
           pnpm exec biome check --write \
             packages/contracts/src/codex.ts \
@@ -94,22 +98,34 @@ jobs:
             packages/ingress-security/tests/codex-fixtures.ts \
             packages/ingress-security/tests/codex-prepare.test.ts
 
-      - name: Capture TypeScript diagnostics
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test Codex security boundaries
+        run: pnpm vitest run packages/contracts/tests/codex-ingress-security.test.ts packages/ingress-security/tests/codex-prepare.test.ts packages/ingress-security/tests/prepare.test.ts packages/ingress-security/tests/fingerprint.test.ts packages/ingress-security/tests/path-reduction.test.ts
+
+      - name: Test full repository
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Publish clean source head
         shell: bash
         run: |
-          set +e
-          pnpm typecheck > /tmp/ol027-codex-security-typecheck-v3.log 2>&1
-          code=$?
-          printf '%s\n' "$code" > /tmp/ol027-codex-security-typecheck-v3.exit
-          cat /tmp/ol027-codex-security-typecheck-v3.log
-          exit 0
-
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: ol027-codex-security-typecheck-v3
-          path: |
-            /tmp/ol027-codex-security-typecheck-v3.log
-            /tmp/ol027-codex-security-typecheck-v3.exit
-          if-no-files-found: error
-          retention-days: 1
+          set -euo pipefail
+          test ! -e .ol027-transfer
+          test ! -e .github/workflows/finalize-ol027-codex-security.yml
+          git diff --check
+          git add -A
+          git diff --cached --check
+          git config user.name 'Emad211'
+          git config user.email '82148680+Emad211@users.noreply.github.com'
+          git commit -m 'OL-027: Add secure Codex receipt preparation'
+          git push origin "HEAD:${{ github.head_ref }}"
