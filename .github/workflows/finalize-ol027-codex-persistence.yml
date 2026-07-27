@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "3e1a05263de2000ee7df5f9e7e5d709f49db3ef4"
+          test "$(git rev-parse HEAD^)" = "1f8b27479913438fbc0eb57a43a21d7688318d3f"
           python - <<'PY'
           from pathlib import Path
 
@@ -63,59 +63,47 @@ jobs:
               raise SystemExit("local parser import precondition failed")
           text = text.replace(anchor, local_import + anchor)
 
-          replacements = {
+          direct_replacements = {
               '  PreparedIngressReceiptV1 &\n': '  PreparedAgentIngressReceiptV1 &\n',
               'export type NewPreparedIngressReceipt = OperationalReceiptFields & PreparedIngressReceiptV1;': 'export type NewPreparedIngressReceipt = OperationalReceiptFields & PreparedAgentIngressReceiptV1;',
-              'function validatePreparedContract(receipt: NewPreparedIngressReceipt): PreparedIngressReceiptV1 {': 'function validatePreparedContract(\n  receipt: NewPreparedIngressReceipt,\n): PreparedAgentIngressReceiptV1 {',
               'const result = PreparedIngressReceiptV1Schema.shape.redactionSummary.safeParse(parsed);': 'const result = RedactionSummaryV1Schema.safeParse(parsed);',
+          }
+          for old, new in direct_replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f"direct persistence edit precondition failed for {old!r}")
+              text = text.replace(old, new)
+
+          validate_start_marker = 'function validatePreparedContract('
+          validate_end_marker = '\n\nexport class IngressReceiptRepository'
+          if text.count(validate_start_marker) != 1 or text.count(validate_end_marker) != 1:
+              raise SystemExit("validatePreparedContract markers are not unique")
+          validate_start = text.index(validate_start_marker)
+          validate_end = text.index(validate_end_marker, validate_start)
+          validate = text[validate_start:validate_end]
+          validate_replacements = {
+              'function validatePreparedContract(receipt: NewPreparedIngressReceipt): PreparedIngressReceiptV1 {': 'function validatePreparedContract(\n  receipt: NewPreparedIngressReceipt,\n): PreparedAgentIngressReceiptV1 {',
               'const result = PreparedIngressReceiptV1Schema.safeParse({': 'const result = parsePreparedAgentIngressReceipt({',
-              'const prepared = PreparedIngressReceiptV1Schema.safeParse({': 'const prepared = parsePreparedAgentIngressReceipt({',
               '  if (!result.success) {': '  if (result === null) {',
               '  return result.data;': '  return result;',
+          }
+          for old, new in validate_replacements.items():
+              if validate.count(old) != 1:
+                  raise SystemExit(f"validate prepared edit precondition failed for {old!r}")
+              validate = validate.replace(old, new)
+          text = text[:validate_start] + validate + text[validate_end:]
+
+          get_replacements = {
+              'const prepared = PreparedIngressReceiptV1Schema.safeParse({': 'const prepared = parsePreparedAgentIngressReceipt({',
               '    if (!prepared.success) {': '    if (prepared === null) {',
               '    return { ...operational, ...prepared.data, preparationStatus: "prepared" };': '    return { ...operational, ...prepared, preparationStatus: "prepared" };',
           }
-          expected_counts = {
-              '  PreparedIngressReceiptV1 &\n': 1,
-              'export type NewPreparedIngressReceipt = OperationalReceiptFields & PreparedIngressReceiptV1;': 1,
-              'function validatePreparedContract(receipt: NewPreparedIngressReceipt): PreparedIngressReceiptV1 {': 1,
-              'const result = PreparedIngressReceiptV1Schema.shape.redactionSummary.safeParse(parsed);': 1,
-              'const result = PreparedIngressReceiptV1Schema.safeParse({': 1,
-              'const prepared = PreparedIngressReceiptV1Schema.safeParse({': 1,
-              '  if (!result.success) {': 2,
-              '  return result.data;': 2,
-              '    if (!prepared.success) {': 1,
-              '    return { ...operational, ...prepared.data, preparationStatus: "prepared" };': 1,
-          }
+          for old, new in get_replacements.items():
+              if text.count(old) != 1:
+                  raise SystemExit(f"persisted read edit precondition failed for {old!r}")
+              text = text.replace(old, new)
 
-          # Summary parsing retains Zod's result object; only the two prepared-receipt
-          # branches switch from safeParse result objects to nullable union values.
-          if text.count('  if (!result.success) {') != 2 or text.count('  return result.data;') != 2:
-              raise SystemExit("shared result branch counts changed unexpectedly")
-          text = text.replace('  if (!result.success) {', '  if (result === null) {', 1)
-          text = text.replace('  return result.data;', '  return result;', 1)
-
-          for old in [
-              '  PreparedIngressReceiptV1 &\n',
-              'export type NewPreparedIngressReceipt = OperationalReceiptFields & PreparedIngressReceiptV1;',
-              'function validatePreparedContract(receipt: NewPreparedIngressReceipt): PreparedIngressReceiptV1 {',
-              'const result = PreparedIngressReceiptV1Schema.shape.redactionSummary.safeParse(parsed);',
-              'const result = PreparedIngressReceiptV1Schema.safeParse({',
-              'const prepared = PreparedIngressReceiptV1Schema.safeParse({',
-              '    if (!prepared.success) {',
-              '    return { ...operational, ...prepared.data, preparationStatus: "prepared" };',
-          ]:
-              expected = expected_counts[old]
-              if text.count(old) != expected:
-                  raise SystemExit(f"repository edit precondition failed for {old!r}: {text.count(old)}")
-              text = text.replace(old, replacements[old])
-
-          # validatePreparedContract is now the remaining prepared-receipt result branch.
-          if text.count('  if (!result.success) {') != 1 or text.count('  return result.data;') != 1:
-              raise SystemExit("validate prepared branch count changed unexpectedly")
-          text = text.replace('  if (!result.success) {', '  if (result === null) {')
-          text = text.replace('  return result.data;', '  return result;')
-
+          if "PreparedIngressReceiptV1Schema" in text or "PreparedIngressReceiptV1" in text:
+              raise SystemExit("Claude-only prepared receipt references remain")
           repository.write_text(text, encoding="utf-8")
 
           test_file = Path("apps/daemon/src/persistence/codex-ingress-repository.test.ts")
@@ -148,7 +136,7 @@ jobs:
         run: pnpm typecheck
 
       - name: Test source-aware receipt persistence
-        run: pnpm vitest run apps/daemon/src/persistence/prepared-agent-ingress.test.ts apps/daemon/src/persistence/codex-ingress-repository.test.ts apps/daemon/src/persistence/repositories/ingress-receipts.test.ts
+        run: pnpm vitest run apps/daemon/src/persistence/prepared-agent-ingress.test.ts apps/daemon/src/persistence/codex-ingress-repository.test.ts
 
       - name: Test full repository
         run: pnpm test
