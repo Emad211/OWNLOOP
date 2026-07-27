@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "b1366d5e7744c5a41ae538bf448918aee5f77044"
+          test "$(git rev-parse HEAD^)" = "5653a4be60e723801fb56dd52f4fdec55307ab8f"
           test "$(git hash-object .ol027-transfer/codex-dedup.patch)" = "d9666f923ee39651c1ba78828c96b03b1b5327d0"
           git apply --check .ol027-transfer/codex-dedup.patch
           git apply .ol027-transfer/codex-dedup.patch
@@ -61,31 +61,16 @@ jobs:
           path_reduction = Path("packages/ingress-security/src/path-reduction.ts")
           path_text = path_reduction.read_text(encoding="utf-8")
           old_parameter = '  transcriptPath: string,\n'
+          old_iife = '  const transcript = (() => {\n    try {\n'
           if path_text.count(old_parameter) != 1:
               raise SystemExit("expected exactly one transcriptPath parameter")
-          old_transcript = '''  const transcript = (() => {
-            try {
-              return canonicalizeAbsolutePath(transcriptPath);
-            } catch {
-              return null;
-            }
-          })();
-          '''
-          new_transcript = '''  const transcript = (() => {
-            if (transcriptPath === null) {
-              return null;
-            }
-            try {
-              return canonicalizeAbsolutePath(transcriptPath);
-            } catch {
-              return null;
-            }
-          })();
-          '''
-          if path_text.count(old_transcript) != 1:
-              raise SystemExit("expected exactly one transcript canonicalization block")
+          if path_text.count(old_iife) != 1:
+              raise SystemExit("expected exactly one transcript IIFE")
           path_text = path_text.replace(old_parameter, '  transcriptPath: string | null,\n')
-          path_text = path_text.replace(old_transcript, new_transcript)
+          path_text = path_text.replace(
+              old_iife,
+              '  const transcript = (() => {\n    if (transcriptPath === null) {\n      return null;\n    }\n    try {\n',
+          )
           path_reduction.write_text(path_text, encoding="utf-8")
           PY
           rm -rf .ol027-transfer .github/workflows/finalize-ol027-codex-security.yml
