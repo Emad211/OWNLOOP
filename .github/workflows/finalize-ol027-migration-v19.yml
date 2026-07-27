@@ -11,7 +11,7 @@ jobs:
   finalize:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/ol-027-codex-adapter'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
         with:
@@ -27,18 +27,17 @@ jobs:
           version: 11.4.0
           run_install: false
 
-      - name: Apply verified migration and restoration patches
+      - name: Apply verified patches
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "6627ef7cea572555a377512d94505c5ad8ed383f"
+          test "$(git rev-parse HEAD^)" = "dc22f7b9287ee9e7e769c38393fb9f2dbf8746af"
           test "$(sha256sum .ol027-transfer/migration-v19.patch | cut -d' ' -f1)" = "f2eb5246406d3d2ec54dcb525d4f3b8ac474e3c0c0d1ab2740ae154d744581d7"
           test "$(sha256sum .ol027-transfer/evidence-graph-restore.patch | cut -d' ' -f1)" = "1cb03e05f1b230c224ead81938c965b532e96bf3b6bb83e916b03ac4fe8c9550"
           git apply --check .ol027-transfer/migration-v19.patch
           git apply .ol027-transfer/migration-v19.patch
           git apply --check .ol027-transfer/evidence-graph-restore.patch
           git apply .ol027-transfer/evidence-graph-restore.patch
-          rm -rf .ol027-transfer .github/workflows/finalize-ol027-migration-v19.yml
 
       - run: pnpm install --frozen-lockfile
 
@@ -53,34 +52,29 @@ jobs:
             packages/contracts/src/evidence-graph.ts \
             packages/contracts/tests/evidence-graph-sources.test.ts
 
-      - name: Check formatting
-        run: pnpm format:check
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Test migration and source boundaries
-        run: pnpm vitest run apps/daemon/src/persistence/migration-v19.test.ts packages/event-model/tests/normalized-event-sources.test.ts packages/contracts/tests/evidence-graph-sources.test.ts apps/daemon/src/persistence/migrations.test.ts packages/event-model/tests/normalized-event.test.ts packages/contracts/tests/evidence-graph.test.ts
-
-      - name: Test full repository
-        run: pnpm test
-
-      - name: Build
-        run: pnpm build
-
-      - name: Publish clean source head
+      - name: Capture focused test diagnostics
         shell: bash
         run: |
-          set -euo pipefail
-          test ! -e .ol027-transfer
-          test ! -e .github/workflows/finalize-ol027-migration-v19.yml
-          git diff --check
-          git add -A
-          git diff --cached --check
-          git config user.name 'Emad211'
-          git config user.email '82148680+Emad211@users.noreply.github.com'
-          git commit -m 'OL-027: Add multi-agent Event source migration'
-          git push origin "HEAD:${{ github.head_ref }}"
+          set +e
+          pnpm vitest run \
+            apps/daemon/src/persistence/migration-v19.test.ts \
+            packages/event-model/tests/normalized-event-sources.test.ts \
+            packages/contracts/tests/evidence-graph-sources.test.ts \
+            apps/daemon/src/persistence/migrations.test.ts \
+            packages/event-model/tests/normalized-event.test.ts \
+            packages/contracts/tests/evidence-graph.test.ts \
+            --reporter=verbose > /tmp/ol027-focused-tests.log 2>&1
+          code=$?
+          printf '%s\n' "$code" > /tmp/ol027-focused-tests.exit
+          cat /tmp/ol027-focused-tests.log
+          exit 0
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: ol027-migration-v19-focused-tests
+          path: |
+            /tmp/ol027-focused-tests.log
+            /tmp/ol027-focused-tests.exit
+          if-no-files-found: error
+          retention-days: 1
