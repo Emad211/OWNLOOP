@@ -91,8 +91,9 @@ describe("parsePreparedAgentIngressReceipt", () => {
     ).toBeNull();
     expect(
       parsePreparedAgentIngressReceipt({
-        ...claudeReceipt(),
-        source: "codex",
+        ...codexReceipt(),
+        source: "claude_code",
+        sourceEventName: "PermissionRequest",
       }),
     ).toBeNull();
   });
