@@ -295,14 +295,7 @@ describe("Codex full evidence pipeline", () => {
           SOURCE_AT,
         );
       });
-      processHook(
-        persistence,
-        root,
-        nextSourceEventId,
-        "receipt-codex-e2e-stop",
-        "Stop",
-        STOP_AT,
-      );
+      processHook(persistence, root, nextSourceEventId, "receipt-codex-e2e-stop", "Stop", STOP_AT);
 
       const reconciliationEventIds = [
         "event-reconciliation-summary-codex-e2e",
@@ -344,7 +337,10 @@ describe("Codex full evidence pipeline", () => {
         modifiedCount: 1,
       });
 
-      const classification = await classifyFinalizedRunChanges({ persistence, artifactStore }, RUN_ID);
+      const classification = await classifyFinalizedRunChanges(
+        { persistence, artifactStore },
+        RUN_ID,
+      );
       expect(classification).toMatchObject({ outcome: "classified", entryCount: 1 });
       expect(classification?.aggregateLabels.some((entry) => entry.label === "tests")).toBe(true);
 
@@ -371,7 +367,10 @@ describe("Codex full evidence pipeline", () => {
 
       const graph = await buildFinalizedRunEvidenceGraph({ persistence, artifactStore }, RUN_ID);
       expect(graph).toMatchObject({ runId: RUN_ID });
-      const validatedGraph = await readValidatedRunEvidenceGraph({ persistence, artifactStore }, RUN_ID);
+      const validatedGraph = await readValidatedRunEvidenceGraph(
+        { persistence, artifactStore },
+        RUN_ID,
+      );
       expect(validatedGraph).not.toBeNull();
       expect(
         validatedGraph?.value.nodes.some(
@@ -394,9 +393,11 @@ describe("Codex full evidence pipeline", () => {
       expect(replay).toMatchObject({
         run: { status: "Completed", completeness: "complete", evidenceGapCount: 0 },
       });
-      expect(replay?.timeline.some((event) => event.type === "tool.completed" && event.source === "codex")).toBe(
-        true,
-      );
+      expect(
+        replay?.timeline.some(
+          (event) => event.type === "tool.completed" && event.source === "codex",
+        ),
+      ).toBe(true);
       expect(
         replay?.timeline.some(
           (event) => event.type === "permission.requested" && event.source === "codex",
