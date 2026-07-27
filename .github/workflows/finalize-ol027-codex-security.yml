@@ -1,0 +1,85 @@
+name: Finalize OL-027 Codex security
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/ol-027-codex-adapter'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 2
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+          run_install: false
+
+      - name: Apply verified Codex deduplication patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "f17a2de65ae62a88c3f32ae78344fa5e0faa8246"
+          test "$(sha256sum .ol027-transfer/codex-dedup.patch | cut -d' ' -f1)" = "9f3d4bcd6c4f72148d43d85f77954cc20bfb4f6ca370519a93ac94b0a86cac02"
+          git apply --check .ol027-transfer/codex-dedup.patch
+          git apply .ol027-transfer/codex-dedup.patch
+          rm -rf .ol027-transfer .github/workflows/finalize-ol027-codex-security.yml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Format Codex security source
+        run: |
+          pnpm exec biome check --write \
+            packages/contracts/src/codex.ts \
+            packages/contracts/src/codex-ingress-security.ts \
+            packages/contracts/src/ingress-security.ts \
+            packages/contracts/tests/codex-ingress-security.test.ts \
+            packages/ingress-security/src/codex-fingerprint.ts \
+            packages/ingress-security/src/codex-prepare.ts \
+            packages/ingress-security/src/codex-reduction.ts \
+            packages/ingress-security/src/index.ts \
+            packages/ingress-security/tests/codex-prepare.test.ts
+
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test Codex security boundaries
+        run: pnpm vitest run packages/contracts/tests/codex-ingress-security.test.ts packages/ingress-security/tests/codex-prepare.test.ts packages/ingress-security/tests/prepare.test.ts packages/ingress-security/tests/fingerprint.test.ts
+
+      - name: Test full repository
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Publish clean source head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e .ol027-transfer
+          test ! -e .github/workflows/finalize-ol027-codex-security.yml
+          git diff --check
+          git add -A
+          git diff --cached --check
+          git config user.name 'Emad211'
+          git config user.email '82148680+Emad211@users.noreply.github.com'
+          git commit -m 'OL-027: Add secure Codex receipt preparation'
+          git push origin "HEAD:${{ github.head_ref }}"
