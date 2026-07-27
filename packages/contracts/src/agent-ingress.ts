@@ -32,6 +32,9 @@ export const SUPPORTED_AGENT_HOOK_NAMES = [
 export const SupportedAgentHookNameSchema = z.enum(SUPPORTED_AGENT_HOOK_NAMES);
 export type SupportedAgentHookName = z.infer<typeof SupportedAgentHookNameSchema>;
 
+export const MAX_INGRESS_AGENT_HOOK_IDENTITIES =
+  SUPPORTED_CLAUDE_HOOK_NAMES.length + SUPPORTED_CODEX_HOOK_NAMES.length;
+
 const CLAUDE_HOOK_SET = new Set<string>(SUPPORTED_CLAUDE_HOOK_NAMES);
 const CODEX_HOOK_SET = new Set<string>(SUPPORTED_CODEX_HOOK_NAMES);
 
