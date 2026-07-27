@@ -13,8 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - name: Check out exact branch
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 2
@@ -32,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "51f64dcd6533787c66ee608252ad220219ef73e5"
+          test "$(git rev-parse HEAD^)" = "73d62e84cf4eabf959204880337bc0b4f7018ff3"
           test "$(sha256sum .ol027-transfer/migration-v19.patch | cut -d' ' -f1)" = "f2eb5246406d3d2ec54dcb525d4f3b8ac474e3c0c0d1ab2740ae154d744581d7"
           git apply --check .ol027-transfer/migration-v19.patch
           git apply .ol027-transfer/migration-v19.patch
@@ -46,7 +45,9 @@ jobs:
             apps/daemon/src/persistence/migrations.ts \
             apps/daemon/src/persistence/migration-v19.test.ts \
             packages/event-model/src/normalized-event.ts \
-            packages/event-model/tests/normalized-event-sources.test.ts
+            packages/event-model/tests/normalized-event-sources.test.ts \
+            packages/contracts/src/evidence-graph.ts \
+            packages/contracts/tests/evidence-graph-sources.test.ts
 
       - name: Capture TypeScript diagnostics
         shell: bash
@@ -61,7 +62,7 @@ jobs:
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: ol027-migration-v19-typecheck
+          name: ol027-migration-v19-typecheck-v2
           path: |
             /tmp/ol027-typecheck.log
             /tmp/ol027-typecheck.exit
