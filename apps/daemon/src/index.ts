@@ -3,9 +3,10 @@ import { APP_NAME } from "@ownloop/contracts";
 export * from "./artifact-store/index.js";
 export * from "./candidate-generation/index.js";
 export * from "./change-classification/index.js";
-export * from "./evidence-graph/index.js";
-export * from "./enriched-replay/index.js";
+export * from "./codex-capability/index.js";
 export * from "./diagnostics-dashboard/index.js";
+export * from "./enriched-replay/index.js";
+export * from "./evidence-graph/index.js";
 export * from "./finalization/index.js";
 export * from "./git-baseline/index.js";
 export * from "./git-reconciliation/index.js";
@@ -20,4 +21,5 @@ export * from "./semantic-input/index.js";
 export * from "./verification-extraction/index.js";
 
 console.log(`${APP_NAME} daemon bootstrap started.`);
+
 export * from "./candidate-validation/index.js";

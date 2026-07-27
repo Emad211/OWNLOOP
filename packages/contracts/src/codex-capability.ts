@@ -24,6 +24,7 @@ export type CodexCapabilityState = z.infer<typeof CodexCapabilityStateSchema>;
 
 export const CODEX_CONFIGURATION_STATES = [
   "missing",
+  "partial",
   "exact",
   "ambiguous",
   "invalid",
@@ -151,7 +152,11 @@ export type CodexCapabilityStatusV1 = z.infer<typeof CodexCapabilityStatusV1Sche
 
 function capabilityState(facts: CodexCapabilityFactsV1): CodexCapabilityState {
   if (facts.configurationState === "missing") return "not_installed";
-  if (facts.configurationState === "ambiguous" || facts.configurationState === "invalid") {
+  if (
+    facts.configurationState === "partial" ||
+    facts.configurationState === "ambiguous" ||
+    facts.configurationState === "invalid"
+  ) {
     return "repair_needed";
   }
   if (facts.managedPolicyState === "managed_only" || facts.hookEngineState === "unavailable") {

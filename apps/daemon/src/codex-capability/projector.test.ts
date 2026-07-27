@@ -106,8 +106,7 @@ function ingress(
     contractVersion: 1,
     source: "codex",
     adapterVersion: "0.1.0",
-    sourceVersion:
-      input.sourceVersion === undefined ? "codex-cli 0.133.0" : input.sourceVersion,
+    sourceVersion: input.sourceVersion === undefined ? "codex-cli 0.133.0" : input.sourceVersion,
     sourceSurface: input.sourceSurface ?? "cli",
     receivedAt: AT,
     payload,
@@ -213,7 +212,10 @@ describe("Codex runtime capability projector", () => {
   it("derives controlled coverage and source limitations", () => {
     const persistence = openPersistence(":memory:");
     try {
-      insertReceipt(persistence, "PreToolUse", 1, { sourceVersion: null, sourceSurface: "desktop" });
+      insertReceipt(persistence, "PreToolUse", 1, {
+        sourceVersion: null,
+        sourceSurface: "desktop",
+      });
       insertReceipt(persistence, "SubagentStart", 2, {
         sourceVersion: null,
         sourceSurface: "desktop",

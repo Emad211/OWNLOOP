@@ -3,6 +3,7 @@ import { runMigrations } from "./migrations.js";
 import { ArtifactRepository } from "./repositories/artifacts.js";
 import { CandidateGenerationRepository } from "./repositories/candidate-generations.js";
 import { CandidateValidationRepository } from "./repositories/candidate-validations.js";
+import { CodexCapabilityRepository } from "./repositories/codex-capability.js";
 import { AgentConversationRepository } from "./repositories/conversations.js";
 import { DiagnosticsRepository } from "./repositories/diagnostics.js";
 import { EventNormalizationRepository } from "./repositories/event-normalizations.js";
@@ -21,6 +22,7 @@ import { assertSynchronousTransactionOperation, runInTransaction } from "./trans
 
 export type PersistenceRepositories = Readonly<{
   ingressReceipts: IngressReceiptRepository;
+  codexCapabilities: CodexCapabilityRepository;
   lifecycleResolutions: LifecycleResolutionRepository;
   localSettings: LocalSettingsRepository;
   diagnostics: DiagnosticsRepository;
@@ -67,6 +69,7 @@ export function openPersistence(databasePath: string): OwnLoopPersistence {
 
   const repositories: PersistenceRepositories = {
     ingressReceipts: new IngressReceiptRepository(database),
+    codexCapabilities: new CodexCapabilityRepository(database),
     lifecycleResolutions: new LifecycleResolutionRepository(database),
     localSettings: new LocalSettingsRepository(database),
     diagnostics: new DiagnosticsRepository(database),
@@ -125,6 +128,8 @@ export type {
 } from "./repositories/artifacts.js";
 export { ARTIFACT_STORAGE_VERSIONS } from "./repositories/artifacts.js";
 export { CandidateGenerationRepository } from "./repositories/candidate-generations.js";
+export type { CodexCapabilityObservationFacts } from "./repositories/codex-capability.js";
+export { CodexCapabilityRepository } from "./repositories/codex-capability.js";
 export type {
   AgentConversation,
   AgentConversationStatus,

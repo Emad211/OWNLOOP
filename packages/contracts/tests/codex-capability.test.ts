@@ -27,6 +27,7 @@ describe("Codex capability projection", () => {
   it.each([
     [facts({ configurationState: "missing" }), "not_installed"],
     [facts({ configurationState: "unavailable" }), "installed_unverified"],
+    [facts({ configurationState: "partial" }), "repair_needed"],
     [facts({ configurationState: "ambiguous" }), "repair_needed"],
     [facts({ configurationState: "invalid" }), "repair_needed"],
     [facts({ managedPolicyState: "managed_only" }), "unsupported"],

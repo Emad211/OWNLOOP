@@ -1,9 +1,10 @@
 import type { DatabaseSync } from "node:sqlite";
 
 import {
+  CODEX_SOURCE_SURFACES,
   CodexAdapterIngressSchema,
-  CodexSourceSurfaceSchema,
   type CodexSourceSurface,
+  CodexSourceSurfaceSchema,
   SUPPORTED_CODEX_HOOK_NAMES,
   type SupportedCodexHookName,
   SupportedCodexHookNameSchema,
@@ -166,8 +167,8 @@ export class CodexCapabilityRepository {
          ORDER BY source_surface ASC
          LIMIT ?`,
       )
-      .all(7);
-    if (surfaceRows.length > 6) {
+      .all(CODEX_SOURCE_SURFACES.length + 1);
+    if (surfaceRows.length > CODEX_SOURCE_SURFACES.length) {
       throw new PersistenceError(
         "invalid_persisted_row",
         "Persisted Codex capability observations exceed the source-surface bound.",
