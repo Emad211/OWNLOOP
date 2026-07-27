@@ -31,8 +31,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "f17a2de65ae62a88c3f32ae78344fa5e0faa8246"
-          test "$(sha256sum .ol027-transfer/codex-dedup.patch | cut -d' ' -f1)" = "9f3d4bcd6c4f72148d43d85f77954cc20bfb4f6ca370519a93ac94b0a86cac02"
+          test "$(git rev-parse HEAD^)" = "7e3d8fa16aaa297dc469e57753df1e5468b55096"
+          test "$(sha256sum .ol027-transfer/codex-dedup.patch | cut -d' ' -f1)" = "92c6a33206a333d0c55a809fe8ab3e52b3c12bfa91871b9e0e9c3530b0f935e5"
           git apply --check .ol027-transfer/codex-dedup.patch
           git apply .ol027-transfer/codex-dedup.patch
           rm -rf .ol027-transfer .github/workflows/finalize-ol027-codex-security.yml
