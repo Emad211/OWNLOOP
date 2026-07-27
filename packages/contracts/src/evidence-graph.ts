@@ -172,7 +172,7 @@ export type EvidenceNodeLocatorV1 = z.infer<typeof EvidenceNodeLocatorV1Schema>;
 
 export const EvidenceNodeMetadataV1Schema = z.strictObject({
   eventType: z.string().min(1).max(128).optional(),
-  eventSource: z.enum(["claude_code", "ownloop"]).optional(),
+  eventSource: z.enum(["claude_code", "codex", "ownloop"]).optional(),
   sensitivity: z.enum(["public", "normal", "sensitive", "secret"]).optional(),
   outcome: z.string().min(1).max(128).optional(),
   diagnosticCode: z.string().min(1).max(128).nullable().optional(),
@@ -266,95 +266,40 @@ export const DeterministicEvidenceGraphV1Schema = z
         value.limitations.length > 0) ||
       (value.outcome === "unavailable" &&
         value.diagnosticCode === "source_unavailable" &&
-        value.nodes.length === 0 &&
-        value.edges.length === 0);
+        value.limitations.length > 0);
     if (!outcomeValid) {
-      context.addIssue({ code: "custom", message: "Graph outcome is inconsistent." });
+      context.addIssue({ code: "custom", message: "Graph outcome tuple is invalid." });
     }
-    const nodeIds = value.nodes.map((node) => node.evidenceId);
-    if (new Set(nodeIds).size !== nodeIds.length) {
-      context.addIssue({ code: "custom", message: "Evidence node IDs must be unique." });
-    }
-    if (nodeIds.toSorted().some((id, index) => id !== nodeIds[index])) {
-      context.addIssue({ code: "custom", message: "Evidence nodes must be canonically sorted." });
-    }
-    const nodeSet = new Set(nodeIds);
-    const edgeIds = value.edges.map((edge) => edge.edgeId);
-    if (new Set(edgeIds).size !== edgeIds.length) {
-      context.addIssue({ code: "custom", message: "Evidence edge IDs must be unique." });
-    }
-    if (edgeIds.toSorted().some((id, index) => id !== edgeIds[index])) {
-      context.addIssue({ code: "custom", message: "Evidence edges must be canonically sorted." });
-    }
-    for (const edge of value.edges) {
-      if (
-        edge.sourceEvidenceId === edge.targetEvidenceId ||
-        !nodeSet.has(edge.sourceEvidenceId) ||
-        !nodeSet.has(edge.targetEvidenceId)
-      ) {
-        context.addIssue({ code: "custom", message: "Evidence edge endpoints are invalid." });
-      }
-    }
-    const actualNodeCounts = new Map<string, number>();
-    for (const node of value.nodes) {
-      actualNodeCounts.set(node.kind, (actualNodeCounts.get(node.kind) ?? 0) + 1);
-    }
-    const actualEdgeCounts = new Map<string, number>();
-    for (const edge of value.edges) {
-      actualEdgeCounts.set(edge.type, (actualEdgeCounts.get(edge.type) ?? 0) + 1);
-    }
-    const expectedNodeCounts = [...actualNodeCounts.entries()].sort(
-      ([left], [right]) =>
-        EVIDENCE_NODE_KINDS.indexOf(left as EvidenceNodeKind) -
-        EVIDENCE_NODE_KINDS.indexOf(right as EvidenceNodeKind),
-    );
-    const expectedEdgeCounts = [...actualEdgeCounts.entries()].sort(
-      ([left], [right]) =>
-        EVIDENCE_EDGE_TYPES.indexOf(left as EvidenceEdgeType) -
-        EVIDENCE_EDGE_TYPES.indexOf(right as EvidenceEdgeType),
-    );
-    if (
-      JSON.stringify(value.nodeKindCounts.map(({ kind, count }) => [kind, count])) !==
-      JSON.stringify(expectedNodeCounts)
-    ) {
-      context.addIssue({ code: "custom", message: "Evidence node counts are invalid." });
-    }
-    if (
-      JSON.stringify(value.edgeTypeCounts.map(({ kind, count }) => [kind, count])) !==
-      JSON.stringify(expectedEdgeCounts)
-    ) {
-      context.addIssue({ code: "custom", message: "Evidence edge counts are invalid." });
+    if (value.sourceEventCount > value.nodes.length) {
+      context.addIssue({ code: "custom", message: "Source Event count exceeds node count." });
     }
   });
 export type DeterministicEvidenceGraphV1 = z.infer<typeof DeterministicEvidenceGraphV1Schema>;
 
 export const EVIDENCE_RESOLUTION_ANCHOR_KINDS = [
-  "run",
-  "timeline_event",
-  "baseline",
-  "reconciliation",
   "changed_file",
+  "event",
+  "command_observation",
+  "verification_observation",
+  "test_file_change",
+  "classification_label",
   "evidence_gap",
-  "finalization",
-  "artifact",
-  "classification",
-  "verification",
 ] as const;
 export const EvidenceResolutionAnchorKindSchema = z.enum(EVIDENCE_RESOLUTION_ANCHOR_KINDS);
 export type EvidenceResolutionAnchorKind = z.infer<typeof EvidenceResolutionAnchorKindSchema>;
 
 export const EvidenceResolutionV1Schema = z.strictObject({
-  ok: z.literal(true),
-  schemaVersion: z.literal(EVIDENCE_GRAPH_SCHEMA_VERSION),
-  runId: safeIdSchema,
   evidenceId: EvidenceIdSchema,
-  nodeKind: EvidenceNodeKindSchema,
-  graphOutcome: EvidenceGraphOutcomeSchema,
-  limitations: z.array(EvidenceGraphLimitationSchema).max(EVIDENCE_GRAPH_LIMITATIONS.length),
-  anchor: z.strictObject({
-    kind: EvidenceResolutionAnchorKindSchema,
-    sectionId: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/u),
-    sourceId: safeIdSchema,
-  }),
+  anchorKind: EvidenceResolutionAnchorKindSchema,
+  runId: safeIdSchema,
+  eventId: safeIdSchema.nullable(),
+  reconciliationId: safeIdSchema.nullable(),
+  artifactId: safeIdSchema.nullable(),
+  fileEventId: safeIdSchema.nullable(),
+  entryIndex: z.number().int().nonnegative().nullable(),
+  observationIndex: z.number().int().nonnegative().nullable(),
+  pathIdentitySha256: sha256HexSchema.nullable(),
+  relativePath: z.string().min(1).max(4096).nullable(),
+  verificationKind: z.enum(["test", "lint", "typecheck", "build"]).nullable(),
 });
 export type EvidenceResolutionV1 = z.infer<typeof EvidenceResolutionV1Schema>;
