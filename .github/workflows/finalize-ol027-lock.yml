@@ -1,0 +1,55 @@
+name: Finalize OL-027 lockfile
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize-lockfile:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/ol-027-codex-adapter'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+          run_install: false
+
+      - name: Regenerate and validate exact lock importer
+        shell: bash
+        env:
+          EXPECTED_PARENT: d993265c399f91b33743fbf436e9e80cabf7192c
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT"
+          pnpm install --lockfile-only --no-frozen-lockfile
+          test "$(git diff --name-only | LC_ALL=C sort)" = "pnpm-lock.yaml"
+          grep -F "  tools/codex-hook-adapter:" pnpm-lock.yaml
+          grep -A 10 -F "  tools/codex-hook-adapter:" pnpm-lock.yaml | grep -F "version: link:../../packages/contracts"
+          grep -A 10 -F "  tools/codex-hook-adapter:" pnpm-lock.yaml | grep -F "version: link:../../packages/test-fixtures"
+          pnpm install --frozen-lockfile
+          pnpm --filter @ownloop/codex-hook-adapter typecheck
+          pnpm vitest run tools/codex-hook-adapter/adapter.test.ts tools/codex-hook-adapter/cli.test.ts
+          rm .github/workflows/finalize-ol027-lock.yml
+          git add pnpm-lock.yaml .github/workflows/finalize-ol027-lock.yml
+          test "$(git diff --cached --name-only | LC_ALL=C sort)" = $'.github/workflows/finalize-ol027-lock.yml\npnpm-lock.yaml'
+          git diff --cached --check
+          git config user.name 'Emad211'
+          git config user.email '82148680+Emad211@users.noreply.github.com'
+          git commit -m 'OL-027: lock Codex adapter workspace'
+          git push origin "HEAD:${{ github.head_ref }}"
