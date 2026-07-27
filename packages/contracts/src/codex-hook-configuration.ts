@@ -21,7 +21,9 @@ export const CodexHookConfigurationStateSchema = z.enum(CODEX_HOOK_CONFIGURATION
 export type CodexHookConfigurationState = z.infer<typeof CodexHookConfigurationStateSchema>;
 
 export const CODEX_HOOK_CONFIGURATION_ERROR_CODES = [
+  "duplicate_key",
   "invalid_document",
+  "invalid_json",
   "invalid_launcher_command",
   "ambiguous_ownloop_entries",
   "configuration_too_large",
@@ -163,6 +165,10 @@ function cloneDocument(value: unknown): JsonObject {
   const cloned = cloneJson(value);
   if (!isPlainObject(cloned)) throw new CodexHookConfigurationError("invalid_document");
   return cloned;
+}
+
+export function validateCodexHookConfigurationDocument(value: unknown): Record<string, unknown> {
+  return cloneDocument(value);
 }
 
 function unquotedCommandPath(command: string): string | null {

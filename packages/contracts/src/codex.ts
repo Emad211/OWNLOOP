@@ -72,7 +72,12 @@ export {
   inspectCodexHookConfiguration,
   installCodexHookConfiguration,
   removeCodexHookConfiguration,
+  validateCodexHookConfigurationDocument,
 } from "./codex-hook-configuration.js";
+export {
+  parseCodexHookConfigurationJson,
+  serializeCodexHookConfigurationJson,
+} from "./codex-hook-configuration-json.js";
 export type {
   CodexCompactTrigger,
   CodexKnownSessionEndReason,
