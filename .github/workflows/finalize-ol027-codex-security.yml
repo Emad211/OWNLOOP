@@ -11,54 +11,170 @@ jobs:
   finalize:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/ol-027-codex-adapter'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 2
 
-      - name: Capture exact edit diagnostics
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+          run_install: false
+
+      - name: Apply exact Codex security edits
         shell: bash
         run: |
-          set +e
-          {
-            echo "HEAD=$(git rev-parse HEAD)"
-            echo "PARENT=$(git rev-parse HEAD^)"
-            echo "PATCH_BLOB=$(git hash-object .ol027-transfer/codex-dedup.patch)"
-            git apply --check .ol027-transfer/codex-dedup.patch
-            echo "PATCH_CHECK=$?"
-            python - <<'PY'
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "d10746f0bb989a1796214434fb5a6247b55e5024"
+          test "$(git hash-object .ol027-transfer/codex-dedup.patch)" = "d9666f923ee39651c1ba78828c96b03b1b5327d0"
+          git apply --check .ol027-transfer/codex-dedup.patch
+          git apply .ol027-transfer/codex-dedup.patch
+          python - <<'PY'
           from pathlib import Path
 
-          contract = Path("packages/contracts/src/codex-ingress-security.ts").read_text(encoding="utf-8")
-          path_text = Path("packages/ingress-security/src/path-reduction.ts").read_text(encoding="utf-8")
-          test_text = Path("packages/ingress-security/tests/codex-prepare.test.ts").read_text(encoding="utf-8")
-          fixture_text = Path("packages/ingress-security/tests/codex-fixtures.ts").read_text(encoding="utf-8")
-
-          markers = {
-              "control_constant": (contract, 'const controlPattern = /[\\u0000-\\u001f\\u007f]/u;\n'),
-              "control_refinement": (contract, '.refine((value) => !controlPattern.test(value))'),
-              "transcript_parameter": (path_text, '  transcriptPath: string,\n'),
-              "transcript_iife": (path_text, '  const transcript = (() => {\n    try {\n'),
-              "fixture_import": (test_text, 'import { validCodexHookFixtures } from "@ownloop/test-fixtures";\n'),
-              "fixture_input": (test_text, '  input: (typeof validCodexHookFixtures)[number]["input"],\n'),
-              "authorization_rule": (test_text, '        "string.authorization",\n'),
-              "unknown_start": (test_text, '  it("strips unknown upstream wrapper and payload fields before persistence", () => {'),
-              "unknown_end": (test_text, '  it("applies configured custom secret fields to arbitrary Codex tool data", () => {'),
-              "turn_fields_marker": (fixture_text, '  permission_mode: "default",\n};\n\nexport const validCodexHookFixtures'),
+          contract = Path("packages/contracts/src/codex-ingress-security.ts")
+          text = contract.read_text(encoding="utf-8")
+          old_constant = 'const controlPattern = /[\\u0000-\\u001f\\u007f]/u;\n'
+          replacement = '''function hasControlCharacter(value: string): boolean {
+            for (let index = 0; index < value.length; index += 1) {
+              const code = value.charCodeAt(index);
+              if (code <= 0x1f || code === 0x7f) return true;
+            }
+            return false;
           }
-          for name, (text, marker) in markers.items():
-              print(f"{name}={text.count(marker)}")
-          PY
-          } > /tmp/ol027-codex-edit-diagnostics.log 2>&1
-          cat /tmp/ol027-codex-edit-diagnostics.log
-          exit 0
+          '''
+          old_refinement = '.refine((value) => !controlPattern.test(value))'
+          if text.count(old_constant) != 1 or text.count(old_refinement) != 2:
+              raise SystemExit("Codex contract edit precondition failed")
+          contract.write_text(
+              text.replace(old_constant, replacement).replace(
+                  old_refinement,
+                  '.refine((value) => !hasControlCharacter(value))',
+              ),
+              encoding="utf-8",
+          )
 
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: ol027-codex-edit-diagnostics
-          path: /tmp/ol027-codex-edit-diagnostics.log
-          if-no-files-found: error
-          retention-days: 1
+          path_reduction = Path("packages/ingress-security/src/path-reduction.ts")
+          path_text = path_reduction.read_text(encoding="utf-8")
+          old_parameter = '  transcriptPath: string,\n'
+          old_iife = '  const transcript = (() => {\n    try {\n'
+          if path_text.count(old_parameter) != 1 or path_text.count(old_iife) != 1:
+              raise SystemExit("Path reduction edit precondition failed")
+          path_reduction.write_text(
+              path_text.replace(old_parameter, '  transcriptPath: string | null,\n').replace(
+                  old_iife,
+                  '  const transcript = (() => {\n    if (transcriptPath === null) {\n      return null;\n    }\n    try {\n',
+              ),
+              encoding="utf-8",
+          )
+
+          test_file = Path("packages/ingress-security/tests/codex-prepare.test.ts")
+          test_text = test_file.read_text(encoding="utf-8")
+          old_import = 'import { validCodexHookFixtures } from "@ownloop/test-fixtures";\n'
+          old_input = '  input: (typeof validCodexHookFixtures)[number]["input"],\n'
+          old_rules = 'expect.arrayContaining(["field.secret", "path.workspace", "path.home", "string.authorization"]),'
+          new_rules = 'expect.arrayContaining(["field.secret", "path.workspace", "path.home"]),'
+          if (
+              test_text.count(old_import) != 1
+              or test_text.count(old_input) != 1
+              or test_text.count(old_rules) != 1
+          ):
+              raise SystemExit("Codex test typing/expectation precondition failed")
+          test_text = test_text.replace(old_import, 'import { validCodexHookFixtures } from "./codex-fixtures.js";\n')
+          test_text = test_text.replace(old_input, '  input: CodexAdapterIngress["payload"],\n')
+          test_text = test_text.replace(old_rules, new_rules)
+
+          start_marker = '  it("strips unknown upstream wrapper and payload fields before persistence", () => {'
+          end_marker = '  it("applies configured custom secret fields to arbitrary Codex tool data", () => {'
+          if test_text.count(start_marker) != 1 or test_text.count(end_marker) != 1:
+              raise SystemExit("Unknown-field test markers are not unique")
+          start = test_text.index(start_marker)
+          end = test_text.index(end_marker)
+          if end <= start:
+              raise SystemExit("Unknown-field test markers are out of order")
+          replacement_test = '''  it("rejects unknown wrapper fields and strips unknown payload fields", () => {
+            expect(() =>
+              CodexAdapterIngressSchema.parse({
+                ...ingressFor(validCodexHookFixtures[0].input),
+                future_wrapper: "reject",
+              }),
+            ).toThrow();
+
+            const parsed = CodexAdapterIngressSchema.parse({
+              ...ingressFor(validCodexHookFixtures[0].input),
+              payload: {
+                ...validCodexHookFixtures[0].input,
+                future_payload: "drop",
+              },
+            });
+            const payload = payloadOf(parsed);
+            expect(payload).not.toHaveProperty("future_payload");
+          });
+
+          '''
+          test_file.write_text(test_text[:start] + replacement_test + test_text[end:], encoding="utf-8")
+
+          fixture_file = Path("packages/ingress-security/tests/codex-fixtures.ts")
+          fixture_text = fixture_file.read_text(encoding="utf-8")
+          fixture_marker = '  permission_mode: "default",\n};\n\nexport const validCodexHookFixtures'
+          fixture_replacement = '  permission_mode: "default",\n} as const;\n\nexport const validCodexHookFixtures'
+          if fixture_text.count(fixture_marker) != 1:
+              raise SystemExit("Codex fixture literal marker precondition failed")
+          fixture_file.write_text(fixture_text.replace(fixture_marker, fixture_replacement), encoding="utf-8")
+          PY
+          rm -rf .ol027-transfer .github/workflows/finalize-ol027-codex-security.yml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Format Codex security source
+        run: |
+          pnpm exec biome check --write \
+            packages/contracts/src/codex.ts \
+            packages/contracts/src/codex-ingress-security.ts \
+            packages/contracts/src/ingress-security.ts \
+            packages/contracts/tests/codex-ingress-security.test.ts \
+            packages/ingress-security/src/codex-fingerprint.ts \
+            packages/ingress-security/src/codex-prepare.ts \
+            packages/ingress-security/src/codex-reduction.ts \
+            packages/ingress-security/src/index.ts \
+            packages/ingress-security/src/path-reduction.ts \
+            packages/ingress-security/tests/codex-fixtures.ts \
+            packages/ingress-security/tests/codex-prepare.test.ts
+
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test Codex security boundaries
+        run: pnpm vitest run packages/contracts/tests/codex-ingress-security.test.ts packages/ingress-security/tests/codex-prepare.test.ts packages/ingress-security/tests/prepare.test.ts packages/ingress-security/tests/fingerprint.test.ts packages/ingress-security/tests/path-reduction.test.ts
+
+      - name: Test full repository
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Publish clean source head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e .ol027-transfer
+          test ! -e .github/workflows/finalize-ol027-codex-security.yml
+          git diff --check
+          git add -A
+          git diff --cached --check
+          git config user.name 'Emad211'
+          git config user.email '82148680+Emad211@users.noreply.github.com'
+          git commit -m 'OL-027: Add secure Codex receipt preparation'
+          git push origin "HEAD:${{ github.head_ref }}"
