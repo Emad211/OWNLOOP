@@ -34,7 +34,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "69ea8677f383801cedcd5b566362f9137e2346d8"
+          test "$(git rev-parse HEAD^)" = "13315aaae91413f7f492cd811b07eceafb733241"
           test "$(sha256sum .ol027-transfer/migration-v19.patch | cut -d' ' -f1)" = "f2eb5246406d3d2ec54dcb525d4f3b8ac474e3c0c0d1ab2740ae154d744581d7"
           git apply --check .ol027-transfer/migration-v19.patch
           git apply .ol027-transfer/migration-v19.patch
@@ -52,14 +52,23 @@ jobs:
             packages/event-model/src/normalized-event.ts \
             packages/event-model/tests/normalized-event-sources.test.ts
 
-      - name: Repository quality gates
-        run: |
-          set -euo pipefail
-          pnpm format:check
-          pnpm lint
-          pnpm typecheck
-          pnpm test
-          pnpm build
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test focused migration and source boundaries
+        run: pnpm vitest run apps/daemon/src/persistence/migration-v19.test.ts packages/event-model/tests/normalized-event-sources.test.ts apps/daemon/src/persistence/migrations.test.ts packages/event-model/tests/normalized-event.test.ts
+
+      - name: Test full repository
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
 
       - name: Publish clean source head
         shell: bash
