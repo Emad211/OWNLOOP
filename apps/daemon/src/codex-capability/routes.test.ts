@@ -1,3 +1,5 @@
+import type { AddressInfo } from "node:net";
+
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
 
@@ -19,11 +21,18 @@ async function runningRoute(
     tokenVerifier: createInstallationTokenVerifier(token),
     ...(environment === undefined ? {} : { environment }),
   });
-  await server.ready();
+  await server.listen({ host: "127.0.0.1", port: 0 });
+  const address = server.server.address();
+  if (address === null || typeof address === "string") {
+    await server.close();
+    persistence.close();
+    throw new Error("Expected an IPv4 loopback listener.");
+  }
   return {
     token,
     persistence,
     server,
+    url: `http://127.0.0.1:${(address as AddressInfo).port}`,
     async close(): Promise<void> {
       await server.close();
       persistence.close();
@@ -35,21 +44,29 @@ function authorization(token: string) {
   return { authorization: `Bearer ${token}` };
 }
 
+async function get(
+  running: Awaited<ReturnType<typeof runningRoute>>,
+  path: string,
+  token: string | null,
+): Promise<Readonly<{ response: Response; body: string }>> {
+  const response = await fetch(`${running.url}${path}`, {
+    method: "GET",
+    ...(token === null ? {} : { headers: authorization(token) }),
+  });
+  return { response, body: await response.text() };
+}
+
 describe("Codex capability status route", () => {
   it("defaults to explicit unverified facts when installation inspection is unavailable", async () => {
     const running = await runningRoute();
     try {
-      const response = await running.server.inject({
-        method: "GET",
-        url: CODEX_CAPABILITY_ROUTE,
-        headers: authorization(running.token),
-      });
-      expect(response.statusCode).toBe(200);
-      expect(response.headers["cache-control"]).toBe("no-store");
-      expect(response.headers["x-content-type-options"]).toBe("nosniff");
-      expect(response.headers["content-type"]).toContain("application/json");
-      expect(Number(response.headers["content-length"])).toBe(Buffer.byteLength(response.body));
-      expect(JSON.parse(response.body)).toEqual({
+      const { response, body } = await get(running, CODEX_CAPABILITY_ROUTE, running.token);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(Number(response.headers.get("content-length"))).toBe(Buffer.byteLength(body));
+      expect(JSON.parse(body)).toEqual({
         facts: {
           configurationState: "unavailable",
           hookEngineState: "unknown",
@@ -83,13 +100,9 @@ describe("Codex capability status route", () => {
       verifiedSourceSurfaces: ["cli"],
     }));
     try {
-      const response = await running.server.inject({
-        method: "GET",
-        url: CODEX_CAPABILITY_ROUTE,
-        headers: authorization(running.token),
-      });
-      expect(response.statusCode).toBe(200);
-      expect(JSON.parse(response.body)).toMatchObject({
+      const { response, body } = await get(running, CODEX_CAPABILITY_ROUTE, running.token);
+      expect(response.status).toBe(200);
+      expect(JSON.parse(body)).toMatchObject({
         state: "enabled_no_events_seen",
         facts: { observedHookNames: [], lastObservedAt: null, limitations: [] },
       });
@@ -101,22 +114,22 @@ describe("Codex capability status route", () => {
   it("requires the installation token and rejects query-controlled expansion", async () => {
     const running = await runningRoute();
     try {
-      const missing = await running.server.inject({ method: "GET", url: CODEX_CAPABILITY_ROUTE });
-      const incorrect = await running.server.inject({
-        method: "GET",
-        url: CODEX_CAPABILITY_ROUTE,
-        headers: authorization(generateInstallationToken()),
-      });
-      expect([missing.statusCode, incorrect.statusCode]).toEqual([401, 401]);
+      const missing = await get(running, CODEX_CAPABILITY_ROUTE, null);
+      const incorrect = await get(
+        running,
+        CODEX_CAPABILITY_ROUTE,
+        generateInstallationToken(),
+      );
+      expect([missing.response.status, incorrect.response.status]).toEqual([401, 401]);
       expect(missing.body).toBe(incorrect.body);
       expect(JSON.parse(missing.body)).toEqual({ ok: false, error: "unauthorized" });
 
-      const query = await running.server.inject({
-        method: "GET",
-        url: `${CODEX_CAPABILITY_ROUTE}?include=payloads`,
-        headers: authorization(running.token),
-      });
-      expect(query.statusCode).toBe(400);
+      const query = await get(
+        running,
+        `${CODEX_CAPABILITY_ROUTE}?include=payloads`,
+        running.token,
+      );
+      expect(query.response.status).toBe(400);
       expect(JSON.parse(query.body)).toEqual({ ok: false, error: "invalid_request" });
     } finally {
       await running.close();
@@ -128,16 +141,12 @@ describe("Codex capability status route", () => {
       throw new Error("fixture-private-inspection-stack");
     });
     try {
-      const response = await running.server.inject({
-        method: "GET",
-        url: CODEX_CAPABILITY_ROUTE,
-        headers: authorization(running.token),
-      });
-      expect(response.statusCode).toBe(500);
-      expect(response.headers["cache-control"]).toBe("no-store");
-      expect(response.headers["x-content-type-options"]).toBe("nosniff");
-      expect(JSON.parse(response.body)).toEqual({ ok: false, error: "projection_failed" });
-      expect(response.body).not.toContain("fixture-private-inspection-stack");
+      const { response, body } = await get(running, CODEX_CAPABILITY_ROUTE, running.token);
+      expect(response.status).toBe(500);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(JSON.parse(body)).toEqual({ ok: false, error: "projection_failed" });
+      expect(body).not.toContain("fixture-private-inspection-stack");
     } finally {
       await running.close();
     }
