@@ -31,8 +31,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "cf4b0e9474c61ca6504814031cde6be50628df75"
-          python .ol027-transfer/finalize-capability-config.py
+          test "$(git rev-parse HEAD^)" = "d9568025d47835065f4beb6292560fca7f8b87a6"
+          python .ol027-transfer/run-capability-config-finalizer.py
           rm -rf .ol027-transfer .github/workflows/finalize-ol027-capability-config.yml
 
       - run: pnpm install --frozen-lockfile
