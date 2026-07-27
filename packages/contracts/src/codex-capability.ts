@@ -134,8 +134,14 @@ export const CodexCapabilityStatusV1Schema = z
         message: "Observed events and lastObservedAt must reconcile.",
       });
     }
+    if (value.state !== capabilityState(value.facts)) {
+      context.addIssue({ code: "custom", message: "Capability state does not match its facts." });
+    }
     if (value.state === "active" && value.facts.limitations.length > 0) {
-      context.addIssue({ code: "custom", message: "Active capability cannot contain limitations." });
+      context.addIssue({
+        code: "custom",
+        message: "Active capability cannot contain limitations.",
+      });
     }
     if (value.state === "partial_surface" && value.facts.limitations.length === 0) {
       context.addIssue({ code: "custom", message: "Partial capability requires a limitation." });
@@ -165,7 +171,9 @@ function capabilityState(facts: CodexCapabilityFactsV1): CodexCapabilityState {
   return facts.limitations.length > 0 ? "partial_surface" : "active";
 }
 
-export function projectCodexCapabilityStatusV1(input: CodexCapabilityFactsV1): CodexCapabilityStatusV1 {
+export function projectCodexCapabilityStatusV1(
+  input: CodexCapabilityFactsV1,
+): CodexCapabilityStatusV1 {
   const facts = CodexCapabilityFactsV1Schema.parse(input);
   return CodexCapabilityStatusV1Schema.parse({
     schemaVersion: CODEX_CAPABILITY_SCHEMA_VERSION,

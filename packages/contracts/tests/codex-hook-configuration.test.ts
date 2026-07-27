@@ -1,18 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  CodexHookConfigurationError,
+  type CodexHookLauncherCommands,
   inspectCodexHookConfiguration,
   installCodexHookConfiguration,
   removeCodexHookConfiguration,
   SUPPORTED_CODEX_HOOK_NAMES,
-  type CodexHookLauncherCommands,
 } from "../src/codex.js";
 
 const COMMANDS: CodexHookLauncherCommands = {
   command: "ownloop-codex-hook",
-  commandWindows:
-    '"C:\\Users\\Fixture\\AppData\\Local\\OwnLoop\\bin\\ownloop-codex-hook.cmd"',
+  commandWindows: '"C:\\Users\\Fixture\\AppData\\Local\\OwnLoop\\bin\\ownloop-codex-hook.cmd"',
 };
 
 function installedDocument(): Record<string, unknown> {
@@ -110,12 +108,12 @@ describe("Codex Hook configuration core", () => {
       ambiguousHookNames: ["PreToolUse"],
     });
     expect(() => installCodexHookConfiguration(modified, COMMANDS)).toThrowError(
-      expect.objectContaining<CodexHookConfigurationError>({
+      expect.objectContaining({
         code: "ambiguous_ownloop_entries",
       }),
     );
     expect(() => removeCodexHookConfiguration(modified, COMMANDS)).toThrowError(
-      expect.objectContaining<CodexHookConfigurationError>({
+      expect.objectContaining({
         code: "ambiguous_ownloop_entries",
       }),
     );
@@ -154,14 +152,20 @@ describe("Codex Hook configuration core", () => {
 
   it("rejects invalid documents and unsafe launcher commands", () => {
     expect(() => installCodexHookConfiguration({ hooks: [] }, COMMANDS)).toThrowError(
-      expect.objectContaining<CodexHookConfigurationError>({ code: "invalid_document" }),
+      expect.objectContaining({ code: "invalid_document" }),
     );
     expect(() =>
-      installCodexHookConfiguration({}, { ...COMMANDS, commandWindows: "ownloop-codex-hook.cmd --port 1234" }),
-    ).toThrowError(expect.objectContaining<CodexHookConfigurationError>({ code: "invalid_launcher_command" }));
+      installCodexHookConfiguration(
+        {},
+        { ...COMMANDS, commandWindows: "ownloop-codex-hook.cmd --port 1234" },
+      ),
+    ).toThrowError(expect.objectContaining({ code: "invalid_launcher_command" }));
     expect(() =>
-      installCodexHookConfiguration({}, { ...COMMANDS, command: "ownloop-codex-hook --token secret" }),
-    ).toThrowError(expect.objectContaining<CodexHookConfigurationError>({ code: "invalid_launcher_command" }));
+      installCodexHookConfiguration(
+        {},
+        { ...COMMANDS, command: "ownloop-codex-hook --token secret" },
+      ),
+    ).toThrowError(expect.objectContaining({ code: "invalid_launcher_command" }));
     expect(() =>
       installCodexHookConfiguration(
         {},
@@ -171,6 +175,6 @@ describe("Codex Hook configuration core", () => {
             '"C:\\Users\\Fixture\\AppData\\Local\\OwnLoop\\app\\0.1.0\\ownloop-codex-hook.cmd"',
         },
       ),
-    ).toThrowError(expect.objectContaining<CodexHookConfigurationError>({ code: "invalid_launcher_command" }));
+    ).toThrowError(expect.objectContaining({ code: "invalid_launcher_command" }));
   });
 });

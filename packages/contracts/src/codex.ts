@@ -50,6 +50,30 @@ export {
   SupportedCodexHookNameSchema,
 } from "./codex-hook-common.js";
 export type {
+  CodexHookConfigurationInspection,
+  CodexHookConfigurationMutation,
+  CodexHookConfigurationState,
+  CodexHookLauncherCommands,
+} from "./codex-hook-configuration.js";
+export {
+  CODEX_HOOK_ADDITIONAL_CONTEXT_LIMIT,
+  CODEX_HOOK_CONFIGURATION_ERROR_CODES,
+  CODEX_HOOK_CONFIGURATION_MAX_BYTES,
+  CODEX_HOOK_CONFIGURATION_MAX_DEPTH,
+  CODEX_HOOK_CONFIGURATION_MAX_NODES,
+  CODEX_HOOK_CONFIGURATION_STATES,
+  CODEX_HOOK_HANDLER_TIMEOUT_SECONDS,
+  CODEX_HOOK_LAUNCHER_BASENAME,
+  CODEX_HOOK_MATCHER,
+  CODEX_HOOK_WINDOWS_LAUNCHER_BASENAME,
+  CodexHookConfigurationError,
+  CodexHookConfigurationErrorCodeSchema,
+  CodexHookConfigurationStateSchema,
+  inspectCodexHookConfiguration,
+  installCodexHookConfiguration,
+  removeCodexHookConfiguration,
+} from "./codex-hook-configuration.js";
+export type {
   CodexCompactTrigger,
   CodexKnownSessionEndReason,
   CodexPermissionRequestPayload,

@@ -26,12 +26,8 @@ export const CODEX_HOOK_CONFIGURATION_ERROR_CODES = [
   "ambiguous_ownloop_entries",
   "configuration_too_large",
 ] as const;
-export const CodexHookConfigurationErrorCodeSchema = z.enum(
-  CODEX_HOOK_CONFIGURATION_ERROR_CODES,
-);
-export type CodexHookConfigurationErrorCode = z.infer<
-  typeof CodexHookConfigurationErrorCodeSchema
->;
+export const CodexHookConfigurationErrorCodeSchema = z.enum(CODEX_HOOK_CONFIGURATION_ERROR_CODES);
+export type CodexHookConfigurationErrorCode = z.infer<typeof CodexHookConfigurationErrorCodeSchema>;
 
 export class CodexHookConfigurationError extends Error {
   readonly code: CodexHookConfigurationErrorCode;
@@ -63,7 +59,13 @@ export type CodexHookConfigurationMutation = Readonly<{
 
 type JsonObject = Record<string, unknown>;
 
-const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/u;
+function containsControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
 const SECRET_OR_ROUTE_PATTERN =
   /(?:authorization|bearer|password|passwd|secret|api[_.-]?key|access[_.-]?token|refresh[_.-]?token|id[_.-]?token|--port|127\.0\.0\.1:\d|localhost:\d)/iu;
 const VERSIONED_APP_PATH_PATTERN = /[\\/]app[\\/](?:v?\d+\.\d+\.\d+|current)[\\/]/iu;
@@ -73,6 +75,45 @@ function isPlainObject(value: unknown): value is JsonObject {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
+}
+
+function utf8ByteLength(value: string): number {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index);
+    if (codeUnit <= 0x7f) {
+      bytes += 1;
+    } else if (codeUnit <= 0x7ff) {
+      bytes += 2;
+    } else if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        index += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+  }
+  return bytes;
+}
+
+function cloneJson(value: unknown): unknown {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    typeof value === "number"
+  ) {
+    return value;
+  }
+  if (Array.isArray(value)) return value.map(cloneJson);
+  if (!isPlainObject(value)) throw new CodexHookConfigurationError("invalid_document");
+  const output: JsonObject = {};
+  for (const [key, item] of Object.entries(value)) output[key] = cloneJson(item);
+  return output;
 }
 
 function assertBoundedJson(value: unknown): void {
@@ -98,7 +139,7 @@ function assertBoundedJson(value: unknown): void {
       throw new CodexHookConfigurationError("invalid_document");
     }
     for (const [key, item] of Object.entries(current)) {
-      if (CONTROL_CHARACTER_PATTERN.test(key) || key === "__proto__" || key === "constructor") {
+      if (containsControlCharacter(key) || key === "__proto__" || key === "constructor") {
         throw new CodexHookConfigurationError("invalid_document");
       }
       visit(item, depth + 1);
@@ -111,7 +152,7 @@ function assertBoundedJson(value: unknown): void {
   } catch {
     throw new CodexHookConfigurationError("invalid_document");
   }
-  if (new TextEncoder().encode(serialized).byteLength > CODEX_HOOK_CONFIGURATION_MAX_BYTES) {
+  if (utf8ByteLength(serialized) > CODEX_HOOK_CONFIGURATION_MAX_BYTES) {
     throw new CodexHookConfigurationError("configuration_too_large");
   }
 }
@@ -119,14 +160,14 @@ function assertBoundedJson(value: unknown): void {
 function cloneDocument(value: unknown): JsonObject {
   assertBoundedJson(value);
   if (!isPlainObject(value)) throw new CodexHookConfigurationError("invalid_document");
-  const cloned = structuredClone(value) as unknown;
+  const cloned = cloneJson(value);
   if (!isPlainObject(cloned)) throw new CodexHookConfigurationError("invalid_document");
   return cloned;
 }
 
 function unquotedCommandPath(command: string): string | null {
   const trimmed = command.trim();
-  if (trimmed.length === 0 || CONTROL_CHARACTER_PATTERN.test(trimmed)) return null;
+  if (trimmed.length === 0 || containsControlCharacter(trimmed)) return null;
   if (trimmed.startsWith('"')) {
     if (!trimmed.endsWith('"') || trimmed.length < 3) return null;
     const inner = trimmed.slice(1, -1);
@@ -146,9 +187,7 @@ function validateLauncherCommand(command: string, windows: boolean): string {
   const path = unquotedCommandPath(command);
   if (path === null) throw new CodexHookConfigurationError("invalid_launcher_command");
   const normalized = path.replaceAll("\\", "/").toLowerCase();
-  const expected = windows
-    ? CODEX_HOOK_WINDOWS_LAUNCHER_BASENAME
-    : CODEX_HOOK_LAUNCHER_BASENAME;
+  const expected = windows ? CODEX_HOOK_WINDOWS_LAUNCHER_BASENAME : CODEX_HOOK_LAUNCHER_BASENAME;
   if (!normalized.endsWith(`/${expected}`) && normalized !== expected) {
     throw new CodexHookConfigurationError("invalid_launcher_command");
   }
@@ -201,9 +240,10 @@ function containsOwnLoopLikeHandler(value: unknown): boolean {
   return Object.values(value).some(containsOwnLoopLikeHandler);
 }
 
-function hooksObject(document: JsonObject): JsonObject {
+function hooksObject(document: JsonObject, create: boolean): JsonObject | null {
   const hooks = document.hooks;
   if (hooks === undefined) {
+    if (!create) return null;
     const created: JsonObject = {};
     document.hooks = created;
     return created;
@@ -216,13 +256,13 @@ function inspectMutable(
   document: JsonObject,
   commands: CodexHookLauncherCommands,
 ): CodexHookConfigurationInspection {
-  const hooks = hooksObject(document);
+  const hooks = hooksObject(document, false);
   const exactHookNames: SupportedCodexHookName[] = [];
   const missingHookNames: SupportedCodexHookName[] = [];
   const ambiguousHookNames: SupportedCodexHookName[] = [];
 
   for (const hookName of SUPPORTED_CODEX_HOOK_NAMES) {
-    const groups = hooks[hookName];
+    const groups = hooks?.[hookName];
     if (groups === undefined) {
       missingHookNames.push(hookName);
       continue;
@@ -273,7 +313,8 @@ export function installCodexHookConfiguration(
   if (inspection.state === "ambiguous") {
     throw new CodexHookConfigurationError("ambiguous_ownloop_entries");
   }
-  const hooks = hooksObject(document);
+  const hooks = hooksObject(document, true);
+  if (hooks === null) throw new CodexHookConfigurationError("invalid_document");
   for (const hookName of inspection.missingHookNames) {
     const groups = hooks[hookName];
     if (groups === undefined) {
@@ -301,7 +342,11 @@ export function removeCodexHookConfiguration(
   if (inspection.state === "ambiguous") {
     throw new CodexHookConfigurationError("ambiguous_ownloop_entries");
   }
-  const hooks = hooksObject(document);
+  if (inspection.exactHookNames.length === 0) {
+    return Object.freeze({ changed: false, inspection, document });
+  }
+  const hooks = hooksObject(document, false);
+  if (hooks === null) throw new CodexHookConfigurationError("invalid_document");
   for (const hookName of inspection.exactHookNames) {
     const groups = hooks[hookName];
     if (!Array.isArray(groups)) throw new CodexHookConfigurationError("invalid_document");
