@@ -132,9 +132,10 @@ replace_exact(
 )
 replace_exact(
     config_path,
-    "    const groups = hooks[hookName];",
-    "    const groups = hooks?.[hookName];",
-    expected=1,
+    '''  for (const hookName of SUPPORTED_CODEX_HOOK_NAMES) {
+    const groups = hooks[hookName];''',
+    '''  for (const hookName of SUPPORTED_CODEX_HOOK_NAMES) {
+    const groups = hooks?.[hookName];''',
 )
 replace_exact(
     config_path,
