@@ -11,7 +11,7 @@ jobs:
   finalize:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/ol-027-codex-adapter'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
         with:
@@ -31,14 +31,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "1071dc2bd606c61cbefa444f666902b3d70aa54d"
+          test "$(git rev-parse HEAD^)" = "b1366d5e7744c5a41ae538bf448918aee5f77044"
           test "$(git hash-object .ol027-transfer/codex-dedup.patch)" = "d9666f923ee39651c1ba78828c96b03b1b5327d0"
           git apply --check .ol027-transfer/codex-dedup.patch
           git apply .ol027-transfer/codex-dedup.patch
           python - <<'PY'
           from pathlib import Path
-          path = Path("packages/contracts/src/codex-ingress-security.ts")
-          text = path.read_text(encoding="utf-8")
+
+          contract = Path("packages/contracts/src/codex-ingress-security.ts")
+          text = contract.read_text(encoding="utf-8")
           old_constant = 'const controlPattern = /[\\u0000-\\u001f\\u007f]/u;\n'
           replacement = '''function hasControlCharacter(value: string): boolean {
             for (let index = 0; index < value.length; index += 1) {
@@ -55,12 +56,43 @@ jobs:
               raise SystemExit("expected exactly two controlPattern refinements")
           text = text.replace(old_constant, replacement)
           text = text.replace(old_refinement, '.refine((value) => !hasControlCharacter(value))')
-          path.write_text(text, encoding="utf-8")
+          contract.write_text(text, encoding="utf-8")
+
+          path_reduction = Path("packages/ingress-security/src/path-reduction.ts")
+          path_text = path_reduction.read_text(encoding="utf-8")
+          old_parameter = '  transcriptPath: string,\n'
+          if path_text.count(old_parameter) != 1:
+              raise SystemExit("expected exactly one transcriptPath parameter")
+          old_transcript = '''  const transcript = (() => {
+            try {
+              return canonicalizeAbsolutePath(transcriptPath);
+            } catch {
+              return null;
+            }
+          })();
+          '''
+          new_transcript = '''  const transcript = (() => {
+            if (transcriptPath === null) {
+              return null;
+            }
+            try {
+              return canonicalizeAbsolutePath(transcriptPath);
+            } catch {
+              return null;
+            }
+          })();
+          '''
+          if path_text.count(old_transcript) != 1:
+              raise SystemExit("expected exactly one transcript canonicalization block")
+          path_text = path_text.replace(old_parameter, '  transcriptPath: string | null,\n')
+          path_text = path_text.replace(old_transcript, new_transcript)
+          path_reduction.write_text(path_text, encoding="utf-8")
           PY
+          rm -rf .ol027-transfer .github/workflows/finalize-ol027-codex-security.yml
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Format exact source
+      - name: Format Codex security source
         run: |
           pnpm exec biome check --write \
             packages/contracts/src/codex.ts \
@@ -71,24 +103,37 @@ jobs:
             packages/ingress-security/src/codex-prepare.ts \
             packages/ingress-security/src/codex-reduction.ts \
             packages/ingress-security/src/index.ts \
+            packages/ingress-security/src/path-reduction.ts \
             packages/ingress-security/tests/codex-prepare.test.ts
 
-      - name: Capture TypeScript diagnostics
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test Codex security boundaries
+        run: pnpm vitest run packages/contracts/tests/codex-ingress-security.test.ts packages/ingress-security/tests/codex-prepare.test.ts packages/ingress-security/tests/prepare.test.ts packages/ingress-security/tests/fingerprint.test.ts packages/ingress-security/tests/path-reduction.test.ts
+
+      - name: Test full repository
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Publish clean source head
         shell: bash
         run: |
-          set +e
-          pnpm typecheck > /tmp/ol027-codex-security-typecheck.log 2>&1
-          code=$?
-          printf '%s\n' "$code" > /tmp/ol027-codex-security-typecheck.exit
-          cat /tmp/ol027-codex-security-typecheck.log
-          exit 0
-
-      - uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: ol027-codex-security-typecheck
-          path: |
-            /tmp/ol027-codex-security-typecheck.log
-            /tmp/ol027-codex-security-typecheck.exit
-          if-no-files-found: error
-          retention-days: 1
+          set -euo pipefail
+          test ! -e .ol027-transfer
+          test ! -e .github/workflows/finalize-ol027-codex-security.yml
+          git diff --check
+          git add -A
+          git diff --cached --check
+          git config user.name 'Emad211'
+          git config user.email '82148680+Emad211@users.noreply.github.com'
+          git commit -m 'OL-027: Add secure Codex receipt preparation'
+          git push origin "HEAD:${{ github.head_ref }}"
