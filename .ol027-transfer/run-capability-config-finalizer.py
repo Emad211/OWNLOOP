@@ -34,3 +34,14 @@ if text.count("CONTROL_CHARACTER_PATTERN.test(trimmed)") != 1:
     raise SystemExit("control-character command precondition failed")
 text = text.replace("CONTROL_CHARACTER_PATTERN.test(trimmed)", "containsControlCharacter(trimmed)")
 config.write_text(text, encoding="utf-8")
+
+test = Path("packages/contracts/tests/codex-hook-configuration.test.ts")
+test_text = test.read_text(encoding="utf-8")
+if test_text.count("  CodexHookConfigurationError,\n") != 1:
+    raise SystemExit("capability error import precondition failed")
+test_text = test_text.replace("  CodexHookConfigurationError,\n", "")
+needle = "expect.objectContaining<CodexHookConfigurationError>("
+if test_text.count(needle) != 6:
+    raise SystemExit("capability error assertion precondition failed")
+test_text = test_text.replace(needle, "expect.objectContaining(")
+test.write_text(test_text, encoding="utf-8")
