@@ -9,8 +9,8 @@ import {
   type LifecycleResolutionAction,
   type LifecycleResolutionOutcome,
   type OwnLoopPersistence,
-  type PersistenceRepositories,
   PersistenceError,
+  type PersistenceRepositories,
   type PreparedIngressReceiptRecord,
   type ReceiptLifecycleResolution,
   type Workspace,
@@ -110,6 +110,32 @@ function projectLifecyclePayload(receipt: PreparedIngressReceiptRecord): Lifecyc
   }
   const record = asObject(parsed);
 
+  if (receipt.source === "codex") {
+    switch (receipt.sourceEventName) {
+      case "SessionStart":
+        return { startMode: requiredString(record, "source"), prompt: null, stopReason: null };
+      case "UserPromptSubmit":
+        return { startMode: null, prompt: requiredString(record, "prompt"), stopReason: null };
+      case "SessionEnd":
+        requiredString(record, "reason");
+        return { startMode: null, prompt: null, stopReason: null };
+      case "PreToolUse":
+      case "PermissionRequest":
+      case "PostToolUse":
+      case "PreCompact":
+      case "PostCompact":
+      case "SubagentStart":
+      case "SubagentStop":
+      case "Stop":
+        return { startMode: null, prompt: null, stopReason: null };
+      default:
+        throw new ExpectedLifecycleFailure("invalid_transition");
+    }
+  }
+
+  if (receipt.source !== "claude_code") {
+    throw new ExpectedLifecycleFailure("invalid_transition");
+  }
   switch (receipt.sourceEventName) {
     case "SessionStart":
       return { startMode: requiredString(record, "source"), prompt: null, stopReason: null };
@@ -378,9 +404,14 @@ function resolveRunAction(
     }
 
     case "PreToolUse":
+    case "PermissionRequest":
     case "PostToolUse":
     case "PostToolUseFailure":
-    case "PostToolBatch": {
+    case "PostToolBatch":
+    case "PreCompact":
+    case "PostCompact":
+    case "SubagentStart":
+    case "SubagentStop": {
       const activeRun = persistence.taskRuns.getLatestActive(conversation.conversationId);
       if (activeRun === null) {
         throw new ExpectedLifecycleFailure("no_active_run", {

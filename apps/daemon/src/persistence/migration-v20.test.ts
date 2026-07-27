@@ -110,7 +110,9 @@ describe("provider-neutral Event taxonomy migration v20", () => {
       const referencingTables = eventReferencingTables(opened.database);
       const eventObjects = eventSchemaObjectNames(opened.database);
 
-      expect(() => insertEvent(opened.database, "event-pre-v20", 2, "permission.requested")).toThrow();
+      expect(() =>
+        insertEvent(opened.database, "event-pre-v20", 2, "permission.requested"),
+      ).toThrow();
       runMigrations(opened.database);
 
       expect(readAppliedMigrations(opened.database)).toHaveLength(20);
@@ -153,15 +155,19 @@ describe("provider-neutral Event taxonomy migration v20", () => {
         "agent.subagent_started",
         "agent.subagent_stopped",
       ] as const;
-      newTypes.forEach((eventType, index) =>
-        insertEvent(opened.database, `event-v20-${index}`, index + 2, eventType),
-      );
+      newTypes.forEach((eventType, index) => {
+        insertEvent(opened.database, `event-v20-${index}`, index + 2, eventType);
+      });
       expect(
         opened.database
-          .prepare("SELECT event_type FROM events WHERE event_id LIKE 'event-v20-%' ORDER BY sequence")
+          .prepare(
+            "SELECT event_type FROM events WHERE event_id LIKE 'event-v20-%' ORDER BY sequence",
+          )
           .all(),
       ).toEqual(newTypes.map((event_type) => ({ event_type })));
-      expect(() => insertEvent(opened.database, "event-v20-unknown", 7, "permission.approved")).toThrow();
+      expect(() =>
+        insertEvent(opened.database, "event-v20-unknown", 7, "permission.approved"),
+      ).toThrow();
       expect(() =>
         opened.database.exec(
           "UPDATE events SET sensitivity = 'public' WHERE event_id = 'event-v20-0'",

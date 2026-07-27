@@ -100,7 +100,7 @@ describe("multi-agent Event source migration v19", () => {
         "events_run_sequence_idx",
       ]);
 
-      runMigrations(opened.database);
+      runMigrations(opened.database, MIGRATIONS.slice(0, 19));
 
       expect(readAppliedMigrations(opened.database)).toHaveLength(19);
       expect(opened.database.prepare("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });

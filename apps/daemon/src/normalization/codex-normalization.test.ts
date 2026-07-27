@@ -10,7 +10,7 @@ import { prepareCodexIngressReceipt } from "@ownloop/ingress-security";
 import { describe, expect, it } from "vitest";
 
 import { processLifecycleReceipt } from "../lifecycle/processor.js";
-import { openPersistence, type OwnLoopPersistence } from "../persistence/index.js";
+import { type OwnLoopPersistence, openPersistence } from "../persistence/index.js";
 import { processEventNormalization } from "./processor.js";
 
 const HMAC_KEY = createSecretKey(Buffer.alloc(32, 59));
@@ -148,11 +148,14 @@ function process(
     receiptId,
   );
   if (lifecycle === null) throw new Error("Expected lifecycle resolution.");
-  const normalization = processEventNormalization({
-    persistence,
-    clock: () => new Date(AT),
-    eventIdGenerator: nextEventId,
-  }, receiptId);
+  const normalization = processEventNormalization(
+    {
+      persistence,
+      clock: () => new Date(AT),
+      eventIdGenerator: nextEventId,
+    },
+    receiptId,
+  );
   if (normalization === null) throw new Error("Expected Event normalization.");
   return { lifecycle, normalization };
 }
@@ -174,14 +177,9 @@ describe("Codex Event normalization", () => {
         "SubagentStop",
         "Stop",
       ] as const;
-      hookOrder.forEach((hookName, index) =>
-        process(
-          persistence,
-          nextEventId,
-          `receipt-codex-normalization-${index}`,
-          hookName,
-        ),
-      );
+      hookOrder.forEach((hookName, index) => {
+        process(persistence, nextEventId, `receipt-codex-normalization-${index}`, hookName);
+      });
       process(persistence, nextEventId, "receipt-codex-normalization-end", "SessionEnd");
 
       const runEvents = persistence.events.listForRun("run-codex-normalization");
@@ -198,12 +196,15 @@ describe("Codex Event normalization", () => {
         "run.stop_observed",
         "run.finalization_started",
       ]);
-      expect(runEvents.map((event) => event.sequence)).toEqual([
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
-      ]);
-      expect(runEvents.filter((event) => event.source === "codex")).toHaveLength(8);
+      expect(runEvents.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+      expect(runEvents.filter((event) => event.source === "codex")).toHaveLength(9);
       expect(runEvents.filter((event) => event.source === "ownloop")).toHaveLength(2);
-      expect(runEvents.every((event) => event.metadata.sourceVersion === "codex-cli 0.133.0" || event.source === "ownloop")).toBe(true);
+      expect(
+        runEvents.every(
+          (event) =>
+            event.metadata.sourceVersion === "codex-cli 0.133.0" || event.source === "ownloop",
+        ),
+      ).toBe(true);
 
       expect(runEvents.find((event) => event.type === "permission.requested")).toMatchObject({
         source: "codex",
@@ -234,7 +235,9 @@ describe("Codex Event normalization", () => {
         sensitivity: "sensitive",
       });
 
-      expect(persistence.taskRuns.listForConversation("conversation-codex-normalization")).toHaveLength(1);
+      expect(
+        persistence.taskRuns.listForConversation("conversation-codex-normalization"),
+      ).toHaveLength(1);
       expect(persistence.conversations.get("conversation-codex-normalization")).toMatchObject({
         source: "codex",
         status: "Ended",
@@ -267,9 +270,9 @@ describe("Codex Event normalization", () => {
       );
       expect(second).toEqual(first);
       expect(persistence.events.countAll()).toBe(eventCount);
-      expect(persistence.events.listForRun("run-codex-normalization").map((event) => event.sequence)).toEqual([
-        1, 2,
-      ]);
+      expect(
+        persistence.events.listForRun("run-codex-normalization").map((event) => event.sequence),
+      ).toEqual([1, 2]);
     } finally {
       persistence.close();
     }

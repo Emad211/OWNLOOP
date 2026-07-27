@@ -9,7 +9,7 @@ import {
 import { prepareCodexIngressReceipt } from "@ownloop/ingress-security";
 import { describe, expect, it } from "vitest";
 
-import { openPersistence, type OwnLoopPersistence } from "../persistence/index.js";
+import { type OwnLoopPersistence, openPersistence } from "../persistence/index.js";
 import { processLifecycleReceipt } from "./processor.js";
 
 const HMAC_KEY = createSecretKey(Buffer.alloc(32, 53));
@@ -193,7 +193,9 @@ describe("Codex lifecycle projection", () => {
   it("does not create a Task Run for a compact-source SessionStart", () => {
     const persistence = openPersistence(":memory:");
     try {
-      expect(resolve(persistence, "receipt-codex-compact-session", "SessionStart", "compact")).toMatchObject({
+      expect(
+        resolve(persistence, "receipt-codex-compact-session", "SessionStart", "compact"),
+      ).toMatchObject({
         action: "conversation_started",
         runId: null,
       });
@@ -210,7 +212,9 @@ describe("Codex lifecycle projection", () => {
     const persistence = openPersistence(":memory:");
     try {
       resolve(persistence, "receipt-codex-no-run-session", "SessionStart");
-      expect(resolve(persistence, "receipt-codex-no-run-permission", "PermissionRequest")).toMatchObject({
+      expect(
+        resolve(persistence, "receipt-codex-no-run-permission", "PermissionRequest"),
+      ).toMatchObject({
         outcome: "failed",
         action: "receipt_failed",
         diagnosticCode: "no_active_run",
