@@ -11,7 +11,7 @@ jobs:
   finalize:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/ol-027-codex-adapter'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "5653a4be60e723801fb56dd52f4fdec55307ab8f"
+          test "$(git rev-parse HEAD^)" = "3f84e01f424b5b29b11b778b69c95587cb014d1f"
           test "$(git hash-object .ol027-transfer/codex-dedup.patch)" = "d9666f923ee39651c1ba78828c96b03b1b5327d0"
           git apply --check .ol027-transfer/codex-dedup.patch
           git apply .ol027-transfer/codex-dedup.patch
@@ -49,11 +49,9 @@ jobs:
             return false;
           }
           '''
-          if text.count(old_constant) != 1:
-              raise SystemExit("expected exactly one controlPattern declaration")
           old_refinement = '.refine((value) => !controlPattern.test(value))'
-          if text.count(old_refinement) != 2:
-              raise SystemExit("expected exactly two controlPattern refinements")
+          if text.count(old_constant) != 1 or text.count(old_refinement) != 2:
+              raise SystemExit("Codex contract edit precondition failed")
           text = text.replace(old_constant, replacement)
           text = text.replace(old_refinement, '.refine((value) => !hasControlCharacter(value))')
           contract.write_text(text, encoding="utf-8")
@@ -62,22 +60,16 @@ jobs:
           path_text = path_reduction.read_text(encoding="utf-8")
           old_parameter = '  transcriptPath: string,\n'
           old_iife = '  const transcript = (() => {\n    try {\n'
-          if path_text.count(old_parameter) != 1:
-              raise SystemExit("expected exactly one transcriptPath parameter")
-          if path_text.count(old_iife) != 1:
-              raise SystemExit("expected exactly one transcript IIFE")
+          if path_text.count(old_parameter) != 1 or path_text.count(old_iife) != 1:
+              raise SystemExit("Path reduction edit precondition failed")
           path_text = path_text.replace(old_parameter, '  transcriptPath: string | null,\n')
-          path_text = path_text.replace(
-              old_iife,
-              '  const transcript = (() => {\n    if (transcriptPath === null) {\n      return null;\n    }\n    try {\n',
-          )
+          path_text = path_text.replace(old_iife, '  const transcript = (() => {\n    if (transcriptPath === null) {\n      return null;\n    }\n    try {\n')
           path_reduction.write_text(path_text, encoding="utf-8")
           PY
-          rm -rf .ol027-transfer .github/workflows/finalize-ol027-codex-security.yml
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Format Codex security source
+      - name: Format exact source
         run: |
           pnpm exec biome check --write \
             packages/contracts/src/codex.ts \
@@ -91,34 +83,22 @@ jobs:
             packages/ingress-security/src/path-reduction.ts \
             packages/ingress-security/tests/codex-prepare.test.ts
 
-      - name: Check formatting
-        run: pnpm format:check
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Test Codex security boundaries
-        run: pnpm vitest run packages/contracts/tests/codex-ingress-security.test.ts packages/ingress-security/tests/codex-prepare.test.ts packages/ingress-security/tests/prepare.test.ts packages/ingress-security/tests/fingerprint.test.ts packages/ingress-security/tests/path-reduction.test.ts
-
-      - name: Test full repository
-        run: pnpm test
-
-      - name: Build
-        run: pnpm build
-
-      - name: Publish clean source head
+      - name: Capture TypeScript diagnostics
         shell: bash
         run: |
-          set -euo pipefail
-          test ! -e .ol027-transfer
-          test ! -e .github/workflows/finalize-ol027-codex-security.yml
-          git diff --check
-          git add -A
-          git diff --cached --check
-          git config user.name 'Emad211'
-          git config user.email '82148680+Emad211@users.noreply.github.com'
-          git commit -m 'OL-027: Add secure Codex receipt preparation'
-          git push origin "HEAD:${{ github.head_ref }}"
+          set +e
+          pnpm typecheck > /tmp/ol027-codex-security-typecheck-v2.log 2>&1
+          code=$?
+          printf '%s\n' "$code" > /tmp/ol027-codex-security-typecheck-v2.exit
+          cat /tmp/ol027-codex-security-typecheck-v2.log
+          exit 0
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: ol027-codex-security-typecheck-v2
+          path: |
+            /tmp/ol027-codex-security-typecheck-v2.log
+            /tmp/ol027-codex-security-typecheck-v2.exit
+          if-no-files-found: error
+          retention-days: 1
