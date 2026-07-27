@@ -92,6 +92,16 @@ importers:
 
   packages/test-fixtures: {}
 
+  tools/codex-hook-adapter:
+    dependencies:
+      '@ownloop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+    devDependencies:
+      '@ownloop/test-fixtures':
+        specifier: workspace:*
+        version: link:../../packages/test-fixtures
+
   tools/hook-adapter:
     dependencies:
       '@ownloop/contracts':
