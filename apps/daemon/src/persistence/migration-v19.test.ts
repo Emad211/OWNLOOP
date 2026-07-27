@@ -6,9 +6,7 @@ import { readAppliedMigrations, runMigrations } from "./migrations.js";
 
 const AT = "2026-07-27T00:30:00.000Z";
 
-function seedVersion18Event(
-  database: ReturnType<typeof openConfiguredDatabase>["database"],
-): void {
+function seedVersion18Event(database: ReturnType<typeof openConfiguredDatabase>["database"]): void {
   database
     .prepare(
       `INSERT INTO workspaces (
@@ -138,7 +136,9 @@ describe("multi-agent Event source migration v19", () => {
         )
       `);
       expect(
-        opened.database.prepare("SELECT source FROM events WHERE event_id = ?").get("event-codex-v19"),
+        opened.database
+          .prepare("SELECT source FROM events WHERE event_id = ?")
+          .get("event-codex-v19"),
       ).toEqual({ source: "codex" });
       expect(() =>
         opened.database.exec(`

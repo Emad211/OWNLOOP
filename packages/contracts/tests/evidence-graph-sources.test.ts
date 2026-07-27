@@ -20,8 +20,8 @@ describe("Evidence Graph multi-agent source metadata", () => {
   });
 
   it("still rejects an unknown source", () => {
-    expect(
-      EvidenceNodeMetadataV1Schema.safeParse({ eventSource: "future_agent" }).success,
-    ).toBe(false);
+    expect(EvidenceNodeMetadataV1Schema.safeParse({ eventSource: "future_agent" }).success).toBe(
+      false,
+    );
   });
 });
