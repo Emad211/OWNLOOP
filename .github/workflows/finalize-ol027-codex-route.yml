@@ -11,7 +11,7 @@ jobs:
   finalize:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/ol-027-codex-adapter'
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "fd075ea0a3cd2b6f3b5b4079151f895eec6d0b91"
+          test "$(git rev-parse HEAD^)" = "42660d8cf72bc8aff83cfb1133b2384eb5f3a7fb"
           python - <<'PY'
           from pathlib import Path
 
@@ -57,7 +57,7 @@ jobs:
             SupportedAgentHookNameSchema,
           } from "./agent-ingress.js";
           '''
-          if index_text.count(index_anchor) != 1 or agent_exports.strip() in index_text:
+          if index_text.count(index_anchor) != 1:
               raise SystemExit("contracts index export precondition failed")
           index_file.write_text(index_text.replace(index_anchor, index_anchor + agent_exports), encoding="utf-8")
 
@@ -134,25 +134,19 @@ jobs:
           '''
           if diagnostics_text.count(old_hook_schema) != 1:
               raise SystemExit("diagnostics Hook schema precondition failed")
-          diagnostics_contract.write_text(
-              diagnostics_text.replace(old_hook_schema, new_hook_schema),
-              encoding="utf-8",
-          )
+          diagnostics_contract.write_text(diagnostics_text.replace(old_hook_schema, new_hook_schema), encoding="utf-8")
 
           server_file = Path("apps/daemon/src/ingress/server.ts")
           server_text = server_file.read_text(encoding="utf-8")
           response_import = 'import { acceptedResponse, rejectedResponse, summarizeZodError } from "./responses.js";\n'
           codex_import = 'import { CODEX_INGRESS_ROUTE, registerCodexIngressRoute } from "./codex-route.js";\n'
-          if server_text.count(response_import) != 1 or codex_import in server_text:
+          if server_text.count(response_import) != 1:
               raise SystemExit("Codex route import precondition failed")
           server_text = server_text.replace(response_import, codex_import + response_import)
           constant_anchor = 'export const INGRESS_BODY_LIMIT_BYTES = 1024 * 1024;\n'
           if server_text.count(constant_anchor) != 1:
               raise SystemExit("Codex route export precondition failed")
-          server_text = server_text.replace(
-              constant_anchor,
-              constant_anchor + '\nexport { CODEX_INGRESS_ROUTE };\n',
-          )
+          server_text = server_text.replace(constant_anchor, constant_anchor + '\nexport { CODEX_INGRESS_ROUTE };\n')
           static_anchor = '  const staticSite = createContainedStaticSite(dependencies.replay?.webRoot);\n'
           registration = '''  registerCodexIngressRoute(server, {
             persistence,
@@ -169,28 +163,21 @@ jobs:
           });
 
           '''
-          if server_text.count(static_anchor) != 1 or registration.strip() in server_text:
+          if server_text.count(static_anchor) != 1:
               raise SystemExit("Codex route registration precondition failed")
           server_file.write_text(server_text.replace(static_anchor, registration + static_anchor), encoding="utf-8")
 
           ingress_index = Path("apps/daemon/src/ingress/index.ts")
           ingress_index_text = ingress_index.read_text(encoding="utf-8")
           index_route_anchor = '  createLoopbackIngressServer,\n'
-          if ingress_index_text.count(index_route_anchor) != 1 or "  CODEX_INGRESS_ROUTE,\n" in ingress_index_text:
+          if ingress_index_text.count(index_route_anchor) != 1:
               raise SystemExit("ingress route export precondition failed")
-          ingress_index.write_text(
-              ingress_index_text.replace(
-                  index_route_anchor,
-                  '  CODEX_INGRESS_ROUTE,\n' + index_route_anchor,
-              ),
-              encoding="utf-8",
-          )
+          ingress_index.write_text(ingress_index_text.replace(index_route_anchor, '  CODEX_INGRESS_ROUTE,\n' + index_route_anchor), encoding="utf-8")
           PY
-          rm .github/workflows/finalize-ol027-codex-route.yml
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Format route source
+      - name: Format exact source
         run: |
           pnpm exec biome check --write \
             packages/contracts/src/agent-ingress.ts \
@@ -206,33 +193,22 @@ jobs:
             apps/daemon/src/local-settings/diagnostics.ts \
             apps/daemon/src/local-settings/diagnostics-multi-agent.test.ts
 
-      - name: Check formatting
-        run: pnpm format:check
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Test Codex route and diagnostics
-        run: pnpm vitest run packages/contracts/tests/agent-ingress.test.ts packages/contracts/tests/diagnostics-multi-agent.test.ts apps/daemon/src/ingress/codex-server.test.ts apps/daemon/src/ingress/server.test.ts apps/daemon/src/local-settings/diagnostics-multi-agent.test.ts apps/daemon/src/local-settings/service.test.ts
-
-      - name: Test full repository
-        run: pnpm test
-
-      - name: Build
-        run: pnpm build
-
-      - name: Publish clean route head
+      - name: Capture TypeScript diagnostics
         shell: bash
         run: |
-          set -euo pipefail
-          test ! -e .github/workflows/finalize-ol027-codex-route.yml
-          git diff --check
-          git add -A
-          git diff --cached --check
-          git config user.name 'Emad211'
-          git config user.email '82148680+Emad211@users.noreply.github.com'
-          git commit -m 'OL-027: Add authenticated Codex ingress route'
-          git push origin "HEAD:${{ github.head_ref }}"
+          set +e
+          pnpm typecheck > /tmp/ol027-codex-route-typecheck.log 2>&1
+          code=$?
+          printf '%s\n' "$code" > /tmp/ol027-codex-route-typecheck.exit
+          cat /tmp/ol027-codex-route-typecheck.log
+          exit 0
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: ol027-codex-route-typecheck
+          path: |
+            /tmp/ol027-codex-route-typecheck.log
+            /tmp/ol027-codex-route-typecheck.exit
+          if-no-files-found: error
+          retention-days: 1
