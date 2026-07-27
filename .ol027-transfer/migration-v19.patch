@@ -1,13 +1,13 @@
 diff --git a/apps/daemon/src/persistence/migration-definitions.ts b/apps/daemon/src/persistence/migration-definitions.ts
 --- a/apps/daemon/src/persistence/migration-definitions.ts
 +++ b/apps/daemon/src/persistence/migration-definitions.ts
-@@ -2,6 +2,7 @@ export type MigrationDefinition = Readonly<{
+@@ -2,4 +2,5 @@ export type MigrationDefinition = Readonly<{
    version: number;
    name: string;
    sql: string;
 +  foreignKeyPolicy?: "disable_during_table_rebuild";
  }>;
-@@ -2214,6 +2215,94 @@ BEGIN
+@@ -2224,4 +2225,90 @@
  END;
  `;
  
@@ -98,7 +98,7 @@ diff --git a/apps/daemon/src/persistence/migration-definitions.ts b/apps/daemon/
 +`;
 +
  export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
-@@ -2315,5 +2404,11 @@ export const MIGRATIONS: readonly MigrationDefinition[] = Object.freeze([
+@@ -2316,4 +2406,10 @@
      name: "local_settings_and_privacy_controls",
      sql: LOCAL_SETTINGS_SQL,
    }),
