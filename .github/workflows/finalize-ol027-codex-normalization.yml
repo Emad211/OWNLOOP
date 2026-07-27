@@ -11,536 +11,80 @@ jobs:
   finalize:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/ol-027-codex-adapter'
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 2
 
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24.18.0
-
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 11.4.0
-          run_install: false
-
-      - name: Apply exact migration, lifecycle, and normalization edits
+      - name: Capture exact normalization edit diagnostics
         shell: bash
         run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "9458b8e8040970d4d6613a62cb2478ab8c4c46f2"
-          python - <<'PY'
+          set +e
+          {
+            echo "HEAD=$(git rev-parse HEAD)"
+            echo "PARENT=$(git rev-parse HEAD^)"
+            python - <<'PY'
           from pathlib import Path
 
-          migrations = Path("apps/daemon/src/persistence/migration-definitions.ts")
-          migration_text = migrations.read_text(encoding="utf-8")
-          migration_import = 'import { MULTI_AGENT_EVENT_TAXONOMY_SQL } from "./multi-agent-event-taxonomy-migration.js";\n\n'
-          if migration_text.startswith("import ") or migration_import in migration_text:
-              raise SystemExit("migration import precondition failed")
-          migration_text = migration_import + migration_text
-          old_tail = '''  Object.freeze({
+          migration = Path("apps/daemon/src/persistence/migration-definitions.ts").read_text(encoding="utf-8")
+          v19 = Path("apps/daemon/src/persistence/migration-v19.test.ts").read_text(encoding="utf-8")
+          lifecycle = Path("apps/daemon/src/lifecycle/processor.ts").read_text(encoding="utf-8")
+          normalization = Path("apps/daemon/src/normalization/processor.ts").read_text(encoding="utf-8")
+          codex_test = Path("apps/daemon/src/normalization/codex-normalization.test.ts").read_text(encoding="utf-8")
+
+          markers = {
+              "migration_import_present": (migration, 'import { MULTI_AGENT_EVENT_TAXONOMY_SQL } from "./multi-agent-event-taxonomy-migration.js";'),
+              "migration_v19_tail": (migration, '''  Object.freeze({
             version: 19,
             name: "multi_agent_event_source",
             sql: MULTI_AGENT_EVENT_SOURCE_SQL,
             foreignKeyPolicy: "disable_during_table_rebuild",
           }),
           ]);
-          '''
-          new_tail = '''  Object.freeze({
-            version: 19,
-            name: "multi_agent_event_source",
-            sql: MULTI_AGENT_EVENT_SOURCE_SQL,
-            foreignKeyPolicy: "disable_during_table_rebuild",
-          }),
-          Object.freeze({
-            version: 20,
-            name: "provider_neutral_codex_event_taxonomy",
-            sql: MULTI_AGENT_EVENT_TAXONOMY_SQL,
-            foreignKeyPolicy: "disable_during_table_rebuild",
-          }),
-          ]);
-          '''
-          if migration_text.count(old_tail) != 1:
-              raise SystemExit("migration v20 entry precondition failed")
-          migrations.write_text(migration_text.replace(old_tail, new_tail), encoding="utf-8")
-
-          v19_test = Path("apps/daemon/src/persistence/migration-v19.test.ts")
-          v19_text = v19_test.read_text(encoding="utf-8")
-          old_v19_run = '''      runMigrations(opened.database);
+          '''),
+              "v19_full_run_marker": (v19, '''      runMigrations(opened.database);
 
                 expect(readAppliedMigrations(opened.database)).toHaveLength(19);
-          '''
-          new_v19_run = '''      runMigrations(opened.database, MIGRATIONS.slice(0, 19));
-
-                expect(readAppliedMigrations(opened.database)).toHaveLength(19);
-          '''
-          if v19_text.count(old_v19_run) != 1:
-              raise SystemExit("isolated migration v19 test precondition failed")
-          v19_test.write_text(v19_text.replace(old_v19_run, new_v19_run), encoding="utf-8")
-
-          lifecycle = Path("apps/daemon/src/lifecycle/processor.ts")
-          lifecycle_text = lifecycle.read_text(encoding="utf-8")
-          projection_start = lifecycle_text.index("function projectLifecyclePayload(")
-          projection_end = lifecycle_text.index("\n\nfunction insertResolution", projection_start)
-          new_projection = '''function projectLifecyclePayload(receipt: PreparedIngressReceiptRecord): LifecycleProjection {
-            let parsed: JsonValue;
-            try {
-              parsed = parseCanonicalJson(receipt.redactedPayloadJson);
-            } catch {
-              throw new ExpectedLifecycleFailure("invalid_redacted_payload");
-            }
-            const record = asObject(parsed);
-
-            if (receipt.source === "codex") {
-              switch (receipt.sourceEventName) {
-                case "SessionStart":
-                  return { startMode: requiredString(record, "source"), prompt: null, stopReason: null };
-                case "UserPromptSubmit":
-                  return { startMode: null, prompt: requiredString(record, "prompt"), stopReason: null };
-                case "SessionEnd":
-                  requiredString(record, "reason");
-                  return { startMode: null, prompt: null, stopReason: null };
-                case "PreToolUse":
-                case "PermissionRequest":
-                case "PostToolUse":
-                case "PreCompact":
-                case "PostCompact":
-                case "SubagentStart":
-                case "SubagentStop":
-                case "Stop":
-                  return { startMode: null, prompt: null, stopReason: null };
-                default:
-                  throw new ExpectedLifecycleFailure("invalid_transition");
-              }
-            }
-
-            if (receipt.source !== "claude_code") {
-              throw new ExpectedLifecycleFailure("invalid_transition");
-            }
-            switch (receipt.sourceEventName) {
-              case "SessionStart":
-                return { startMode: requiredString(record, "source"), prompt: null, stopReason: null };
-              case "UserPromptSubmit":
-                return { startMode: null, prompt: requiredString(record, "prompt"), stopReason: null };
-              case "StopFailure":
-                return { startMode: null, prompt: null, stopReason: requiredString(record, "error") };
-              case "SessionEnd":
-                requiredString(record, "reason");
-                return { startMode: null, prompt: null, stopReason: null };
-              case "PreToolUse":
-              case "PostToolUse":
-              case "PostToolUseFailure":
-              case "PostToolBatch":
-              case "Stop":
-                return { startMode: null, prompt: null, stopReason: null };
-              default:
-                throw new ExpectedLifecycleFailure("invalid_transition");
-            }
-          }'''
-          lifecycle_text = (
-              lifecycle_text[:projection_start]
-              + new_projection
-              + lifecycle_text[projection_end:]
-          )
-          old_associated = '''    case "PreToolUse":
+          '''),
+              "lifecycle_projection_start": (lifecycle, "function projectLifecyclePayload("),
+              "lifecycle_projection_end": (lifecycle, "\n\nfunction insertResolution"),
+              "lifecycle_associated_block": (lifecycle, '''    case "PreToolUse":
               case "PostToolUse":
               case "PostToolUseFailure":
               case "PostToolBatch": {
-          '''
-          new_associated = '''    case "PreToolUse":
-              case "PermissionRequest":
-              case "PostToolUse":
-              case "PostToolUseFailure":
-              case "PostToolBatch":
-              case "PreCompact":
-              case "PostCompact":
-              case "SubagentStart":
-              case "SubagentStop": {
-          '''
-          if lifecycle_text.count(old_associated) != 1:
-              raise SystemExit("Codex run association precondition failed")
-          lifecycle.write_text(lifecycle_text.replace(old_associated, new_associated), encoding="utf-8")
-
-          normalization = Path("apps/daemon/src/normalization/processor.ts")
-          normalization_text = normalization.read_text(encoding="utf-8")
-          old_event_import = '''  type NormalizedEventEnvelope,
+          '''),
+              "normalization_import": (normalization, '''  type NormalizedEventEnvelope,
             type NormalizedEventType,
             type JsonObject,
-          '''
-          new_event_import = '''  type NormalizedEventEnvelope,
-            type NormalizedEventSource,
-            type NormalizedEventType,
-            type JsonObject,
-          '''
-          if normalization_text.count(old_event_import) != 1:
-              raise SystemExit("normalized source type import precondition failed")
-          normalization_text = normalization_text.replace(old_event_import, new_event_import)
-
-          payload_helper_anchor = '''  return parsed as JsonObject;
+          '''),
+              "normalization_payload_helper": (normalization, '''  return parsed as JsonObject;
           }
 
           function requirePayloadField(
-          '''
-          source_version_helper = '''  return parsed as JsonObject;
+          '''),
+              "normalization_validation_start": (normalization, "function validateSourcePayload("),
+              "normalization_validation_end": (normalization, "\n\ntype EventSpecification"),
+              "normalization_spec_source": (normalization, '  source: "claude_code" | "ownloop";\n'),
+              "normalization_source_spec_start": (normalization, "function sourceSpec("),
+              "normalization_source_spec_end": (normalization, "\n\nfunction ownLoopSpec"),
+              "normalization_build_start": (normalization, "function buildSpecifications("),
+              "normalization_build_end": (normalization, "\n\nfunction eventDeduplicationKey"),
+              "normalization_source_version": (normalization, '        sourceVersion: null,\n'),
+              "codex_source_count": (codex_test, 'expect(runEvents.filter((event) => event.source === "codex")).toHaveLength(8);'),
           }
-
-          function sourceVersionFromPayload(payload: JsonObject): string | null {
-            const value = payload.source_version;
-            return typeof value === "string" && value.length > 0 ? value : null;
-          }
-
-          function requirePayloadField(
-          '''
-          if normalization_text.count(payload_helper_anchor) != 1:
-              raise SystemExit("source version helper precondition failed")
-          normalization_text = normalization_text.replace(payload_helper_anchor, source_version_helper)
-
-          validation_start = normalization_text.index("function validateSourcePayload(")
-          validation_end = normalization_text.index("\n\ntype EventSpecification", validation_start)
-          new_validation = '''function requireCodexTurnMetadata(
-            payload: JsonObject,
-            requirePermissionMode: boolean,
-          ): void {
-            requirePayloadField(payload, "turn_id", "string");
-            requirePayloadField(payload, "model", "string");
-            if (requirePermissionMode) {
-              requirePayloadField(payload, "permission_mode", "string");
-            }
-          }
-
-          function validateSourcePayload(receipt: PreparedIngressReceiptRecord, payload: JsonObject): void {
-            if (receipt.source === "codex") {
-              switch (receipt.sourceEventName) {
-                case "SessionStart":
-                  requirePayloadField(payload, "source", "string");
-                  requirePayloadField(payload, "model", "string");
-                  requirePayloadField(payload, "permission_mode", "string");
-                  return;
-                case "UserPromptSubmit":
-                  requireCodexTurnMetadata(payload, true);
-                  requirePayloadField(payload, "prompt", "string");
-                  return;
-                case "PreToolUse":
-                case "PermissionRequest":
-                  requireCodexTurnMetadata(payload, true);
-                  requirePayloadField(payload, "tool_name", "string");
-                  requirePayloadField(payload, "tool_input", "present");
-                  return;
-                case "PostToolUse":
-                  requireCodexTurnMetadata(payload, true);
-                  requirePayloadField(payload, "tool_name", "string");
-                  requirePayloadField(payload, "tool_input", "present");
-                  requirePayloadField(payload, "tool_response", "present");
-                  return;
-                case "PreCompact":
-                case "PostCompact":
-                  requireCodexTurnMetadata(payload, false);
-                  requirePayloadField(payload, "trigger", "string");
-                  return;
-                case "SubagentStart":
-                  requireCodexTurnMetadata(payload, true);
-                  requirePayloadField(payload, "agent_id", "string");
-                  requirePayloadField(payload, "agent_type", "string");
-                  return;
-                case "SubagentStop":
-                  requireCodexTurnMetadata(payload, true);
-                  requirePayloadField(payload, "agent_id", "string");
-                  requirePayloadField(payload, "agent_type", "string");
-                  requirePayloadField(payload, "stop_hook_active", "boolean");
-                  requirePayloadField(payload, "last_assistant_message", "present");
-                  return;
-                case "Stop":
-                  requireCodexTurnMetadata(payload, true);
-                  requirePayloadField(payload, "stop_hook_active", "boolean");
-                  requirePayloadField(payload, "last_assistant_message", "present");
-                  return;
-                case "SessionEnd":
-                  requirePayloadField(payload, "reason", "string");
-                  return;
-                default:
-                  throw new ExpectedNormalizationFailure("invalid_event_mapping");
-              }
-            }
-
-            if (receipt.source !== "claude_code") {
-              throw new ExpectedNormalizationFailure("invalid_event_mapping");
-            }
-            switch (receipt.sourceEventName) {
-              case "SessionStart":
-                requirePayloadField(payload, "source", "string");
-                break;
-              case "UserPromptSubmit":
-                requirePayloadField(payload, "prompt", "string");
-                break;
-              case "PreToolUse":
-                requirePayloadField(payload, "tool_name", "string");
-                requirePayloadField(payload, "tool_input", "present");
-                break;
-              case "PostToolUse":
-                requirePayloadField(payload, "tool_name", "string");
-                requirePayloadField(payload, "tool_input", "present");
-                requirePayloadField(payload, "tool_response", "present");
-                break;
-              case "PostToolUseFailure":
-                requirePayloadField(payload, "tool_name", "string");
-                requirePayloadField(payload, "tool_input", "present");
-                requirePayloadField(payload, "error", "string");
-                break;
-              case "PostToolBatch":
-                requirePayloadField(payload, "tool_calls", "array");
-                break;
-              case "Stop":
-                requirePayloadField(payload, "stop_hook_active", "boolean");
-                requirePayloadField(payload, "last_assistant_message", "string");
-                break;
-              case "StopFailure":
-                requirePayloadField(payload, "error", "string");
-                break;
-              case "SessionEnd":
-                requirePayloadField(payload, "reason", "string");
-                break;
-              default:
-                throw new ExpectedNormalizationFailure("invalid_event_mapping");
-            }
-          }'''
-          normalization_text = (
-              normalization_text[:validation_start]
-              + new_validation
-              + normalization_text[validation_end:]
-          )
-
-          old_spec_source = '  source: "claude_code" | "ownloop";\n'
-          if normalization_text.count(old_spec_source) != 1:
-              raise SystemExit("Event specification source precondition failed")
-          normalization_text = normalization_text.replace(
-              old_spec_source,
-              '  source: NormalizedEventSource;\n',
-          )
-
-          source_spec_start = normalization_text.index("function sourceSpec(")
-          source_spec_end = normalization_text.index("\n\nfunction ownLoopSpec", source_spec_start)
-          new_source_spec = '''function sourceSpec(
-            source: Exclude<NormalizedEventSource, "ownloop">,
-            type: NormalizedEventType,
-            payload: JsonObject,
-            sensitivity: "normal" | "sensitive",
-          ): EventSpecification {
-            return { type, source, payload, sensitivity, sourceFields: true };
-          }'''
-          normalization_text = (
-              normalization_text[:source_spec_start]
-              + new_source_spec
-              + normalization_text[source_spec_end:]
-          )
-
-          build_start = normalization_text.index("function buildSpecifications(")
-          build_end = normalization_text.index("\n\nfunction eventDeduplicationKey", build_start)
-          new_build = '''function buildSpecifications(
-            persistence: OwnLoopPersistence,
-            receipt: PreparedIngressReceiptRecord,
-            resolution: ReceiptLifecycleResolution,
-            payload: JsonObject,
-          ): readonly EventSpecification[] {
-            switch (receipt.sourceEventName) {
-              case "SessionStart": {
-                if (resolution.runId !== null) {
-                  throw new ExpectedNormalizationFailure("invalid_event_mapping");
-                }
-                if (resolution.action === "conversation_started") {
-                  return [sourceSpec(receipt.source, "conversation.started", payload, "normal")];
-                }
-                if (resolution.action === "conversation_resumed") {
-                  return [sourceSpec(receipt.source, "conversation.resumed", payload, "normal")];
-                }
-                throw new ExpectedNormalizationFailure("invalid_event_mapping");
-              }
-              case "UserPromptSubmit": {
-                const runId = requireRun(resolution);
-                if (resolution.action !== "run_started") {
-                  throw new ExpectedNormalizationFailure("invalid_event_mapping");
-                }
-                const run = persistence.taskRuns.get(runId);
-                if (run === null || run.conversationId !== resolution.conversationId) {
-                  throw new ExpectedNormalizationFailure("invalid_event_mapping");
-                }
-                return [
-                  ownLoopSpec(
-                    "run.started",
-                    syntheticPayload(receipt.sourceEventName, resolution.action, run.runNumber),
-                  ),
-                  sourceSpec(receipt.source, "user.prompt_submitted", payload, "sensitive"),
-                ];
-              }
-              case "PreToolUse":
-                requireRun(resolution);
-                if (resolution.action !== "run_associated") {
-                  throw new ExpectedNormalizationFailure("invalid_event_mapping");
-                }
-                return [sourceSpec(receipt.source, "tool.requested", payload, "sensitive")];
-              case "PermissionRequest":
-                requireRun(resolution);
-                if (resolution.action !== "run_associated") {
-                  throw new ExpectedNormalizationFailure("invalid_event_mapping");
-                }
-                return [sourceSpec(receipt.source, "permission.requested", payload, "sensitive")];
-              case "PostToolUse":
-                requireRun(resolution);
-                if (resolution.action !== "run_associated") {
-                  throw new ExpectedNormalizationFailure("invalid_event_mapping");
-                }
-                return [sourceSpec(receipt.source, "tool.succeeded", payload, "sensitive")];
-              case "PostToolUseFailure":
-                requireRun(resolution);
-                if (resolution.action !== "run_associated") {
-                  throw new ExpectedNormalizationFailure("invalid_event_mapping");
-                }
-                return [sourceSpec(receipt.source, "tool.failed", payload, "sensitive")];
-              case "PostToolBatch":
-                requireRun(resolution);
-                if (resolution.action !== "run_associated") {
-                  throw new ExpectedNormalizationFailure("invalid_event_mapping");
-                }
-                return [sourceSpec(receipt.source, "tool.batch_completed", payload, "sensitive")];
-              case "PreCompact":
-                requireRun(resolution);
-                if (resolution.action !== "run_associated") {
-                  throw new ExpectedNormalizationFailure("invalid_event_mapping");
-                }
-                return [
-                  sourceSpec(receipt.source, "context.compaction_started", payload, "normal"),
-                ];
-              case "PostCompact":
-                requireRun(resolution);
-                if (resolution.action !== "run_associated") {
-                  throw new ExpectedNormalizationFailure("invalid_event_mapping");
-                }
-                return [
-                  sourceSpec(receipt.source, "context.compaction_completed", payload, "normal"),
-                ];
-              case "SubagentStart":
-                requireRun(resolution);
-                if (resolution.action !== "run_associated") {
-                  throw new ExpectedNormalizationFailure("invalid_event_mapping");
-                }
-                return [sourceSpec(receipt.source, "agent.subagent_started", payload, "normal")];
-              case "SubagentStop":
-                requireRun(resolution);
-                if (resolution.action !== "run_associated") {
-                  throw new ExpectedNormalizationFailure("invalid_event_mapping");
-                }
-                return [sourceSpec(receipt.source, "agent.subagent_stopped", payload, "sensitive")];
-              case "Stop":
-                requireRun(resolution);
-                if (resolution.action !== "run_finalizing") {
-                  throw new ExpectedNormalizationFailure("invalid_event_mapping");
-                }
-                return [
-                  sourceSpec(receipt.source, "run.stop_observed", payload, "sensitive"),
-                  ownLoopSpec(
-                    "run.finalization_started",
-                    syntheticPayload(receipt.sourceEventName, resolution.action),
-                  ),
-                ];
-              case "StopFailure":
-                requireRun(resolution);
-                if (resolution.action !== "run_finalizing") {
-                  throw new ExpectedNormalizationFailure("invalid_event_mapping");
-                }
-                return [
-                  sourceSpec(receipt.source, "run.stop_failed", payload, "sensitive"),
-                  ownLoopSpec(
-                    "run.finalization_started",
-                    syntheticPayload(receipt.sourceEventName, resolution.action),
-                  ),
-                ];
-              case "SessionEnd":
-                if (resolution.runId !== null || resolution.action !== "conversation_ended") {
-                  throw new ExpectedNormalizationFailure("invalid_event_mapping");
-                }
-                return [sourceSpec(receipt.source, "conversation.ended", payload, "normal")];
-              default:
-                throw new ExpectedNormalizationFailure("invalid_event_mapping");
-            }
-          }'''
-          normalization_text = (
-              normalization_text[:build_start]
-              + new_build
-              + normalization_text[build_end:]
-          )
-
-          old_source_version = '        sourceVersion: null,\n'
-          if normalization_text.count(old_source_version) != 1:
-              raise SystemExit("Event source version metadata precondition failed")
-          normalization.write_text(
-              normalization_text.replace(
-                  old_source_version,
-                  '        sourceVersion: sourceVersionFromPayload(payload),\n',
-              ),
-              encoding="utf-8",
-          )
-
-          codex_test = Path("apps/daemon/src/normalization/codex-normalization.test.ts")
-          codex_test_text = codex_test.read_text(encoding="utf-8")
-          old_count = 'expect(runEvents.filter((event) => event.source === "codex")).toHaveLength(8);'
-          if codex_test_text.count(old_count) != 1:
-              raise SystemExit("Codex source Event count precondition failed")
-          codex_test.write_text(
-              codex_test_text.replace(
-                  old_count,
-                  'expect(runEvents.filter((event) => event.source === "codex")).toHaveLength(9);',
-              ),
-              encoding="utf-8",
-          )
+          for name, (text, marker) in markers.items():
+              print(f"{name}={text.count(marker)}")
           PY
-          rm .github/workflows/finalize-ol027-codex-normalization.yml
+          } > /tmp/ol027-normalization-edit-diagnostics.log 2>&1
+          cat /tmp/ol027-normalization-edit-diagnostics.log
+          exit 0
 
-      - run: pnpm install --frozen-lockfile
-
-      - name: Format normalization source
-        run: |
-          pnpm exec biome check --write \
-            docs/adr/0029-codex-provider-neutral-event-taxonomy.md \
-            packages/event-model/src/normalized-event.ts \
-            packages/event-model/tests/normalized-event.test.ts \
-            apps/daemon/src/persistence/multi-agent-event-taxonomy-migration.ts \
-            apps/daemon/src/persistence/migration-definitions.ts \
-            apps/daemon/src/persistence/migration-v19.test.ts \
-            apps/daemon/src/persistence/migration-v20.test.ts \
-            apps/daemon/src/lifecycle/processor.ts \
-            apps/daemon/src/lifecycle/codex-lifecycle.test.ts \
-            apps/daemon/src/normalization/processor.ts \
-            apps/daemon/src/normalization/codex-normalization.test.ts
-
-      - name: Check formatting
-        run: pnpm format:check
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Test taxonomy, lifecycle, and normalization
-        run: pnpm vitest run packages/event-model/tests/normalized-event.test.ts apps/daemon/src/persistence/migration-v19.test.ts apps/daemon/src/persistence/migration-v20.test.ts apps/daemon/src/lifecycle/codex-lifecycle.test.ts apps/daemon/src/lifecycle/processor.test.ts apps/daemon/src/normalization/codex-normalization.test.ts apps/daemon/src/normalization/processor.test.ts
-
-      - name: Test full repository
-        run: pnpm test
-
-      - name: Build
-        run: pnpm build
-
-      - name: Publish clean normalization head
-        shell: bash
-        run: |
-          set -euo pipefail
-          test ! -e .github/workflows/finalize-ol027-codex-normalization.yml
-          git diff --check
-          git add -A
-          git diff --cached --check
-          git config user.name 'Emad211'
-          git config user.email '82148680+Emad211@users.noreply.github.com'
-          git commit -m 'OL-027: Normalize Codex lifecycle facts'
-          git push origin "HEAD:${{ github.head_ref }}"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: ol027-normalization-edit-diagnostics
+          path: /tmp/ol027-normalization-edit-diagnostics.log
+          if-no-files-found: error
+          retention-days: 1
