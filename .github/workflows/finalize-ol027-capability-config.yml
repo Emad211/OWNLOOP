@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "6a96e2e5d4a217178c9019fa79b8ee64cee52320"
+          test "$(git rev-parse HEAD^)" = "cf4b0e9474c61ca6504814031cde6be50628df75"
           python .ol027-transfer/finalize-capability-config.py
           rm -rf .ol027-transfer .github/workflows/finalize-ol027-capability-config.yml
 
