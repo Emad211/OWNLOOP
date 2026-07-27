@@ -1,4 +1,32 @@
 export type {
+  CodexCapabilityFactsV1,
+  CodexCapabilityLimitation,
+  CodexCapabilityState,
+  CodexCapabilityStatusV1,
+  CodexConfigurationState,
+  CodexHookEngineState,
+  CodexManagedPolicyState,
+  CodexTrustState,
+} from "./codex-capability.js";
+export {
+  CODEX_CAPABILITY_LIMITATIONS,
+  CODEX_CAPABILITY_SCHEMA_VERSION,
+  CODEX_CAPABILITY_STATES,
+  CODEX_CONFIGURATION_STATES,
+  CODEX_HOOK_ENGINE_STATES,
+  CODEX_MANAGED_POLICY_STATES,
+  CODEX_TRUST_STATES,
+  CodexCapabilityFactsV1Schema,
+  CodexCapabilityLimitationSchema,
+  CodexCapabilityStateSchema,
+  CodexCapabilityStatusV1Schema,
+  CodexConfigurationStateSchema,
+  CodexHookEngineStateSchema,
+  CodexManagedPolicyStateSchema,
+  CodexTrustStateSchema,
+  projectCodexCapabilityStatusV1,
+} from "./codex-capability.js";
+export type {
   CodexCompactCommonFields,
   CodexPermissionMode,
   CodexSessionCommonFields,
