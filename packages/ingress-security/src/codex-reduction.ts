@@ -1,7 +1,4 @@
-import type {
-  CodexAdapterIngress,
-  SupportedCodexHookPayload,
-} from "@ownloop/contracts/codex";
+import type { CodexAdapterIngress, SupportedCodexHookPayload } from "@ownloop/contracts/codex";
 import type { JsonObject } from "@ownloop/event-model";
 
 import { IngressSecurityError } from "./errors.js";
@@ -96,7 +93,9 @@ export function reduceAndRedactCodexIngress(
       break;
     case "PostToolUse":
       toolFields(payload, output, context);
-      output.tool_response = sanitizeArbitraryJson(payload.tool_response, context, ["tool_response"]);
+      output.tool_response = sanitizeArbitraryJson(payload.tool_response, context, [
+        "tool_response",
+      ]);
       break;
     case "PreCompact":
     case "PostCompact":

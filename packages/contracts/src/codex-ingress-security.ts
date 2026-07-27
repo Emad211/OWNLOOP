@@ -6,8 +6,8 @@ import { CODEX_INGRESS_CONTRACT_VERSION } from "./codex-ingress-wrapper.js";
 import {
   HmacSha256FingerprintSchema,
   INGRESS_CANONICALIZATION_VERSION,
-  IngressDeduplicationKeySchema,
   INGRESS_REDACTION_POLICY_VERSION,
+  IngressDeduplicationKeySchema,
   RedactionSummaryV1Schema,
 } from "./ingress-security.js";
 
@@ -123,19 +123,26 @@ function canonicalizeContractJson(value: unknown): string {
     .join(",")}}`;
 }
 
-const controlPattern = /[\u0000-\u001f\u007f]/u;
+function hasControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
 const absolutePathPattern = /^(?:\/|[A-Za-z]:[\\/]|\\\\|\/\/)/u;
 const embeddedAbsolutePathPattern = /(?:^|[\s"'([{=,:;])(?:\/(?!\/)|[A-Za-z]:[\\/]|\\\\)/u;
 const secretPattern =
   /(?:^|[^A-Za-z0-9])(?:authorization|password|passwd|secret|api[_.-]?key|access[_.-]?token|refresh[_.-]?token|id[_.-]?token|token|private[_.-]?key|credential|credentials)[:=]/iu;
 const uriCredentialPattern = /[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@/u;
-const strongTokenPattern = /(?:^|[^A-Za-z0-9_])(?:sk|ghp|github_pat|xox[baprs])[-_][A-Za-z0-9_-]{12,}/iu;
+const strongTokenPattern =
+  /(?:^|[^A-Za-z0-9_])(?:sk|ghp|github_pat|xox[baprs])[-_][A-Za-z0-9_-]{12,}/iu;
 
 const identifierSchema = z
   .string()
   .min(1)
   .max(4096)
-  .refine((value) => !controlPattern.test(value))
+  .refine((value) => !hasControlCharacter(value))
   .refine((value) => !hasLoneSurrogate(value))
   .refine((value) => !/\s/u.test(value))
   .refine((value) => !strongTokenPattern.test(value))
@@ -149,7 +156,7 @@ const canonicalWorkspacePathSchema = z
   .min(1)
   .max(8192)
   .refine((value) => absolutePathPattern.test(value))
-  .refine((value) => !controlPattern.test(value))
+  .refine((value) => !hasControlCharacter(value))
   .refine((value) => !hasLoneSurrogate(value));
 
 const CODEX_SOURCE_ID_HOOKS = new Set([
@@ -177,7 +184,10 @@ export const PreparedCodexIngressReceiptV1Schema = z
     receivedAt: z.iso.datetime({ offset: true }),
     payloadFingerprint: HmacSha256FingerprintSchema,
     deduplicationKey: IngressDeduplicationKeySchema,
-    redactedPayloadJson: z.string().min(2).max(256 * 1024),
+    redactedPayloadJson: z
+      .string()
+      .min(2)
+      .max(256 * 1024),
     redactionSummary: RedactionSummaryV1Schema,
   })
   .superRefine((receipt, context) => {
@@ -220,7 +230,9 @@ export const PreparedCodexIngressReceiptV1Schema = z
     }
 
     const usesSourceId = CODEX_SOURCE_ID_HOOKS.has(
-      receipt.sourceEventName as typeof CODEX_SOURCE_ID_HOOKS extends Set<infer Item> ? Item : never,
+      receipt.sourceEventName as typeof CODEX_SOURCE_ID_HOOKS extends Set<infer Item>
+        ? Item
+        : never,
     );
     if (usesSourceId !== (receipt.sourceEventId !== null)) {
       context.addIssue({
@@ -260,6 +272,4 @@ export const PreparedCodexIngressReceiptV1Schema = z
       }
     }
   });
-export type PreparedCodexIngressReceiptV1 = z.infer<
-  typeof PreparedCodexIngressReceiptV1Schema
->;
+export type PreparedCodexIngressReceiptV1 = z.infer<typeof PreparedCodexIngressReceiptV1Schema>;

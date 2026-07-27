@@ -9,7 +9,7 @@ const turnFields = {
   turn_id: "turn-fixture-001",
   model: "gpt-5.6-codex",
   permission_mode: "default",
-};
+} as const;
 
 export const validCodexHookFixtures = [
   {

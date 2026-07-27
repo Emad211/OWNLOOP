@@ -338,12 +338,15 @@ export function reducePathsInString(
 
 export function createPathReductionContext(
   workspacePath: string,
-  transcriptPath: string,
+  transcriptPath: string | null,
   homePath?: string,
 ): PathReductionContext {
   const workspace = canonicalizeAbsolutePath(workspacePath);
 
   const transcript = (() => {
+    if (transcriptPath === null) {
+      return null;
+    }
     try {
       return canonicalizeAbsolutePath(transcriptPath);
     } catch {

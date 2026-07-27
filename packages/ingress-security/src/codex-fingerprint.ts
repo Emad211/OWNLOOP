@@ -1,13 +1,12 @@
 import { Buffer } from "node:buffer";
 import { createHmac, type KeyObject } from "node:crypto";
-
-import type { SupportedCodexHookPayload, SupportedCodexHookName } from "@ownloop/contracts/codex";
 import {
   type HmacSha256Fingerprint,
   HmacSha256FingerprintSchema,
   type IngressDeduplicationKey,
   IngressDeduplicationKeySchema,
 } from "@ownloop/contracts";
+import type { SupportedCodexHookName, SupportedCodexHookPayload } from "@ownloop/contracts/codex";
 
 import { canonicalizeJson } from "./canonical-json.js";
 import { IngressSecurityError, ingressSecurityError } from "./errors.js";

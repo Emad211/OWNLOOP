@@ -1,27 +1,26 @@
 import { Buffer } from "node:buffer";
 import type { KeyObject } from "node:crypto";
-
-import type { CodexAdapterIngress } from "@ownloop/contracts/codex";
-import { PreparedCodexIngressReceiptV1Schema } from "@ownloop/contracts/codex";
 import {
   INGRESS_CANONICALIZATION_VERSION,
   INGRESS_REDACTION_POLICY_VERSION,
   LocalSecretFieldPatternsSchema,
 } from "@ownloop/contracts";
+import type { CodexAdapterIngress } from "@ownloop/contracts/codex";
+import { PreparedCodexIngressReceiptV1Schema } from "@ownloop/contracts/codex";
 
 import { canonicalizeJson } from "./canonical-json.js";
-import {
-  MAX_ARRAY_ITEMS,
-  MAX_OBJECT_PROPERTIES,
-  MAX_OUTPUT_CANONICAL_UTF8_BYTES,
-  MAX_RECURSIVE_DEPTH,
-} from "./constants.js";
 import {
   createCodexDeduplicationKey,
   extractCodexSourceEventId,
   fingerprintCodexSourcePayload,
 } from "./codex-fingerprint.js";
 import { reduceAndRedactCodexIngress } from "./codex-reduction.js";
+import {
+  MAX_ARRAY_ITEMS,
+  MAX_OBJECT_PROPERTIES,
+  MAX_OUTPUT_CANONICAL_UTF8_BYTES,
+  MAX_RECURSIVE_DEPTH,
+} from "./constants.js";
 import { IngressSecurityError } from "./errors.js";
 import { createPathReductionContext } from "./path-reduction.js";
 import { createRedactionState, finalizeRedactionSummary } from "./redaction-state.js";

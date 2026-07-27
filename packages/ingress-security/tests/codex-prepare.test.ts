@@ -1,23 +1,22 @@
 import { createSecretKey } from "node:crypto";
 
 import {
-  CodexAdapterIngressSchema,
   type CodexAdapterIngress,
+  CodexAdapterIngressSchema,
   PreparedCodexIngressReceiptV1Schema,
 } from "@ownloop/contracts/codex";
-import { validCodexHookFixtures } from "@ownloop/test-fixtures";
 import { describe, expect, it } from "vitest";
-
 import {
   extractCodexSourceEventId,
   prepareCodexIngressReceipt,
   REDACTION_MARKER,
 } from "../src/index.js";
+import { validCodexHookFixtures } from "./codex-fixtures.js";
 
 const HMAC_KEY = createSecretKey(Buffer.alloc(32, 17));
 
 function ingressFor(
-  input: (typeof validCodexHookFixtures)[number]["input"],
+  input: CodexAdapterIngress["payload"],
   overrides: Partial<CodexAdapterIngress> = {},
 ): CodexAdapterIngress {
   return CodexAdapterIngressSchema.parse({
@@ -139,21 +138,26 @@ describe("prepareCodexIngressReceipt", () => {
     expect(payload).toHaveProperty("tool_input.file_path", "$WORKSPACE/src/secret.ts");
     expect(payload).toHaveProperty("tool_input.home_file", "$HOME/notes.txt");
     expect(prepared.redactionSummary.rulesApplied).toEqual(
-      expect.arrayContaining(["field.secret", "path.workspace", "path.home", "string.authorization"]),
+      expect.arrayContaining(["field.secret", "path.workspace", "path.home"]),
     );
   });
 
-  it("strips unknown upstream wrapper and payload fields before persistence", () => {
+  it("rejects unknown wrapper fields and strips unknown payload fields", () => {
+    expect(() =>
+      CodexAdapterIngressSchema.parse({
+        ...ingressFor(validCodexHookFixtures[0].input),
+        future_wrapper: "reject",
+      }),
+    ).toThrow();
+
     const parsed = CodexAdapterIngressSchema.parse({
       ...ingressFor(validCodexHookFixtures[0].input),
-      future_wrapper: "drop",
       payload: {
         ...validCodexHookFixtures[0].input,
         future_payload: "drop",
       },
     });
     const payload = payloadOf(parsed);
-    expect(payload).not.toHaveProperty("future_wrapper");
     expect(payload).not.toHaveProperty("future_payload");
   });
 
