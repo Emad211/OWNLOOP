@@ -1,4 +1,4 @@
-name: Export OL-025 clean source tree
+name: Report OL-025 base tree
 
 on:
   pull_request:
@@ -8,164 +8,22 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: export-ol025-clean-source-tree
-  cancel-in-progress: false
-
 jobs:
-  export:
+  report:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/ol-025-windows-installation'
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 5
     steps:
-      - name: Check out exact PR branch
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref }}
-          fetch-depth: 2
-
-      - name: Reconstruct and stage exact final source
+          fetch-depth: 1
+      - name: Report exact base tree object
         shell: bash
         env:
-          EXPECTED_PARENT_HEAD: 31a82f3f1b7f23ad9e22123d01fb94045be8d0a1
-          EXPECTED_FIX_SOURCE_HEAD: 3af3d8c74b9913afa56ccea5c85c91cc21f512de
           EXPECTED_BASE: a33d1592545e5eeacaac0bd08421ae26f8b67d46
-          EXPECTED_FILE_COUNT: '74'
-          EXPECTED_FILE_LIST_SHA256: e98ecf4472a64ae0b1533de10f3429cb67dcffd10b5b1a8d5ad56d2c204945b5
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT_HEAD"
-          test "$(git diff --name-only "$EXPECTED_PARENT_HEAD" HEAD)" = '.github/workflows/finalize-ol025.yml'
-
-          git fetch --no-tags --depth=1 origin agent/ol025-package-diagnosis
-          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_FIX_SOURCE_HEAD"
-          git show "$EXPECTED_FIX_SOURCE_HEAD:.ol025-diagnosis/package-fix-v3.patch" > /tmp/ol025-v3.patch
-          for index in 00 01 02 03; do
-            git show "$EXPECTED_FIX_SOURCE_HEAD:.ol025-diagnosis/v3v4-chunks/chunk-${index}.txt" > "/tmp/ol025-v3-v4-${index}.txt"
-          done
-
-          python - <<'PY'
-          from pathlib import Path
-          import base64
-          import gzip
-          import hashlib
-
-          chunk_paths = sorted(Path('.ol025-transfer').glob('chunk-*.txt'))
-          if [path.name for path in chunk_paths] != [f'chunk-{index:02d}.txt' for index in range(13)]:
-              raise SystemExit('original chunk set mismatch')
-          original_b64 = b''.join(path.read_bytes() for path in chunk_paths)
-          if len(original_b64) != 84372 or hashlib.sha256(original_b64).hexdigest() != '43b726019ebbbd66730f9420fb430915184fd85c3e09fa4a38bb82834d44ca14':
-              raise SystemExit('original base64 payload mismatch')
-          original_gzip = base64.b64decode(original_b64, validate=True)
-          if len(original_gzip) != 63278 or hashlib.sha256(original_gzip).hexdigest() != '708099e24b4009c8a4785013e2670085376e78c46c2be5e43c7338310c12efe6':
-              raise SystemExit('original gzip payload mismatch')
-          original = gzip.decompress(original_gzip)
-          if len(original) != 307654 or hashlib.sha256(original).hexdigest() != '81e01d5427b5dc75b1fab53d00824521b77aafcf9be4b90397dc388cd02d7fc9':
-              raise SystemExit('original patch mismatch')
-
-          v3 = Path('/tmp/ol025-v3.patch').read_bytes()
-          if len(v3) != 13943 or hashlib.sha256(v3).hexdigest() != 'bb38d254c04714bbe8ab4f160c98966013108d2fedf61fce6c63e84e9a01f2bd':
-              raise SystemExit('v3 patch mismatch')
-
-          delta_payload = b''.join(
-              Path(f'/tmp/ol025-v3-v4-{index:02d}.txt').read_bytes()
-              for index in range(4)
-          )
-          delta = base64.b64decode(delta_payload, validate=True)
-          if len(delta) != 10854 or hashlib.sha256(delta).hexdigest() != '31f73de5c0d6f78552ab66d10e65b83e621c9ae64a95d14337f47e3735456923':
-              raise SystemExit('v3-to-v4 patch mismatch')
-
-          Path('/tmp/ol025.patch').write_bytes(original)
-          Path('/tmp/ol025-v3-v4.patch').write_bytes(delta)
-          PY
-
-          git apply --check /tmp/ol025.patch
-          git apply /tmp/ol025.patch
-          git apply --recount --check /tmp/ol025-v3.patch
-          git apply --recount /tmp/ol025-v3.patch
-          git apply --recount --check /tmp/ol025-v3-v4.patch
-          git apply --recount /tmp/ol025-v3-v4.patch
-          rm -rf .ol025-transfer
-          rm -f .github/workflows/finalize-ol025.yml .github/workflows/export-ol025-toolchain.yml
-
           git fetch --no-tags --depth=1 origin "$EXPECTED_BASE"
           test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_BASE"
-          git diff --check
-          git add -A
-          git diff --cached --check
-          git diff --cached --name-only "$EXPECTED_BASE" | LC_ALL=C sort > /tmp/ol025-files.txt
-          test "$(wc -l < /tmp/ol025-files.txt | tr -d ' ')" = "$EXPECTED_FILE_COUNT"
-          test "$(sha256sum /tmp/ol025-files.txt | cut -d' ' -f1)" = "$EXPECTED_FILE_LIST_SHA256"
-
-          python - <<'PY'
-          from pathlib import Path
-          import hashlib
-          import json
-          import os
-          import shutil
-          import subprocess
-
-          base = os.environ['EXPECTED_BASE']
-          export_root = Path('/tmp/ol025-clean-tree')
-          files_root = export_root / 'files'
-          files_root.mkdir(parents=True, exist_ok=True)
-
-          output = subprocess.check_output(
-              ['git', 'diff', '--cached', '--name-status', '--no-renames', base],
-              text=True,
-          )
-          entries = []
-          for raw_line in output.splitlines():
-              status, path = raw_line.split('\t', 1)
-              if status == 'D':
-                  entries.append({'action': 'delete', 'path': path})
-                  continue
-              if status not in {'A', 'M'}:
-                  raise SystemExit(f'unsupported staged status {status}: {path}')
-              stage = subprocess.check_output(
-                  ['git', 'ls-files', '--stage', '--', path],
-                  text=True,
-              ).strip()
-              if not stage:
-                  raise SystemExit(f'missing staged entry: {path}')
-              mode = stage.split(' ', 1)[0]
-              data = Path(path).read_bytes()
-              data.decode('utf-8')
-              destination = files_root / path
-              destination.parent.mkdir(parents=True, exist_ok=True)
-              shutil.copyfile(path, destination)
-              entries.append({
-                  'action': 'upsert',
-                  'mode': mode,
-                  'path': path,
-                  'sha256': hashlib.sha256(data).hexdigest(),
-                  'size': len(data),
-              })
-
-          entries.sort(key=lambda entry: entry['path'])
-          manifest = {
-              'baseCommit': base,
-              'entryCount': len(entries),
-              'fileListSha256': hashlib.sha256(
-                  ''.join(f"{entry['path']}\n" for entry in entries).encode()
-              ).hexdigest(),
-              'entries': entries,
-          }
-          (export_root / 'manifest.json').write_text(
-              json.dumps(manifest, indent=2, sort_keys=True) + '\n',
-              encoding='utf-8',
-          )
-          shutil.copyfile('/tmp/ol025-files.txt', export_root / 'file-list.txt')
-          print(json.dumps({
-              'entryCount': manifest['entryCount'],
-              'fileListSha256': manifest['fileListSha256'],
-          }, sort_keys=True))
-          PY
-
-      - name: Upload exact clean tree
-        uses: actions/upload-artifact@v6
-        with:
-          name: ol025-clean-tree-export
-          path: /tmp/ol025-clean-tree
-          if-no-files-found: error
-          retention-days: 3
+          echo "base-tree-sha=$(git rev-parse \"$EXPECTED_BASE^{tree}\")"
