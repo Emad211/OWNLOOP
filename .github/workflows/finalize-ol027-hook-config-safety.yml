@@ -1,0 +1,144 @@
+name: Finalize OL-027 Hook Configuration Safety
+
+on:
+  push:
+    branches:
+      - agent/ol-027-codex-adapter
+
+permissions:
+  contents: write
+
+concurrency:
+  group: finalize-ol027-hook-config-safety
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out exact branch
+        uses: actions/checkout@v7
+        with:
+          ref: agent/ol-027-codex-adapter
+          fetch-depth: 2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+          run_install: false
+
+      - name: Apply bounded Hook-safety transformation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          source_path = Path("packages/contracts/src/codex-hook-configuration.ts")
+          source = source_path.read_text(encoding="utf-8")
+
+          old_arrays = '''  const exactHookNames: SupportedCodexHookName[] = [];
+          const missingHookNames: SupportedCodexHookName[] = [];
+          const ambiguousHookNames: SupportedCodexHookName[] = [];
+
+          for (const hookName of SUPPORTED_CODEX_HOOK_NAMES) {'''
+          new_arrays = '''  const exactHookNames: SupportedCodexHookName[] = [];
+          const missingHookNames: SupportedCodexHookName[] = [];
+          const ambiguousHookNames: SupportedCodexHookName[] = [];
+          const supportedHookNames = new Set<string>(SUPPORTED_CODEX_HOOK_NAMES);
+          const hasForeignOwnLoopHandler =
+            hooks !== null &&
+            Object.entries(hooks).some(
+              ([hookName, groups]) =>
+                !supportedHookNames.has(hookName) && containsOwnLoopLikeHandler(groups),
+            );
+
+          for (const hookName of SUPPORTED_CODEX_HOOK_NAMES) {'''
+          if source.count(old_arrays) != 1:
+              raise SystemExit("unexpected Hook-array anchor")
+          source = source.replace(old_arrays, new_arrays)
+
+          old_state = '''  const state: CodexHookConfigurationState =
+            ambiguousHookNames.length > 0
+              ? "ambiguous"'''
+          new_state = '''  const state: CodexHookConfigurationState =
+            ambiguousHookNames.length > 0 || hasForeignOwnLoopHandler
+              ? "ambiguous"'''
+          if source.count(old_state) != 1:
+              raise SystemExit("unexpected state anchor")
+          source = source.replace(old_state, new_state)
+          source_path.write_text(source, encoding="utf-8")
+
+          test_path = Path("packages/contracts/tests/codex-hook-configuration.test.ts")
+          tests = test_path.read_text(encoding="utf-8")
+          anchor = '''  it("removes only exact OwnLoop groups and leaves unrelated data byte-structurally intact", () => {'''
+          addition = '''  it("fails closed when an OwnLoop-like handler is hidden under an unsupported Hook name", () => {
+            const document = installedDocument();
+            hooks(document).FutureEvent = [
+              {
+                matcher: "*",
+                hooks: [{ type: "command", command: "ownloop-codex-hook" }],
+              },
+            ];
+
+            expect(inspectCodexHookConfiguration(document, COMMANDS).state).toBe("ambiguous");
+            expect(() => installCodexHookConfiguration(document, COMMANDS)).toThrowError(
+              expect.objectContaining({ code: "ambiguous_ownloop_entries" }),
+            );
+            expect(() => removeCodexHookConfiguration(document, COMMANDS)).toThrowError(
+              expect.objectContaining({ code: "ambiguous_ownloop_entries" }),
+            );
+          });
+
+          ''' + anchor
+          if tests.count(anchor) != 1:
+              raise SystemExit("unexpected test anchor")
+          tests = tests.replace(anchor, addition)
+          test_path.write_text(tests, encoding="utf-8")
+          PY
+
+          rm .github/workflows/finalize-ol027-hook-config-safety.yml
+
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Format changed source
+        run: pnpm exec biome format --write packages/contracts/src/codex-hook-configuration.ts packages/contracts/tests/codex-hook-configuration.test.ts
+
+      - name: Run full repository gates
+        run: |
+          set -euo pipefail
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
+      - name: Publish clean safety commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e .github/workflows/finalize-ol027-hook-config-safety.yml
+          git diff --check
+          mapfile -t files < <(git status --short | sed 's/^...//' | LC_ALL=C sort)
+          expected=(
+            packages/contracts/src/codex-hook-configuration.ts
+            packages/contracts/tests/codex-hook-configuration.test.ts
+          )
+          test "${#files[@]}" -eq "${#expected[@]}"
+          for index in "${!expected[@]}"; do
+            test "${files[$index]}" = "${expected[$index]}"
+          done
+          git add -A
+          git diff --cached --check
+          git config user.name Emad211
+          git config user.email 82148680+Emad211@users.noreply.github.com
+          git commit -m 'fix(ol-027): detect foreign OwnLoop Hook entries'
+          git push origin HEAD:agent/ol-027-codex-adapter
