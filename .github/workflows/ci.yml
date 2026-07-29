@@ -43,3 +43,88 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  windows-package-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build verified Windows package
+        run: pnpm package:windows
+
+      - name: Smoke-test install, runtime, hooks, and uninstall
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $packageRoot = (Resolve-Path 'dist/ownloop-windows-0.1.0').Path
+          $cli = Join-Path $packageRoot 'installer/dist/cli.js'
+          $env:OWNLOOP_PACKAGE_ROOT = $packageRoot
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'ownloop-localappdata'
+          $env:USERPROFILE = Join-Path $env:RUNNER_TEMP 'ownloop-userprofile'
+          New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA, $env:USERPROFILE | Out-Null
+
+          function Invoke-OwnLoop([string[]] $CommandArguments) {
+            $raw = @(& node $cli @CommandArguments)
+            $code = $LASTEXITCODE
+            if ($raw.Count -ne 1) {
+              throw 'OwnLoop returned an invalid output shape.'
+            }
+            $result = $raw[0] | ConvertFrom-Json
+            if ($code -ne 0 -or -not $result.ok) {
+              throw "OwnLoop command failed with controlled code: $($result.error.code)"
+            }
+            return $result
+          }
+
+          $firstInstall = Invoke-OwnLoop @('install')
+          if ([string]::IsNullOrWhiteSpace($firstInstall.installId)) {
+            throw 'Install ID was not returned.'
+          }
+          $hooks = Invoke-OwnLoop @('hooks', 'status')
+          if ($hooks.status -ne 'installed') {
+            throw 'Claude hooks are not installed.'
+          }
+
+          $settingsPath = Join-Path $env:USERPROFILE '.claude/settings.json'
+          $settingsText = Get-Content -LiteralPath $settingsPath -Raw
+          foreach ($forbidden in @('OWNLOOP_INGRESS_PORT', 'OWNLOOP_INSTALLATION_TOKEN', 'secrets-v1.json', 'app\\0.1.0')) {
+            if ($settingsText.Contains($forbidden)) {
+              throw 'Claude settings contain forbidden installation data.'
+            }
+          }
+
+          $started = Invoke-OwnLoop @('start')
+          if ([string]::IsNullOrWhiteSpace($started.instanceId)) {
+            throw 'Runtime instance ID was not returned.'
+          }
+          $status = Invoke-OwnLoop @('status')
+          if ($status.phase -ne 'ready' -or $status.instanceId -ne $started.instanceId) {
+            throw 'Runtime status does not match the started instance.'
+          }
+          Invoke-OwnLoop @('stop') | Out-Null
+
+          $preserved = Invoke-OwnLoop @('uninstall', '--preserve-data')
+          if (-not $preserved.dataPreserved -or -not (Test-Path -LiteralPath $preserved.dataPath)) {
+            throw 'Preserve-data uninstall did not preserve durable data.'
+          }
+
+          $secondInstall = Invoke-OwnLoop @('install')
+          $removed = Invoke-OwnLoop @('uninstall', '--remove-data', '--confirm', $secondInstall.installId)
+          if ($removed.dataPreserved -or (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'OwnLoop'))) {
+            throw 'Remove-data uninstall left installation state behind.'
+          }
