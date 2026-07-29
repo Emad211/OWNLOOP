@@ -1,4 +1,4 @@
-name: Diagnose OL-025 package fix chain
+name: Diagnose OL-025 final source inventory
 
 on:
   pull_request:
@@ -9,16 +9,18 @@ permissions:
   contents: read
 
 jobs:
-  chain:
+  inventory:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref }}
-          fetch-depth: 1
-      - name: Reconstruct exact source and test candidate chains
+          fetch-depth: 2
+      - name: Reconstruct exact final source and print inventory
         shell: bash
+        env:
+          EXPECTED_BASE: a33d1592545e5eeacaac0bd08421ae26f8b67d46
         run: |
           set -euo pipefail
           python - <<'PY'
@@ -34,73 +36,45 @@ jobs:
           original = gzip.decompress(base64.b64decode(original_b64, validate=True))
           if len(original) != 307654 or hashlib.sha256(original).hexdigest() != '81e01d5427b5dc75b1fab53d00824521b77aafcf9be4b90397dc388cd02d7fc9':
               raise SystemExit('original patch mismatch')
-          Path('/tmp/ol025.patch').write_bytes(original)
 
-          candidates = {
-              'fix': Path('.ol025-diagnosis/package-fix.patch').read_bytes(),
-              'v3': Path('.ol025-diagnosis/package-fix-v3.patch').read_bytes(),
-              'v4direct': Path('.ol025-diagnosis/package-fix-v4.patch').read_bytes(),
-              'v4chunk': base64.b64decode(
-                  b''.join(path.read_bytes() for path in sorted(Path('.ol025-diagnosis/v4-chunks').glob('chunk-*.txt'))),
-                  validate=True,
-              ),
-              'v3v4': base64.b64decode(
-                  b''.join(path.read_bytes() for path in sorted(Path('.ol025-diagnosis/v3v4-chunks').glob('chunk-*.txt'))),
-                  validate=True,
-              ),
-          }
-          for name, data in candidates.items():
-              path = Path(f'/tmp/{name}.patch')
-              path.write_bytes(data)
-              print(f'{name} size={len(data)} sha256={hashlib.sha256(data).hexdigest()}')
+          v3 = Path('.ol025-diagnosis/package-fix-v3.patch').read_bytes()
+          if len(v3) != 13943 or hashlib.sha256(v3).hexdigest() != 'bb38d254c04714bbe8ab4f160c98966013108d2fedf61fce6c63e84e9a01f2bd':
+              raise SystemExit('v3 patch mismatch')
+
+          delta_payload = b''.join(
+              path.read_bytes()
+              for path in sorted(Path('.ol025-diagnosis/v3v4-chunks').glob('chunk-*.txt'))
+          )
+          delta = base64.b64decode(delta_payload, validate=True)
+          if len(delta) != 10854 or hashlib.sha256(delta).hexdigest() != '31f73de5c0d6f78552ab66d10e65b83e621c9ae64a95d14337f47e3735456923':
+              raise SystemExit('v3-to-v4 patch mismatch')
+
+          Path('/tmp/ol025.patch').write_bytes(original)
+          Path('/tmp/ol025-v3.patch').write_bytes(v3)
+          Path('/tmp/ol025-v3-v4.patch').write_bytes(delta)
           PY
 
           git apply --check /tmp/ol025.patch
           git apply /tmp/ol025.patch
-          git add -A
-          git -c user.name=diagnostic -c user.email=diagnostic@example.invalid commit -m 'temporary reconstructed OL-025 source'
-          baseline="$(git rev-parse HEAD)"
+          git apply --recount --check /tmp/ol025-v3.patch
+          git apply --recount /tmp/ol025-v3.patch
+          git apply --recount --check /tmp/ol025-v3-v4.patch
+          git apply --recount /tmp/ol025-v3-v4.patch
 
-          chains=(
-            'fix'
-            'v3'
-            'v3v4'
-            'v3,v3v4'
-            'v3,v4chunk'
-            'v3,v4direct'
-            'fix,v3'
-            'fix,v4chunk'
-            'fix,v4direct'
-            'fix,v3v4'
-            'v3v4,v4chunk'
-            'v3v4,v4direct'
-          )
+          rm -rf .ol025-transfer .ol025-diagnosis
+          rm -f \
+            .github/workflows/export-ol025-toolchain.yml \
+            .github/workflows/finalize-ol025.yml \
+            .github/workflows/diagnose-ol025-package.yml \
+            .github/workflows/diagnose-ol025-v4-checksums.yml \
+            diagnose-package-trigger.txt
 
-          for chain in "${chains[@]}"; do
-            git reset --hard "$baseline" >/dev/null
-            git clean -fd >/dev/null
-            ok=true
-            failed=''
-            IFS=',' read -r -a parts <<< "$chain"
-            for part in "${parts[@]}"; do
-              if git apply --recount --check "/tmp/${part}.patch" >/tmp/apply.stdout 2>/tmp/apply.stderr; then
-                git apply --recount "/tmp/${part}.patch"
-              else
-                ok=false
-                failed="$part"
-                break
-              fi
-            done
-            key="${chain//,/_then_}"
-            if [ "$ok" = true ]; then
-              git diff --check
-              git diff --name-only | LC_ALL=C sort > "/tmp/${key}.files"
-              git diff --binary --full-index > "/tmp/${key}.canonical.patch"
-              echo "chain=${chain} applies=true canonical-size=$(wc -c < "/tmp/${key}.canonical.patch") canonical-sha256=$(sha256sum "/tmp/${key}.canonical.patch" | cut -d' ' -f1)"
-              echo "files=${chain}"
-              cat "/tmp/${key}.files"
-            else
-              error="$(tr '\n' ' ' </tmp/apply.stderr | sed 's/[[:space:]]\+/ /g')"
-              echo "chain=${chain} applies=false failed=${failed} error=${error}"
-            fi
-          done
+          git fetch --no-tags --depth=1 origin "$EXPECTED_BASE"
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_BASE"
+          git diff --check
+          git diff --name-only "$EXPECTED_BASE" | LC_ALL=C sort > /tmp/ol025-final-files.txt
+          echo "final-file-count=$(wc -l < /tmp/ol025-final-files.txt | tr -d ' ')"
+          echo "final-file-list-sha256=$(sha256sum /tmp/ol025-final-files.txt | cut -d' ' -f1)"
+          echo 'final-files-start'
+          cat /tmp/ol025-final-files.txt
+          echo 'final-files-end'
