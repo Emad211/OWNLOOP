@@ -1,1 +1,1 @@
-run full package proof with validated v3-to-v4 chain
+diagnose exact final source inventory
