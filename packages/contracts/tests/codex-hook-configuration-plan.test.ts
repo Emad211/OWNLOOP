@@ -102,4 +102,24 @@ describe("Codex Hook configuration transaction plans", () => {
       planCodexHookConfigurationMutation("remove", JSON.stringify(document), COMMANDS),
     ).toThrow();
   });
+
+  it("fails closed before planning when an unsupported Hook contains an OwnLoop-like launcher", () => {
+    const source = JSON.stringify({
+      hooks: {
+        FutureEvent: [
+          {
+            matcher: "*",
+            hooks: [{ type: "command", command: "ownloop-codex-hook" }],
+          },
+        ],
+      },
+    });
+
+    expect(() => planCodexHookConfigurationMutation("install", source, COMMANDS)).toThrowError(
+      expect.objectContaining({ code: "ambiguous_ownloop_entries" }),
+    );
+    expect(() => planCodexHookConfigurationMutation("remove", source, COMMANDS)).toThrowError(
+      expect.objectContaining({ code: "ambiguous_ownloop_entries" }),
+    );
+  });
 });
