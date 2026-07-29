@@ -1,4 +1,4 @@
-name: Finalize OL-025 implementation
+name: Export OL-025 clean source tree
 
 on:
   pull_request:
@@ -6,17 +6,17 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: finalize-ol025-implementation
+  group: export-ol025-clean-source-tree
   cancel-in-progress: false
 
 jobs:
-  finalize:
+  export:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/ol-025-windows-installation'
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 12
     steps:
       - name: Check out exact PR branch
         uses: actions/checkout@v7
@@ -24,22 +24,14 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 2
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 24.18.0
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: 11.4.0
-          run_install: false
-
-      - name: Reconstruct exact source and validated package-fix chain
+      - name: Reconstruct and stage exact final source
         shell: bash
         env:
-          EXPECTED_PARENT_HEAD: 23392cd0702ea5ac68e07621accdfc5f6b228335
+          EXPECTED_PARENT_HEAD: 31a82f3f1b7f23ad9e22123d01fb94045be8d0a1
           EXPECTED_FIX_SOURCE_HEAD: 3af3d8c74b9913afa56ccea5c85c91cc21f512de
+          EXPECTED_BASE: a33d1592545e5eeacaac0bd08421ae26f8b67d46
+          EXPECTED_FILE_COUNT: '74'
+          EXPECTED_FILE_LIST_SHA256: e98ecf4472a64ae0b1533de10f3429cb67dcffd10b5b1a8d5ad56d2c204945b5
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT_HEAD"
@@ -58,29 +50,10 @@ jobs:
           import gzip
           import hashlib
 
-          expected_chunks = [
-              ('chunk-00.txt', 7000, '8ef6925e43ca80e70e4c3441a54e778ea70fe9ecc38886008221600d07111081'),
-              ('chunk-01.txt', 7000, '5ba15653ce1654216e6cf6a028700be2aeb33e95f36f372ae8233ede09e4f4f8'),
-              ('chunk-02.txt', 7000, '1d576c6f7b8a719590a5d79a5754b3fec4003fbcf43fcf50dbc899ec7aa5d690'),
-              ('chunk-03.txt', 7000, 'f220776af8dd799bac146a467fb45a20a28503393d47f79ce65d3bb771020e6f'),
-              ('chunk-04.txt', 7000, '2b4c3b3419ce205d6ba01d157438314b9cdd6527454c8106f39c7d7edd7dea64'),
-              ('chunk-05.txt', 7000, 'd307422a63433ad5159a8c60882a746ec0673259985c6b0004a8598204a8bd82'),
-              ('chunk-06.txt', 7000, 'fc5fe2473ebfd6dee9e974a5f1fac32168348c186e9e995241924866c06593c1'),
-              ('chunk-07.txt', 7000, '4f9b76d10992329e99f8ecdd25a44596da6c0a6375d08ea4b6f87d5b71697b6a'),
-              ('chunk-08.txt', 7000, 'f786f0d29ff19265ffb079fad574550f661262863167d98f6da695ee82f8a2ab'),
-              ('chunk-09.txt', 7000, '4e5a779ee47057334966573b6b292a852af79f77749f0ba1bd0481d29d299c06'),
-              ('chunk-10.txt', 7000, 'c2f01376e7e698f0315eea4e00d2379eb7dde512ba5afe811558138b02b04a2f'),
-              ('chunk-11.txt', 7000, '3d52e86500b4400ea4ee997aacba87cd71d5e30913a2256d373bc6190b49d820'),
-              ('chunk-12.txt', 372, '7730ce28942074597cd10634f8ae2338ed8f88a26d70dd4461c126c76dd4059c'),
-          ]
-          original_parts = []
-          for name, size, digest in expected_chunks:
-              data = (Path('.ol025-transfer') / name).read_bytes()
-              if len(data) != size or hashlib.sha256(data).hexdigest() != digest:
-                  raise SystemExit(f'original chunk mismatch: {name}')
-              original_parts.append(data)
-
-          original_b64 = b''.join(original_parts)
+          chunk_paths = sorted(Path('.ol025-transfer').glob('chunk-*.txt'))
+          if [path.name for path in chunk_paths] != [f'chunk-{index:02d}.txt' for index in range(13)]:
+              raise SystemExit('original chunk set mismatch')
+          original_b64 = b''.join(path.read_bytes() for path in chunk_paths)
           if len(original_b64) != 84372 or hashlib.sha256(original_b64).hexdigest() != '43b726019ebbbd66730f9420fb430915184fd85c3e09fa4a38bb82834d44ca14':
               raise SystemExit('original base64 payload mismatch')
           original_gzip = base64.b64decode(original_b64, validate=True)
@@ -112,175 +85,87 @@ jobs:
           git apply --recount /tmp/ol025-v3.patch
           git apply --recount --check /tmp/ol025-v3-v4.patch
           git apply --recount /tmp/ol025-v3-v4.patch
-          git diff --check
-
           rm -rf .ol025-transfer
           rm -f .github/workflows/finalize-ol025.yml .github/workflows/export-ol025-toolchain.yml
 
-      - name: Frozen install
-        run: pnpm install --frozen-lockfile
-
-      - name: Repository quality gates
-        run: |
-          set -euo pipefail
-          pnpm format:check
-          pnpm lint
-          pnpm typecheck
-          pnpm test
-          pnpm build
-
-      - name: Build and prove two independent Windows packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf /tmp/ol025-package-a /tmp/ol025-package-b
-          pnpm package:windows /tmp/ol025-package-a > /tmp/package-a.stdout 2> /tmp/package-a.stderr
-          pnpm package:windows /tmp/ol025-package-b > /tmp/package-b.stdout 2> /tmp/package-b.stderr
-          python - <<'PY'
-          import json
-          import os
-          import subprocess
-          from pathlib import Path
-
-          expected_fingerprint = 'sha256:bda1c597e202b032233ada65a5d51e7a92a40858694f6c009000009231295423'
-          expected_file_count = 5156
-
-          def load(name):
-              lines = [
-                  line
-                  for line in Path(f'/tmp/package-{name}.stdout').read_text().splitlines()
-                  if line.strip()
-              ]
-              if len(lines) != 1:
-                  raise SystemExit(f'invalid package output {name}: {lines}')
-              value = json.loads(lines[0])
-              if value.get('ok') is not True:
-                  raise SystemExit(f'package {name} failed: {value}')
-              if value.get('fingerprint') != expected_fingerprint:
-                  raise SystemExit(f'unexpected package fingerprint {name}: {value}')
-              if value.get('fileCount') != expected_file_count:
-                  raise SystemExit(f'unexpected package file count {name}: {value}')
-              return value
-
-          a = load('a')
-          b = load('b')
-          if a != b:
-              raise SystemExit('package outputs are not byte-contract identical')
-
-          forbidden_metadata = [
-              'daemon/pnpm-lock.yaml',
-              'hook-adapter/pnpm-lock.yaml',
-              'installer/pnpm-lock.yaml',
-              'daemon/node_modules/.bin',
-              'hook-adapter/node_modules/.bin',
-              'installer/node_modules/.bin',
-              'daemon/node_modules/.modules.yaml',
-              'hook-adapter/node_modules/.modules.yaml',
-              'installer/node_modules/.modules.yaml',
-              'daemon/node_modules/.pnpm-workspace-state-v1.json',
-              'hook-adapter/node_modules/.pnpm-workspace-state-v1.json',
-              'installer/node_modules/.pnpm-workspace-state-v1.json',
-              'daemon/node_modules/.pnpm',
-              'hook-adapter/node_modules/.pnpm',
-              'installer/node_modules/.pnpm',
-          ]
-          forbidden_markers = [
-              os.environ['GITHUB_WORKSPACE'].encode(),
-              b'/home/runner/setup-pnpm',
-              b'file:///home/runner',
-          ]
-          result = {
-              'fileCount': expected_file_count,
-              'fingerprint': expected_fingerprint,
-              'packages': {},
-          }
-          for name in ('a', 'b'):
-              root = Path(f'/tmp/ol025-package-{name}/ownloop-windows-0.1.0')
-              if not root.is_dir():
-                  raise SystemExit(f'missing package root {name}')
-              symlinks = [str(path.relative_to(root)) for path in root.rglob('*') if path.is_symlink()]
-              metadata = [relative for relative in forbidden_metadata if (root / relative).exists()]
-              leaks = []
-              for path in root.rglob('*'):
-                  if path.is_file() and any(marker in path.read_bytes() for marker in forbidden_markers):
-                      leaks.append(str(path.relative_to(root)))
-              if symlinks or metadata or leaks:
-                  raise SystemExit(
-                      f'package hygiene failure {name}: '
-                      f'symlinks={symlinks[:5]} metadata={metadata} leaks={leaks}'
-                  )
-
-              for relative in (
-                  'daemon/package.json',
-                  'hook-adapter/package.json',
-                  'installer/package.json',
-              ):
-                  manifest = json.loads((root / relative).read_text())
-                  if 'scripts' in manifest or 'devDependencies' in manifest:
-                      raise SystemExit(f'non-runtime metadata remains: {name}/{relative}')
-
-              imports = {}
-              for label, relative in {
-                  'daemon': 'daemon/dist/runtime/compatibility.js',
-                  'hook': 'hook-adapter/dist/adapter.js',
-                  'installer': 'installer/dist/package-builder.js',
-              }.items():
-                  completed = subprocess.run(
-                      ['node', '-e', f'import({json.dumps((root / relative).as_uri())})'],
-                      capture_output=True,
-                      text=True,
-                  )
-                  if completed.returncode != 0:
-                      raise SystemExit(f'import failed {name}/{label}: {completed.stderr}')
-                  imports[label] = 0
-
-              result['packages'][name] = {
-                  'imports': imports,
-                  'leaks': 0,
-                  'metadata': 0,
-                  'symlinks': 0,
-              }
-
-          Path('/tmp/package-proof-result.json').write_text(
-              json.dumps(result, sort_keys=True, indent=2) + '\n'
-          )
-          PY
-          cat /tmp/package-proof-result.json
-
-      - name: Upload package proof
-        uses: actions/upload-artifact@v6
-        with:
-          name: ol025-official-package-proof
-          path: |
-            /tmp/package-a.stdout
-            /tmp/package-a.stderr
-            /tmp/package-b.stdout
-            /tmp/package-b.stderr
-            /tmp/package-proof-result.json
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Verify exact staged source and publish clean head
-        shell: bash
-        env:
-          EXPECTED_BASE: a33d1592545e5eeacaac0bd08421ae26f8b67d46
-          EXPECTED_FILE_COUNT: '74'
-          EXPECTED_FILE_LIST_SHA256: e98ecf4472a64ae0b1533de10f3429cb67dcffd10b5b1a8d5ad56d2c204945b5
-        run: |
-          set -euo pipefail
-          git clean -fdX
-          test ! -e .ol025-transfer
-          test ! -e .github/workflows/finalize-ol025.yml
-          test ! -e .github/workflows/export-ol025-toolchain.yml
           git fetch --no-tags --depth=1 origin "$EXPECTED_BASE"
           test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_BASE"
           git diff --check
           git add -A
           git diff --cached --check
-          git diff --cached --name-only "$EXPECTED_BASE" | LC_ALL=C sort > /tmp/ol025-cached-files.txt
-          test "$(wc -l < /tmp/ol025-cached-files.txt | tr -d ' ')" = "$EXPECTED_FILE_COUNT"
-          test "$(sha256sum /tmp/ol025-cached-files.txt | cut -d' ' -f1)" = "$EXPECTED_FILE_LIST_SHA256"
-          git config user.name Emad211
-          git config user.email 82148680+Emad211@users.noreply.github.com
-          git commit -m 'OL-025: Package Windows installation and Claude Code hooks'
-          git push origin "HEAD:${{ github.head_ref }}"
+          git diff --cached --name-only "$EXPECTED_BASE" | LC_ALL=C sort > /tmp/ol025-files.txt
+          test "$(wc -l < /tmp/ol025-files.txt | tr -d ' ')" = "$EXPECTED_FILE_COUNT"
+          test "$(sha256sum /tmp/ol025-files.txt | cut -d' ' -f1)" = "$EXPECTED_FILE_LIST_SHA256"
+
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import json
+          import os
+          import shutil
+          import subprocess
+
+          base = os.environ['EXPECTED_BASE']
+          export_root = Path('/tmp/ol025-clean-tree')
+          files_root = export_root / 'files'
+          files_root.mkdir(parents=True, exist_ok=True)
+
+          output = subprocess.check_output(
+              ['git', 'diff', '--cached', '--name-status', '--no-renames', base],
+              text=True,
+          )
+          entries = []
+          for raw_line in output.splitlines():
+              status, path = raw_line.split('\t', 1)
+              if status == 'D':
+                  entries.append({'action': 'delete', 'path': path})
+                  continue
+              if status not in {'A', 'M'}:
+                  raise SystemExit(f'unsupported staged status {status}: {path}')
+              stage = subprocess.check_output(
+                  ['git', 'ls-files', '--stage', '--', path],
+                  text=True,
+              ).strip()
+              if not stage:
+                  raise SystemExit(f'missing staged entry: {path}')
+              mode = stage.split(' ', 1)[0]
+              data = Path(path).read_bytes()
+              data.decode('utf-8')
+              destination = files_root / path
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(path, destination)
+              entries.append({
+                  'action': 'upsert',
+                  'mode': mode,
+                  'path': path,
+                  'sha256': hashlib.sha256(data).hexdigest(),
+                  'size': len(data),
+              })
+
+          entries.sort(key=lambda entry: entry['path'])
+          manifest = {
+              'baseCommit': base,
+              'entryCount': len(entries),
+              'fileListSha256': hashlib.sha256(
+                  ''.join(f"{entry['path']}\n" for entry in entries).encode()
+              ).hexdigest(),
+              'entries': entries,
+          }
+          (export_root / 'manifest.json').write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          shutil.copyfile('/tmp/ol025-files.txt', export_root / 'file-list.txt')
+          print(json.dumps({
+              'entryCount': manifest['entryCount'],
+              'fileListSha256': manifest['fileListSha256'],
+          }, sort_keys=True))
+          PY
+
+      - name: Upload exact clean tree
+        uses: actions/upload-artifact@v6
+        with:
+          name: ol025-clean-tree-export
+          path: /tmp/ol025-clean-tree
+          if-no-files-found: error
+          retention-days: 3
