@@ -266,6 +266,13 @@ function inspectMutable(
   const exactHookNames: SupportedCodexHookName[] = [];
   const missingHookNames: SupportedCodexHookName[] = [];
   const ambiguousHookNames: SupportedCodexHookName[] = [];
+  const supportedHookNames = new Set<string>(SUPPORTED_CODEX_HOOK_NAMES);
+  const hasForeignOwnLoopHandler =
+    hooks !== null &&
+    Object.entries(hooks).some(
+      ([hookName, groups]) =>
+        !supportedHookNames.has(hookName) && containsOwnLoopLikeHandler(groups),
+    );
 
   for (const hookName of SUPPORTED_CODEX_HOOK_NAMES) {
     const groups = hooks?.[hookName];
@@ -286,7 +293,7 @@ function inspectMutable(
   }
 
   const state: CodexHookConfigurationState =
-    ambiguousHookNames.length > 0
+    ambiguousHookNames.length > 0 || hasForeignOwnLoopHandler
       ? "ambiguous"
       : exactHookNames.length === 0
         ? "missing"

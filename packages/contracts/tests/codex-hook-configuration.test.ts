@@ -127,6 +127,24 @@ describe("Codex Hook configuration core", () => {
     });
   });
 
+  it("fails closed when an OwnLoop-like handler is hidden under an unsupported Hook name", () => {
+    const document = installedDocument();
+    hooks(document).FutureEvent = [
+      {
+        matcher: "*",
+        hooks: [{ type: "command", command: "ownloop-codex-hook" }],
+      },
+    ];
+
+    expect(inspectCodexHookConfiguration(document, COMMANDS).state).toBe("ambiguous");
+    expect(() => installCodexHookConfiguration(document, COMMANDS)).toThrowError(
+      expect.objectContaining({ code: "ambiguous_ownloop_entries" }),
+    );
+    expect(() => removeCodexHookConfiguration(document, COMMANDS)).toThrowError(
+      expect.objectContaining({ code: "ambiguous_ownloop_entries" }),
+    );
+  });
+
   it("removes only exact OwnLoop groups and leaves unrelated data byte-structurally intact", () => {
     const document = installedDocument();
     const unrelated = {
