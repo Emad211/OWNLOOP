@@ -17,14 +17,25 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 1
-      - name: Report exact v4 content addresses
+      - name: Reconstruct and compare exact v4 candidates
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
           import base64
+          import difflib
+          import gzip
           import hashlib
+
+          original_b64 = b''.join(
+              (Path('.ol025-transfer') / f'chunk-{index:02d}.txt').read_bytes()
+              for index in range(13)
+          )
+          original = gzip.decompress(base64.b64decode(original_b64, validate=True))
+          if len(original) != 307654 or hashlib.sha256(original).hexdigest() != '81e01d5427b5dc75b1fab53d00824521b77aafcf9be4b90397dc388cd02d7fc9':
+              raise SystemExit('original patch mismatch')
+          Path('/tmp/ol025.patch').write_bytes(original)
 
           root = Path('.ol025-diagnosis/v4-chunks')
           paths = sorted(root.glob('chunk-*.txt'))
@@ -40,12 +51,37 @@ jobs:
 
           payload = b''.join(parts)
           print(f'payload size={len(payload)} sha256={hashlib.sha256(payload).hexdigest()}')
-          decoded = base64.b64decode(payload, validate=True)
-          print(f'chunk-patch size={len(decoded)} sha256={hashlib.sha256(decoded).hexdigest()}')
+          chunk_patch = base64.b64decode(payload, validate=True)
+          direct_patch = Path('.ol025-diagnosis/package-fix-v4.patch').read_bytes()
+          Path('/tmp/chunk-v4.patch').write_bytes(chunk_patch)
+          Path('/tmp/direct-v4.patch').write_bytes(direct_patch)
+          print(f'chunk-patch size={len(chunk_patch)} sha256={hashlib.sha256(chunk_patch).hexdigest()}')
+          print(f'direct-patch size={len(direct_patch)} sha256={hashlib.sha256(direct_patch).hexdigest()}')
+          print(f'chunk-patch-equals-direct={chunk_patch == direct_patch}')
 
-          direct = Path('.ol025-diagnosis/package-fix-v4.patch').read_bytes()
-          print(f'direct-patch size={len(direct)} sha256={hashlib.sha256(direct).hexdigest()}')
-          print(f'chunk-patch-equals-direct={decoded == direct}')
-          if decoded != direct:
-              raise SystemExit('v4 chunks do not reproduce the direct patch')
+          chunk_lines = chunk_patch.decode('utf-8').splitlines()
+          direct_lines = direct_patch.decode('utf-8').splitlines()
+          diff = list(difflib.unified_diff(
+              chunk_lines,
+              direct_lines,
+              fromfile='chunk-v4.patch',
+              tofile='direct-v4.patch',
+              lineterm='',
+          ))
+          print(f'patch-diff-lines={len(diff)}')
+          for line in diff[:240]:
+              print(line)
           PY
+
+          git apply --check /tmp/ol025.patch
+          git apply /tmp/ol025.patch
+          if git apply --check /tmp/chunk-v4.patch; then
+            echo 'chunk-v4-applies=true'
+          else
+            echo 'chunk-v4-applies=false'
+          fi
+          if git apply --check /tmp/direct-v4.patch; then
+            echo 'direct-v4-applies=true'
+          else
+            echo 'direct-v4-applies=false'
+          fi
