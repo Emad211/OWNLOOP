@@ -1,0 +1,45 @@
+name: Diagnose OL-025 v4 checksums
+
+on:
+  pull_request:
+    branches:
+      - agent/ol025-package-diagnosis-base
+
+permissions:
+  contents: read
+
+jobs:
+  checksums:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 1
+      - name: Report exact v4 content addresses
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import base64
+          import hashlib
+
+          root = Path('.ol025-diagnosis/v4-chunks')
+          paths = sorted(root.glob('chunk-*.txt'))
+          if not paths:
+              raise SystemExit('no v4 chunks found')
+
+          parts = []
+          for path in paths:
+              data = path.read_bytes()
+              digest = hashlib.sha256(data).hexdigest()
+              print(f'{path.name} size={len(data)} sha256={digest}')
+              parts.append(data)
+
+          payload = b''.join(parts)
+          print(f'payload size={len(payload)} sha256={hashlib.sha256(payload).hexdigest()}')
+          decoded = base64.b64decode(payload, validate=True)
+          print(f'patch size={len(decoded)} sha256={hashlib.sha256(decoded).hexdigest()}')
+          PY
