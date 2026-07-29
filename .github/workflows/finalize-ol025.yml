@@ -26,4 +26,6 @@ jobs:
           set -euo pipefail
           git fetch --no-tags --depth=1 origin "$EXPECTED_BASE"
           test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_BASE"
-          echo "base-tree-sha=$(git rev-parse \"$EXPECTED_BASE^{tree}\")"
+          tree_sha="$(git rev-parse "${EXPECTED_BASE}^{tree}")"
+          test "${#tree_sha}" -eq 40
+          echo "base-tree-sha=$tree_sha"
