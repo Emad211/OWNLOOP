@@ -1,4 +1,4 @@
-name: Report OL-025 base tree
+name: Export OL-025 final CI workflow
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  report:
+  export:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/ol-025-windows-installation'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -17,15 +17,43 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref }}
-          fetch-depth: 1
-      - name: Report exact base tree object
+          fetch-depth: 2
+      - name: Reconstruct exact CI workflow
         shell: bash
         env:
-          EXPECTED_BASE: a33d1592545e5eeacaac0bd08421ae26f8b67d46
+          EXPECTED_PARENT_HEAD: d76879b1a567e2eb2aef1fc27ac16c149c7dc811
+          EXPECTED_CI_SHA256: c6229e172b2de1ea0832032c0142232086145b5eafbb7a96abd13a00e72c5f05
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 origin "$EXPECTED_BASE"
-          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_BASE"
-          tree_sha="$(git rev-parse "${EXPECTED_BASE}^{tree}")"
-          test "${#tree_sha}" -eq 40
-          echo "base-tree-sha=$tree_sha"
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT_HEAD"
+          test "$(git diff --name-only "$EXPECTED_PARENT_HEAD" HEAD)" = '.github/workflows/finalize-ol025.yml'
+          python - <<'PY'
+          from pathlib import Path
+          import base64
+          import gzip
+          import hashlib
+
+          chunk_paths = sorted(Path('.ol025-transfer').glob('chunk-*.txt'))
+          if [path.name for path in chunk_paths] != [f'chunk-{index:02d}.txt' for index in range(13)]:
+              raise SystemExit('original chunk set mismatch')
+          payload = b''.join(path.read_bytes() for path in chunk_paths)
+          if len(payload) != 84372 or hashlib.sha256(payload).hexdigest() != '43b726019ebbbd66730f9420fb430915184fd85c3e09fa4a38bb82834d44ca14':
+              raise SystemExit('original base64 payload mismatch')
+          compressed = base64.b64decode(payload, validate=True)
+          if len(compressed) != 63278 or hashlib.sha256(compressed).hexdigest() != '708099e24b4009c8a4785013e2670085376e78c46c2be5e43c7338310c12efe6':
+              raise SystemExit('original gzip payload mismatch')
+          patch = gzip.decompress(compressed)
+          if len(patch) != 307654 or hashlib.sha256(patch).hexdigest() != '81e01d5427b5dc75b1fab53d00824521b77aafcf9be4b90397dc388cd02d7fc9':
+              raise SystemExit('original patch mismatch')
+          Path('/tmp/ol025.patch').write_bytes(patch)
+          PY
+          git apply --check /tmp/ol025.patch
+          git apply /tmp/ol025.patch
+          test "$(sha256sum .github/workflows/ci.yml | cut -d' ' -f1)" = "$EXPECTED_CI_SHA256"
+          cp .github/workflows/ci.yml /tmp/ol025-final-ci.yml
+      - uses: actions/upload-artifact@v6
+        with:
+          name: ol025-final-ci-workflow
+          path: /tmp/ol025-final-ci.yml
+          if-no-files-found: error
+          retention-days: 3
