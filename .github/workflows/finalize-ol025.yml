@@ -1,4 +1,4 @@
-name: Diagnose OL-025 official final inventory
+name: Diagnose OL-025 official staged inventory
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: diagnose-ol025-official-final-inventory
+  group: diagnose-ol025-official-staged-inventory
   cancel-in-progress: false
 
 jobs:
@@ -24,10 +24,10 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 2
 
-      - name: Reconstruct exact final source and print inventory
+      - name: Reconstruct, stage, and print exact final inventory
         shell: bash
         env:
-          EXPECTED_PARENT_HEAD: 2e61e198c78eb008a52115b562f6c466c146e9f1
+          EXPECTED_PARENT_HEAD: f0c5a40cd16fdf764bcf3ce48b5374f267d0da0a
           EXPECTED_FIX_SOURCE_HEAD: 3af3d8c74b9913afa56ccea5c85c91cc21f512de
           EXPECTED_BASE: a33d1592545e5eeacaac0bd08421ae26f8b67d46
         run: |
@@ -89,9 +89,11 @@ jobs:
           git fetch --no-tags --depth=1 origin "$EXPECTED_BASE"
           test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_BASE"
           git diff --check
-          git diff --name-only "$EXPECTED_BASE" | LC_ALL=C sort > /tmp/ol025-official-final-files.txt
-          echo "official-final-file-count=$(wc -l < /tmp/ol025-official-final-files.txt | tr -d ' ')"
-          echo "official-final-file-list-sha256=$(sha256sum /tmp/ol025-official-final-files.txt | cut -d' ' -f1)"
-          echo 'official-final-files-start'
-          cat /tmp/ol025-official-final-files.txt
-          echo 'official-final-files-end'
+          git add -A
+          git diff --cached --check
+          git diff --cached --name-only "$EXPECTED_BASE" | LC_ALL=C sort > /tmp/ol025-official-staged-files.txt
+          echo "official-staged-file-count=$(wc -l < /tmp/ol025-official-staged-files.txt | tr -d ' ')"
+          echo "official-staged-file-list-sha256=$(sha256sum /tmp/ol025-official-staged-files.txt | cut -d' ' -f1)"
+          echo 'official-staged-files-start'
+          cat /tmp/ol025-official-staged-files.txt
+          echo 'official-staged-files-end'
