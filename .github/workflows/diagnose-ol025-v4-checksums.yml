@@ -1,4 +1,4 @@
-name: Diagnose OL-025 v4 checksums
+name: Diagnose OL-025 package fix chain
 
 on:
   pull_request:
@@ -9,15 +9,15 @@ permissions:
   contents: read
 
 jobs:
-  checksums:
+  chain:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 1
-      - name: Reconstruct and recount both v4 candidates
+      - name: Reconstruct exact source and test candidate chains
         shell: bash
         run: |
           set -euo pipefail
@@ -36,46 +36,70 @@ jobs:
               raise SystemExit('original patch mismatch')
           Path('/tmp/ol025.patch').write_bytes(original)
 
-          chunk_payload = b''.join(
-              path.read_bytes()
-              for path in sorted(Path('.ol025-diagnosis/v4-chunks').glob('chunk-*.txt'))
-          )
-          chunk_patch = base64.b64decode(chunk_payload, validate=True)
-          direct_patch = Path('.ol025-diagnosis/package-fix-v4.patch').read_bytes()
-          Path('/tmp/chunk-v4.patch').write_bytes(chunk_patch)
-          Path('/tmp/direct-v4.patch').write_bytes(direct_patch)
-          print(f'chunk-patch size={len(chunk_patch)} sha256={hashlib.sha256(chunk_patch).hexdigest()}')
-          print(f'direct-patch size={len(direct_patch)} sha256={hashlib.sha256(direct_patch).hexdigest()}')
+          candidates = {
+              'fix': Path('.ol025-diagnosis/package-fix.patch').read_bytes(),
+              'v3': Path('.ol025-diagnosis/package-fix-v3.patch').read_bytes(),
+              'v4direct': Path('.ol025-diagnosis/package-fix-v4.patch').read_bytes(),
+              'v4chunk': base64.b64decode(
+                  b''.join(path.read_bytes() for path in sorted(Path('.ol025-diagnosis/v4-chunks').glob('chunk-*.txt'))),
+                  validate=True,
+              ),
+              'v3v4': base64.b64decode(
+                  b''.join(path.read_bytes() for path in sorted(Path('.ol025-diagnosis/v3v4-chunks').glob('chunk-*.txt'))),
+                  validate=True,
+              ),
+          }
+          for name, data in candidates.items():
+              path = Path(f'/tmp/{name}.patch')
+              path.write_bytes(data)
+              print(f'{name} size={len(data)} sha256={hashlib.sha256(data).hexdigest()}')
           PY
 
           git apply --check /tmp/ol025.patch
           git apply /tmp/ol025.patch
           git add -A
           git -c user.name=diagnostic -c user.email=diagnostic@example.invalid commit -m 'temporary reconstructed OL-025 source'
+          baseline="$(git rev-parse HEAD)"
 
-          for candidate in chunk direct; do
-            patch="/tmp/${candidate}-v4.patch"
-            if git apply --recount --check "$patch"; then
-              echo "${candidate}-v4-recount-applies=true"
-              git apply --recount "$patch"
+          chains=(
+            'fix'
+            'v3'
+            'v3v4'
+            'v3,v4chunk'
+            'v3,v4direct'
+            'fix,v3'
+            'fix,v4chunk'
+            'fix,v4direct'
+            'fix,v3v4'
+            'v3v4,v4chunk'
+            'v3v4,v4direct'
+          )
+
+          for chain in "${chains[@]}"; do
+            git reset --hard "$baseline" >/dev/null
+            git clean -fd >/dev/null
+            ok=true
+            failed=''
+            IFS=',' read -r -a parts <<< "$chain"
+            for part in "${parts[@]}"; do
+              if git apply --recount --check "/tmp/${part}.patch" >/tmp/apply.stdout 2>/tmp/apply.stderr; then
+                git apply --recount "/tmp/${part}.patch"
+              else
+                ok=false
+                failed="$part"
+                break
+              fi
+            done
+            key="${chain//,/_then_}"
+            if [ "$ok" = true ]; then
               git diff --check
-              git diff --name-only | LC_ALL=C sort > "/tmp/${candidate}.files"
-              git diff --binary --full-index > "/tmp/${candidate}.canonical.patch"
-              printf '%s-canonical-size=%s\n' "$candidate" "$(wc -c < "/tmp/${candidate}.canonical.patch")"
-              printf '%s-canonical-sha256=%s\n' "$candidate" "$(sha256sum "/tmp/${candidate}.canonical.patch" | cut -d' ' -f1)"
-              echo "${candidate}-files-start"
-              cat "/tmp/${candidate}.files"
-              echo "${candidate}-files-end"
-              git reset --hard HEAD
-              git clean -fd
+              git diff --name-only | LC_ALL=C sort > "/tmp/${key}.files"
+              git diff --binary --full-index > "/tmp/${key}.canonical.patch"
+              echo "chain=${chain} applies=true canonical-size=$(wc -c < "/tmp/${key}.canonical.patch") canonical-sha256=$(sha256sum "/tmp/${key}.canonical.patch" | cut -d' ' -f1)"
+              echo "files=${chain}"
+              cat "/tmp/${key}.files"
             else
-              echo "${candidate}-v4-recount-applies=false"
+              error="$(tr '\n' ' ' </tmp/apply.stderr | sed 's/[[:space:]]\+/ /g')"
+              echo "chain=${chain} applies=false failed=${failed} error=${error}"
             fi
           done
-
-          if cmp -s /tmp/chunk.canonical.patch /tmp/direct.canonical.patch; then
-            echo 'canonical-candidates-equal=true'
-          else
-            echo 'canonical-candidates-equal=false'
-            diff -u /tmp/chunk.files /tmp/direct.files || true
-          fi
