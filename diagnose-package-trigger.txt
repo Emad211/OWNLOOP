@@ -1,1 +1,1 @@
-apply-check and compare both package fix v4 candidates
+recount and canonicalize both package fix v4 candidates
