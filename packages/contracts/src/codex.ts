@@ -79,6 +79,14 @@ export {
   serializeCodexHookConfigurationJson,
 } from "./codex-hook-configuration-json.js";
 export type {
+  CodexHookConfigurationOperation,
+  CodexHookConfigurationPlan,
+} from "./codex-hook-configuration-plan.js";
+export {
+  CODEX_HOOK_CONFIGURATION_OPERATIONS,
+  planCodexHookConfigurationMutation,
+} from "./codex-hook-configuration-plan.js";
+export type {
   CodexCompactTrigger,
   CodexKnownSessionEndReason,
   CodexPermissionRequestPayload,
