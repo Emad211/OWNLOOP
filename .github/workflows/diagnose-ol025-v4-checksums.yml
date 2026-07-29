@@ -65,6 +65,7 @@ jobs:
             'fix'
             'v3'
             'v3v4'
+            'v3,v3v4'
             'v3,v4chunk'
             'v3,v4direct'
             'fix,v3'
