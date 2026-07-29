@@ -38,12 +38,12 @@ jobs:
       - name: Reconstruct exact source and validated package-fix chain
         shell: bash
         env:
-          EXPECTED_STAGING_HEAD: a74d9fe0e82f6d46d51777de87f86562522fbc75
+          EXPECTED_PARENT_HEAD: 85343f5f21921522112adf2aaf4844a7a6f9c4e4
           EXPECTED_FIX_SOURCE_HEAD: 99e62cf56344eb480868d427285478bec8dc8770
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "$EXPECTED_STAGING_HEAD"
-          test "$(git diff --name-only "$EXPECTED_STAGING_HEAD" HEAD)" = '.github/workflows/finalize-ol025.yml'
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT_HEAD"
+          test "$(git diff --name-only "$EXPECTED_PARENT_HEAD" HEAD)" = '.github/workflows/finalize-ol025.yml'
 
           git fetch --no-tags --depth=1 origin agent/ol025-package-diagnosis
           test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_FIX_SOURCE_HEAD"
@@ -272,6 +272,8 @@ jobs:
           test ! -e .ol025-transfer
           test ! -e .github/workflows/finalize-ol025.yml
           test ! -e .github/workflows/export-ol025-toolchain.yml
+          git fetch --no-tags --depth=1 origin "$EXPECTED_BASE"
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_BASE"
           git diff --check
           git diff --name-only "$EXPECTED_BASE" | LC_ALL=C sort > /tmp/ol025-files.txt
           test "$(wc -l < /tmp/ol025-files.txt | tr -d ' ')" = "$EXPECTED_FILE_COUNT"
