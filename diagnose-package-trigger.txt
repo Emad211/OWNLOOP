@@ -1,1 +1,1 @@
-prove content addressed package fix v4
+report exact content addresses for package fix v4
