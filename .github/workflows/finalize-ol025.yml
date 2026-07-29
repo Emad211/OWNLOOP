@@ -1,4 +1,4 @@
-name: Export OL-025 final CI workflow
+name: Publish OL-025 verified implementation
 
 on:
   pull_request:
@@ -6,27 +6,43 @@ on:
       - main
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: publish-ol025-verified-implementation
+  cancel-in-progress: false
 
 jobs:
-  export:
+  publish:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/ol-025-windows-installation'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v7
+      - name: Check out exact PR branch
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.head_ref }}
           fetch-depth: 2
-      - name: Reconstruct exact CI workflow
+
+      - name: Reconstruct and publish non-workflow source
         shell: bash
         env:
-          EXPECTED_PARENT_HEAD: d76879b1a567e2eb2aef1fc27ac16c149c7dc811
-          EXPECTED_CI_SHA256: c6229e172b2de1ea0832032c0142232086145b5eafbb7a96abd13a00e72c5f05
+          EXPECTED_PARENT_HEAD: 721e58d7115a6f44a7a8dce077a66cd242ae3d90
+          EXPECTED_FIX_SOURCE_HEAD: 3af3d8c74b9913afa56ccea5c85c91cc21f512de
+          EXPECTED_STAGED_FILE_COUNT: '85'
+          EXPECTED_STAGED_FILE_LIST_SHA256: 1edfec7816ad3b287373d6faa8a968fa92403f80071515cb1e7d08ef42c76279
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT_HEAD"
           test "$(git diff --name-only "$EXPECTED_PARENT_HEAD" HEAD)" = '.github/workflows/finalize-ol025.yml'
+
+          git fetch --no-tags --depth=1 origin agent/ol025-package-diagnosis
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_FIX_SOURCE_HEAD"
+          git show "$EXPECTED_FIX_SOURCE_HEAD:.ol025-diagnosis/package-fix-v3.patch" > /tmp/ol025-v3.patch
+          for index in 00 01 02 03; do
+            git show "$EXPECTED_FIX_SOURCE_HEAD:.ol025-diagnosis/v3v4-chunks/chunk-${index}.txt" > "/tmp/ol025-v3-v4-${index}.txt"
+          done
+
           python - <<'PY'
           from pathlib import Path
           import base64
@@ -36,24 +52,54 @@ jobs:
           chunk_paths = sorted(Path('.ol025-transfer').glob('chunk-*.txt'))
           if [path.name for path in chunk_paths] != [f'chunk-{index:02d}.txt' for index in range(13)]:
               raise SystemExit('original chunk set mismatch')
-          payload = b''.join(path.read_bytes() for path in chunk_paths)
-          if len(payload) != 84372 or hashlib.sha256(payload).hexdigest() != '43b726019ebbbd66730f9420fb430915184fd85c3e09fa4a38bb82834d44ca14':
+          original_b64 = b''.join(path.read_bytes() for path in chunk_paths)
+          if len(original_b64) != 84372 or hashlib.sha256(original_b64).hexdigest() != '43b726019ebbbd66730f9420fb430915184fd85c3e09fa4a38bb82834d44ca14':
               raise SystemExit('original base64 payload mismatch')
-          compressed = base64.b64decode(payload, validate=True)
-          if len(compressed) != 63278 or hashlib.sha256(compressed).hexdigest() != '708099e24b4009c8a4785013e2670085376e78c46c2be5e43c7338310c12efe6':
+          original_gzip = base64.b64decode(original_b64, validate=True)
+          if len(original_gzip) != 63278 or hashlib.sha256(original_gzip).hexdigest() != '708099e24b4009c8a4785013e2670085376e78c46c2be5e43c7338310c12efe6':
               raise SystemExit('original gzip payload mismatch')
-          patch = gzip.decompress(compressed)
-          if len(patch) != 307654 or hashlib.sha256(patch).hexdigest() != '81e01d5427b5dc75b1fab53d00824521b77aafcf9be4b90397dc388cd02d7fc9':
+          original = gzip.decompress(original_gzip)
+          if len(original) != 307654 or hashlib.sha256(original).hexdigest() != '81e01d5427b5dc75b1fab53d00824521b77aafcf9be4b90397dc388cd02d7fc9':
               raise SystemExit('original patch mismatch')
-          Path('/tmp/ol025.patch').write_bytes(patch)
+
+          v3 = Path('/tmp/ol025-v3.patch').read_bytes()
+          if len(v3) != 13943 or hashlib.sha256(v3).hexdigest() != 'bb38d254c04714bbe8ab4f160c98966013108d2fedf61fce6c63e84e9a01f2bd':
+              raise SystemExit('v3 patch mismatch')
+
+          delta_payload = b''.join(
+              Path(f'/tmp/ol025-v3-v4-{index:02d}.txt').read_bytes()
+              for index in range(4)
+          )
+          delta = base64.b64decode(delta_payload, validate=True)
+          if len(delta) != 10854 or hashlib.sha256(delta).hexdigest() != '31f73de5c0d6f78552ab66d10e65b83e621c9ae64a95d14337f47e3735456923':
+              raise SystemExit('v3-to-v4 patch mismatch')
+
+          Path('/tmp/ol025.patch').write_bytes(original)
+          Path('/tmp/ol025-v3-v4.patch').write_bytes(delta)
           PY
+
           git apply --check /tmp/ol025.patch
           git apply /tmp/ol025.patch
-          test "$(sha256sum .github/workflows/ci.yml | cut -d' ' -f1)" = "$EXPECTED_CI_SHA256"
-          cp .github/workflows/ci.yml /tmp/ol025-final-ci.yml
-      - uses: actions/upload-artifact@v6
-        with:
-          name: ol025-final-ci-workflow
-          path: /tmp/ol025-final-ci.yml
-          if-no-files-found: error
-          retention-days: 3
+          git apply --recount --check /tmp/ol025-v3.patch
+          git apply --recount /tmp/ol025-v3.patch
+          git apply --recount --check /tmp/ol025-v3-v4.patch
+          git apply --recount /tmp/ol025-v3-v4.patch
+
+          git checkout HEAD -- \
+            .github/workflows/ci.yml \
+            .github/workflows/export-ol025-toolchain.yml \
+            .github/workflows/finalize-ol025.yml
+          rm -rf .ol025-transfer
+
+          git diff --check
+          git add -A
+          git diff --cached --check
+          test -z "$(git diff --cached --name-only | grep '^.github/workflows/' || true)"
+          git diff --cached --name-only | LC_ALL=C sort > /tmp/ol025-staged-files.txt
+          test "$(wc -l < /tmp/ol025-staged-files.txt | tr -d ' ')" = "$EXPECTED_STAGED_FILE_COUNT"
+          test "$(sha256sum /tmp/ol025-staged-files.txt | cut -d' ' -f1)" = "$EXPECTED_STAGED_FILE_LIST_SHA256"
+
+          git config user.name Emad211
+          git config user.email 82148680+Emad211@users.noreply.github.com
+          git commit -m 'OL-025: Publish verified Windows installation source'
+          git push origin "HEAD:${{ github.head_ref }}"
