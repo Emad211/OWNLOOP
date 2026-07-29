@@ -1,5 +1,3 @@
-import { APP_NAME } from "@ownloop/contracts";
-
 export * from "./artifact-store/index.js";
 export * from "./candidate-generation/index.js";
 export * from "./change-classification/index.js";
@@ -16,8 +14,8 @@ export * from "./normalization/index.js";
 export * from "./ownership-moments/index.js";
 export * from "./persistence/index.js";
 export * from "./replay/index.js";
+export * from "./runtime/index.js";
 export * from "./semantic-input/index.js";
 export * from "./verification-extraction/index.js";
 
-console.log(`${APP_NAME} daemon bootstrap started.`);
 export * from "./candidate-validation/index.js";

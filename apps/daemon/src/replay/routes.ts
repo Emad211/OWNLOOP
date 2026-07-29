@@ -13,6 +13,8 @@ import {
 } from "@ownloop/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
+import { getDistinctRequestHeaderValues } from "../http-headers.js";
+
 import { isArtifactStoreError, type LocalArtifactStore } from "../artifact-store/index.js";
 import {
   ENRICHED_BUILD_REPLAY_ROUTE,
@@ -94,7 +96,7 @@ function contentFreeFailure(reply: FastifyReply, error: unknown): void {
 }
 
 function isJsonRequest(request: FastifyRequest): boolean {
-  const values = request.raw.headersDistinct["content-type"];
+  const values = getDistinctRequestHeaderValues(request, "content-type");
   if (values === undefined || values.length !== 1) return false;
   return values[0]?.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
 }

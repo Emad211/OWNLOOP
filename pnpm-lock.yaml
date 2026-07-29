@@ -102,6 +102,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/test-fixtures
 
+  tools/local-installer:
+    dependencies:
+      '@ownloop/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+
 packages:
 
   '@biomejs/biome@2.5.4':
