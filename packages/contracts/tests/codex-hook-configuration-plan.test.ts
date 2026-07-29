@@ -9,8 +9,7 @@ import {
 
 const COMMANDS: CodexHookLauncherCommands = {
   command: "ownloop-codex-hook",
-  commandWindows:
-    '"C:\\Users\\Fixture\\AppData\\Local\\OwnLoop\\bin\\ownloop-codex-hook.cmd"',
+  commandWindows: '"C:\\Users\\Fixture\\AppData\\Local\\OwnLoop\\bin\\ownloop-codex-hook.cmd"',
 };
 
 describe("Codex Hook configuration transaction plans", () => {
@@ -62,11 +61,7 @@ describe("Codex Hook configuration transaction plans", () => {
       '{"description":"user config","future":{"enabled":true}}',
       COMMANDS,
     );
-    const removed = planCodexHookConfigurationMutation(
-      "remove",
-      installed.outputJson,
-      COMMANDS,
-    );
+    const removed = planCodexHookConfigurationMutation("remove", installed.outputJson, COMMANDS);
     expect(removed).toMatchObject({
       changed: true,
       before: { state: "exact" },
