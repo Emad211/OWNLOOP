@@ -41,5 +41,11 @@ jobs:
           payload = b''.join(parts)
           print(f'payload size={len(payload)} sha256={hashlib.sha256(payload).hexdigest()}')
           decoded = base64.b64decode(payload, validate=True)
-          print(f'patch size={len(decoded)} sha256={hashlib.sha256(decoded).hexdigest()}')
+          print(f'chunk-patch size={len(decoded)} sha256={hashlib.sha256(decoded).hexdigest()}')
+
+          direct = Path('.ol025-diagnosis/package-fix-v4.patch').read_bytes()
+          print(f'direct-patch size={len(direct)} sha256={hashlib.sha256(direct).hexdigest()}')
+          print(f'chunk-patch-equals-direct={decoded == direct}')
+          if decoded != direct:
+              raise SystemExit('v4 chunks do not reproduce the direct patch')
           PY
