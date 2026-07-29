@@ -35,12 +35,55 @@ export type PackageBuildRunner = (
   options: Readonly<{ cwd: string }>,
 ) => Promise<{ stdout: string; stderr: string }>;
 
+export type PackageBuildInvocation = Readonly<{
+  executable: string;
+  args: readonly string[];
+}>;
+
+export type PackageBuildInvocationOptions = Readonly<{
+  platform?: NodeJS.Platform;
+  environment?: Readonly<Record<string, string | undefined>>;
+  nodeExecutable?: string;
+}>;
+
+const PNPM_JAVASCRIPT_ENTRYPOINT_PATTERN = /(?:^|[\/])pnpm(?:\.cjs|\.js)$/iu;
+
+export function resolvePackageBuildInvocation(
+  executable: string,
+  args: readonly string[],
+  options: PackageBuildInvocationOptions = {},
+): PackageBuildInvocation {
+  if ((options.platform ?? process.platform) !== "win32" || executable !== "pnpm") {
+    return Object.freeze({ executable, args: Object.freeze([...args]) });
+  }
+
+  const environment = options.environment ?? process.env;
+  const pnpmEntrypoint = environment.npm_execpath;
+  const nodeExecutable = options.nodeExecutable ?? process.execPath;
+  if (
+    pnpmEntrypoint === undefined ||
+    !isAbsolute(pnpmEntrypoint) ||
+    pnpmEntrypoint.includes("\0") ||
+    !PNPM_JAVASCRIPT_ENTRYPOINT_PATTERN.test(pnpmEntrypoint) ||
+    !isAbsolute(nodeExecutable) ||
+    nodeExecutable.includes("\0")
+  ) {
+    throw new PackageBuilderError("runtime_incompatible");
+  }
+
+  return Object.freeze({
+    executable: resolve(nodeExecutable),
+    args: Object.freeze([resolve(pnpmEntrypoint), ...args]),
+  });
+}
+
 async function defaultRunner(
   executable: string,
   args: readonly string[],
   options: { cwd: string },
 ) {
-  const result = await execFileAsync(executable, [...args], {
+  const invocation = resolvePackageBuildInvocation(executable, args);
+  const result = await execFileAsync(invocation.executable, [...invocation.args], {
     cwd: options.cwd,
     windowsHide: true,
     timeout: 10 * 60_000,
