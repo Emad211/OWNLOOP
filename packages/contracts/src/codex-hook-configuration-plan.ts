@@ -12,8 +12,7 @@ import {
 } from "./codex-hook-configuration-json.js";
 
 export const CODEX_HOOK_CONFIGURATION_OPERATIONS = ["install", "remove"] as const;
-export type CodexHookConfigurationOperation =
-  (typeof CODEX_HOOK_CONFIGURATION_OPERATIONS)[number];
+export type CodexHookConfigurationOperation = (typeof CODEX_HOOK_CONFIGURATION_OPERATIONS)[number];
 
 export type CodexHookConfigurationPlan = Readonly<{
   operation: CodexHookConfigurationOperation;
