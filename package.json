@@ -16,7 +16,7 @@
     "typecheck": "pnpm --recursive --if-present run typecheck && tsc -p tsconfig.test.json",
     "test": "vitest run",
     "build": "pnpm --recursive --if-present run build",
-    "package:windows": "node tools/local-installer/dist/build-package.js"
+    "package:windows": "pnpm --filter @ownloop/local-installer... run build && node tools/local-installer/dist/build-package.js"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.4",
