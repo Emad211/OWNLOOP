@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - agent/ol-027-codex-adapter
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -129,6 +130,7 @@ jobs:
           git diff --check
           mapfile -t files < <(git status --short | sed 's/^...//' | LC_ALL=C sort)
           expected=(
+            .github/workflows/finalize-ol027-hook-config-safety.yml
             packages/contracts/src/codex-hook-configuration.ts
             packages/contracts/tests/codex-hook-configuration.test.ts
           )
