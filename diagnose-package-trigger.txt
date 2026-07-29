@@ -1,1 +1,1 @@
-verify v3 to v4 delta chain
+run full package proof with validated v3-to-v4 chain
