@@ -8,10 +8,12 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -46,7 +48,7 @@ jobs:
         run: pnpm build
 
   diagnose-main-merge:
-    if: github.event_name == 'push' && github.ref_name == 'agent/ol-027-codex-adapter'
+    if: github.event_name == 'push' && github.ref_name == 'agent/ol-027-codex-adapter' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -56,7 +58,7 @@ jobs:
           ref: agent/ol-027-codex-adapter
           fetch-depth: 0
 
-      - name: Report exact three-way conflicts
+      - name: Persist exact three-way conflict inventory
         shell: bash
         run: |
           set -euo pipefail
@@ -67,18 +69,29 @@ jobs:
           git merge --no-commit --no-ff origin/main
           merge_code=$?
           set -e
+          mkdir -p /tmp/ol027-diagnosis
           if [ "$merge_code" -eq 0 ]; then
-            echo 'merge-clean=true'
-            echo 'staged-start'
-            git diff --cached --name-only | LC_ALL=C sort
-            echo 'staged-end'
+            {
+              echo 'merge-clean=true'
+              echo 'staged-start'
+              git diff --cached --name-only | LC_ALL=C sort
+              echo 'staged-end'
+            } > /tmp/ol027-diagnosis/report.txt
           else
-            echo 'merge-clean=false'
-            echo 'conflicts-start'
-            git diff --name-only --diff-filter=U | LC_ALL=C sort
-            echo 'conflicts-end'
-            echo 'staged-non-conflicts-start'
-            git diff --cached --name-only | LC_ALL=C sort
-            echo 'staged-non-conflicts-end'
+            {
+              echo 'merge-clean=false'
+              echo 'conflicts-start'
+              git diff --name-only --diff-filter=U | LC_ALL=C sort
+              echo 'conflicts-end'
+              echo 'staged-non-conflicts-start'
+              git diff --cached --name-only | LC_ALL=C sort
+              echo 'staged-non-conflicts-end'
+            } > /tmp/ol027-diagnosis/report.txt
           fi
           git merge --abort
+          mkdir -p .ol027-merge-diagnosis
+          cp /tmp/ol027-diagnosis/report.txt .ol027-merge-diagnosis/report.txt
+          git add .ol027-merge-diagnosis/report.txt
+          git diff --cached --check
+          git commit -m 'chore(ol-027): record OL-025 merge conflict inventory'
+          git push origin HEAD:agent/ol-027-codex-adapter
