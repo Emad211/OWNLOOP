@@ -58,6 +58,9 @@ jobs:
       - name: Format bounded changed source
         run: pnpm exec biome format --write packages/contracts/src/local-installation.ts packages/contracts/tests/local-installation-codex.test.ts tools/codex-hook-adapter/package.json tools/local-installer/src/codex-hook-launcher.ts tools/local-installer/src/codex-hook-main.ts tools/local-installer/src/index.ts tools/local-installer/src/installer-transaction.ts tools/local-installer/src/package-builder.ts tools/local-installer/tests/codex-launcher-script.test.ts tools/local-installer/tests/package-builder.test.ts
 
+      - name: Diagnose bounded changed source
+        run: pnpm exec biome lint --max-diagnostics=200 packages/contracts/src/local-installation.ts packages/contracts/tests/local-installation-codex.test.ts tools/codex-hook-adapter/package.json tools/local-installer/src/codex-hook-launcher.ts tools/local-installer/src/codex-hook-main.ts tools/local-installer/src/index.ts tools/local-installer/src/installer-transaction.ts tools/local-installer/src/package-builder.ts tools/local-installer/tests/codex-launcher-script.test.ts tools/local-installer/tests/package-builder.test.ts
+
       - name: Validate full repository
         shell: bash
         run: |
