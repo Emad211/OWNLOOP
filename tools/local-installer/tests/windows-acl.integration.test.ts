@@ -56,47 +56,51 @@ describe("Windows private ACL command construction", () => {
 });
 
 windowsDescribe("Windows private ACL boundary", () => {
-  it("applies and verifies the current-user-only directory ACL idempotently", async () => {
-    const root = await mkdtemp(join(tmpdir(), "ownloop-acl-smoke-"));
-    roots.push(root);
-    const { stdout } = await execFileAsync(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        "[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
-      ],
-      { windowsHide: true, timeout: 10_000 },
-    );
-    const userSid = stdout.trim();
-    const commands = buildPrivateAclCommands(root, userSid);
+  it(
+    "applies and verifies the current-user-only directory ACL idempotently",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "ownloop-acl-smoke-"));
+      roots.push(root);
+      const { stdout } = await execFileAsync(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
+        ],
+        { windowsHide: true, timeout: 10_000 },
+      );
+      const userSid = stdout.trim();
+      const commands = buildPrivateAclCommands(root, userSid);
 
-    for (const [index, command] of commands.entries()) {
-      try {
-        await execFileAsync("powershell.exe", [...command], {
-          windowsHide: true,
-          timeout: 10_000,
-        });
-      } catch (error) {
-        const operation = index === 0 ? "apply" : "verify";
-        throw new Error(
-          `Native Windows ACL ${operation} command failed: ${nativeFailureDetails(error)}`,
-        );
+      for (const [index, command] of commands.entries()) {
+        try {
+          await execFileAsync("powershell.exe", [...command], {
+            windowsHide: true,
+            timeout: 10_000,
+          });
+        } catch (error) {
+          const operation = index === 0 ? "apply" : "verify";
+          throw new Error(
+            `Native Windows ACL ${operation} command failed: ${nativeFailureDetails(error)}`,
+          );
+        }
       }
-    }
 
-    try {
-      await ensurePrivateWindowsAcl(root, userSid);
-      await ensurePrivateWindowsAcl(root, userSid);
-    } catch (error) {
-      const code =
-        typeof error === "object" && error !== null && "code" in error
-          ? String(error.code)
-          : "unknown";
-      throw new Error(`Windows ACL smoke failed with controlled code: ${code}`);
-    }
+      try {
+        await ensurePrivateWindowsAcl(root, userSid);
+        await ensurePrivateWindowsAcl(root, userSid);
+      } catch (error) {
+        const code =
+          typeof error === "object" && error !== null && "code" in error
+            ? String(error.code)
+            : "unknown";
+        throw new Error(`Windows ACL smoke failed with controlled code: ${code}`);
+      }
 
-    expect(userSid).toMatch(/^S-1-[0-9]+(?:-[0-9]+)+$/u);
-  });
+      expect(userSid).toMatch(/^S-1-[0-9]+(?:-[0-9]+)+$/u);
+    },
+    20_000,
+  );
 });
