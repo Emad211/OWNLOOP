@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { copyFile, lstat, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
 import { promisify } from "node:util";
 
 import {
@@ -46,7 +46,7 @@ export type PackageBuildInvocationOptions = Readonly<{
   nodeExecutable?: string;
 }>;
 
-const PNPM_JAVASCRIPT_ENTRYPOINT_PATTERN = /(?:^|[\/])pnpm(?:\.cjs|\.js)$/iu;
+const PNPM_JAVASCRIPT_ENTRYPOINT_PATTERN = /(?:^|\/)pnpm(?:\.cjs|\.js)$/iu;
 
 export function resolvePackageBuildInvocation(
   executable: string,
@@ -60,20 +60,22 @@ export function resolvePackageBuildInvocation(
   const environment = options.environment ?? process.env;
   const pnpmEntrypoint = environment.npm_execpath;
   const nodeExecutable = options.nodeExecutable ?? process.execPath;
+  const normalizedPnpmEntrypoint = pnpmEntrypoint?.replaceAll("\\", "/");
   if (
     pnpmEntrypoint === undefined ||
-    !isAbsolute(pnpmEntrypoint) ||
+    normalizedPnpmEntrypoint === undefined ||
+    !win32.isAbsolute(pnpmEntrypoint) ||
     pnpmEntrypoint.includes("\0") ||
-    !PNPM_JAVASCRIPT_ENTRYPOINT_PATTERN.test(pnpmEntrypoint) ||
-    !isAbsolute(nodeExecutable) ||
+    !PNPM_JAVASCRIPT_ENTRYPOINT_PATTERN.test(normalizedPnpmEntrypoint) ||
+    !win32.isAbsolute(nodeExecutable) ||
     nodeExecutable.includes("\0")
   ) {
     throw new PackageBuilderError("runtime_incompatible");
   }
 
   return Object.freeze({
-    executable: resolve(nodeExecutable),
-    args: Object.freeze([resolve(pnpmEntrypoint), ...args]),
+    executable: win32.resolve(nodeExecutable),
+    args: Object.freeze([win32.resolve(pnpmEntrypoint), ...args]),
   });
 }
 

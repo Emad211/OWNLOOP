@@ -20,12 +20,12 @@ describe("Windows package command", () => {
     expect(
       resolvePackageBuildInvocation("pnpm", ["--version"], {
         platform: "win32",
-        environment: { npm_execpath: "/pnpm/bin/pnpm.cjs" },
-        nodeExecutable: "/node/node.exe",
+        environment: { npm_execpath: "C:\\pnpm\\bin\\pnpm.cjs" },
+        nodeExecutable: "C:\\node\\node.exe",
       }),
     ).toEqual({
-      executable: "/node/node.exe",
-      args: ["/pnpm/bin/pnpm.cjs", "--version"],
+      executable: "C:\\node\\node.exe",
+      args: ["C:\\pnpm\\bin\\pnpm.cjs", "--version"],
     });
   });
 
@@ -34,7 +34,7 @@ describe("Windows package command", () => {
       resolvePackageBuildInvocation("pnpm", ["build"], {
         platform: "win32",
         environment: {},
-        nodeExecutable: "/node/node.exe",
+        nodeExecutable: "C:\\node\\node.exe",
       }),
     ).toThrowError(expect.objectContaining({ code: "runtime_incompatible" }));
   });
