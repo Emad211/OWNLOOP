@@ -1,23 +1,28 @@
-name: CI
+name: Finalize OL-027 OL-025 integration
 
 on:
   push:
     branches:
-      - main
       - agent/ol-027-codex-adapter
-  pull_request:
 
 permissions:
   contents: write
 
+concurrency:
+  group: finalize-ol027-ol025-integration
+  cancel-in-progress: false
+
 jobs:
-  verify:
-    permissions:
-      contents: read
+  finalize:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
-      - name: Check out repository
+      - name: Check out exact branch
         uses: actions/checkout@v7
+        with:
+          ref: agent/ol-027-codex-adapter
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -28,70 +33,132 @@ jobs:
         uses: pnpm/action-setup@v6
         with:
           version: 11.4.0
+          run_install: false
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Check formatting
-        run: pnpm format:check
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Test
-        run: pnpm test
-
-      - name: Build
-        run: pnpm build
-
-  diagnose-main-merge:
-    if: github.event_name == 'push' && github.ref_name == 'agent/ol-027-codex-adapter' && github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Check out exact branch
-        uses: actions/checkout@v7
-        with:
-          ref: agent/ol-027-codex-adapter
-          fetch-depth: 0
-
-      - name: Persist exact three-way conflict inventory
+      - name: Merge OL-025 main and resolve exact conflicts
         shell: bash
+        env:
+          EXPECTED_PARENT_HEAD: 570f7f3c175d7830d90a8a1cf69b029f07b705de
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT_HEAD"
+          test "$(git diff --name-only "$EXPECTED_PARENT_HEAD" HEAD)" = '.github/workflows/ci.yml'
           git fetch --no-tags origin main
+          test "$(git rev-parse origin/main)" = '86d8e93ed8e5bfb441677f5f0f799815e5d311d9'
           git config user.name Emad211
           git config user.email 82148680+Emad211@users.noreply.github.com
+
           set +e
           git merge --no-commit --no-ff origin/main
           merge_code=$?
           set -e
-          mkdir -p /tmp/ol027-diagnosis
-          if [ "$merge_code" -eq 0 ]; then
-            {
-              echo 'merge-clean=true'
-              echo 'staged-start'
-              git diff --cached --name-only | LC_ALL=C sort
-              echo 'staged-end'
-            } > /tmp/ol027-diagnosis/report.txt
-          else
-            {
-              echo 'merge-clean=false'
-              echo 'conflicts-start'
-              git diff --name-only --diff-filter=U | LC_ALL=C sort
-              echo 'conflicts-end'
-              echo 'staged-non-conflicts-start'
-              git diff --cached --name-only | LC_ALL=C sort
-              echo 'staged-non-conflicts-end'
-            } > /tmp/ol027-diagnosis/report.txt
-          fi
-          git merge --abort
-          mkdir -p .ol027-merge-diagnosis
-          cp /tmp/ol027-diagnosis/report.txt .ol027-merge-diagnosis/report.txt
-          git add .ol027-merge-diagnosis/report.txt
+          test "$merge_code" -ne 0
+          git diff --name-only --diff-filter=U | LC_ALL=C sort > /tmp/ol027-conflicts.txt
+          cat > /tmp/ol027-expected-conflicts.txt <<'EOF'
+          .github/workflows/ci.yml
+          apps/daemon/src/index.ts
+          apps/daemon/src/ingress/server.ts
+          EOF
+          diff -u /tmp/ol027-expected-conflicts.txt /tmp/ol027-conflicts.txt
+
+          git checkout origin/main -- .github/workflows/ci.yml
+
+          cat > apps/daemon/src/index.ts <<'EOF'
+          export * from "./artifact-store/index.js";
+          export * from "./candidate-generation/index.js";
+          export * from "./change-classification/index.js";
+          export * from "./codex-capability/index.js";
+          export * from "./evidence-graph/index.js";
+          export * from "./enriched-replay/index.js";
+          export * from "./diagnostics-dashboard/index.js";
+          export * from "./finalization/index.js";
+          export * from "./git-baseline/index.js";
+          export * from "./git-reconciliation/index.js";
+          export * from "./ingress/index.js";
+          export * from "./lifecycle/index.js";
+          export * from "./local-settings/index.js";
+          export * from "./normalization/index.js";
+          export * from "./ownership-moments/index.js";
+          export * from "./persistence/index.js";
+          export * from "./replay/index.js";
+          export * from "./runtime/index.js";
+          export * from "./semantic-input/index.js";
+          export * from "./verification-extraction/index.js";
+
+          export * from "./candidate-validation/index.js";
+          EOF
+
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          source = subprocess.check_output(
+              ["git", "show", "origin/main:apps/daemon/src/ingress/server.ts"],
+              text=True,
+          )
+
+          replacements = [
+              (
+                  'import type { LocalArtifactStore } from "../artifact-store/index.js";\nimport { getDistinctRequestHeaderValues } from "../http-headers.js";',
+                  'import type { LocalArtifactStore } from "../artifact-store/index.js";\nimport {\n  type CodexCapabilityEnvironmentFacts,\n  registerCodexCapabilityRoute,\n} from "../codex-capability/index.js";\nimport { getDistinctRequestHeaderValues } from "../http-headers.js";',
+              ),
+              (
+                  'import { createInstallationTokenVerifier } from "./auth.js";\nimport { emitIngressDiagnostic, type IngressDiagnosticSink } from "./diagnostics.js";',
+                  'import { createInstallationTokenVerifier } from "./auth.js";\nimport { CODEX_INGRESS_ROUTE, registerCodexIngressRoute } from "./codex-route.js";\nimport { emitIngressDiagnostic, type IngressDiagnosticSink } from "./diagnostics.js";',
+              ),
+              (
+                  'export const INGRESS_BODY_LIMIT_BYTES = 1024 * 1024;\n\nconst SAFE_RECEIPT_ID_PATTERN',
+                  'export const INGRESS_BODY_LIMIT_BYTES = 1024 * 1024;\n\nexport { CODEX_INGRESS_ROUTE };\n\nconst SAFE_RECEIPT_ID_PATTERN',
+              ),
+              (
+                  '  customSecretFieldPatterns?: () => readonly string[];\n  settings?: LocalSettingsService;',
+                  '  customSecretFieldPatterns?: () => readonly string[];\n  codexCapabilityEnvironment?: () => CodexCapabilityEnvironmentFacts;\n  settings?: LocalSettingsService;',
+              ),
+              (
+                  '  if (dependencies.replay !== undefined) {\n    registerReplayRoutes(server, {',
+                  '  if (dependencies.replay !== undefined) {\n    registerCodexCapabilityRoute(server, {\n      persistence: dependencies.replay.persistence,\n      tokenVerifier,\n      ...(dependencies.codexCapabilityEnvironment === undefined\n        ? {}\n        : { environment: dependencies.codexCapabilityEnvironment }),\n    });\n    registerReplayRoutes(server, {',
+              ),
+              (
+                  '  }\n  const staticSite = createContainedStaticSite(dependencies.replay?.webRoot);',
+                  '  }\n  registerCodexIngressRoute(server, {\n    persistence,\n    tokenVerifier,\n    hmacKey,\n    ...(homePath === undefined ? {} : { homePath }),\n    clock,\n    receiptIdGenerator,\n    ...(diagnostics === undefined ? {} : { diagnostics }),\n    customSecretFieldPatterns: () =>\n      dependencies.settings?.getCustomSecretFieldPatterns() ??\n      dependencies.customSecretFieldPatterns?.() ??\n      [],\n  });\n\n  const staticSite = createContainedStaticSite(dependencies.replay?.webRoot);',
+              ),
+          ]
+
+          for old, new in replacements:
+              if source.count(old) != 1:
+                  raise SystemExit(f"unexpected ingress merge anchor: {old[:80]!r}")
+              source = source.replace(old, new)
+
+          Path("apps/daemon/src/ingress/server.ts").write_text(source, encoding="utf-8")
+          PY
+
+          rm -f .github/workflows/diagnose-ol027-ol025-merge.yml
+          rm -rf .ol027-merge-diagnosis
+          git add -A
+          test -z "$(git diff --name-only --diff-filter=U)"
           git diff --cached --check
-          git commit -m 'chore(ol-027): record OL-025 merge conflict inventory'
+
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate integrated source
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
+      - name: Publish merge commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clean -fdX
+          test -z "$(git diff --name-only --diff-filter=U)"
+          test ! -e .ol027-merge-diagnosis
+          test ! -e .github/workflows/diagnose-ol027-ol025-merge.yml
+          git diff --cached --check
+          git commit -m 'Merge OL-025 Windows runtime into OL-027 Codex adapter'
           git push origin HEAD:agent/ol-027-codex-adapter
