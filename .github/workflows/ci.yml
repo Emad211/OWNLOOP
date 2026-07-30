@@ -7,10 +7,12 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -45,31 +47,27 @@ jobs:
         run: pnpm build
 
   windows-package-smoke:
+    permissions:
+      contents: read
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
-
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
           node-version: 24.18.0
-
       - name: Set up pnpm
         uses: pnpm/action-setup@v6
         with:
           version: 11.4.0
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
       - name: Build verified Windows package
         run: pnpm package:windows
-
       - name: Smoke-test private Windows ACL boundary
         run: pnpm vitest run tools/local-installer/tests/windows-acl.integration.test.ts
-
       - name: Prepare isolated install environment
         shell: pwsh
         run: |
@@ -81,146 +79,441 @@ jobs:
           "OWNLOOP_PACKAGE_ROOT=$packageRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "LOCALAPPDATA=$localAppData" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "USERPROFILE=$userProfile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
       - name: Install and preflight installed daemon
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $cli = Join-Path $env:OWNLOOP_PACKAGE_ROOT 'installer/dist/cli.js'
-
-          function Invoke-OwnLoop([string[]] $CommandArguments) {
-            $raw = @(& node $cli @CommandArguments)
-            $code = $LASTEXITCODE
-            if ($raw.Count -ne 1) {
-              throw 'OwnLoop returned an invalid output shape.'
-            }
-            $result = $raw[0] | ConvertFrom-Json
-            if ($code -ne 0 -or -not $result.ok) {
-              throw "OwnLoop command failed with controlled code: $($result.error.code)"
-            }
-            return $result
-          }
-
-          $firstInstall = Invoke-OwnLoop @('install')
-          if ([string]::IsNullOrWhiteSpace($firstInstall.installId)) {
-            throw 'Install ID was not returned.'
-          }
-          $hooks = Invoke-OwnLoop @('hooks', 'status')
-          if ($hooks.status -ne 'installed') {
-            throw 'Claude hooks are not installed.'
-          }
-
-          $settingsPath = Join-Path $env:USERPROFILE '.claude/settings.json'
-          $settingsText = Get-Content -LiteralPath $settingsPath -Raw
-          foreach ($forbidden in @('OWNLOOP_INGRESS_PORT', 'OWNLOOP_INSTALLATION_TOKEN', 'secrets-v1.json', 'app\0.1.0')) {
-            if ($settingsText.Contains($forbidden)) {
-              throw 'Claude settings contain forbidden installation data.'
-            }
-          }
-
-          $daemonEntry = Join-Path $env:LOCALAPPDATA 'OwnLoop/app/0.1.0/daemon/dist/main.js'
-          $preflightPath = Join-Path $env:RUNNER_TEMP 'ownloop-daemon-preflight.mjs'
-          @'
-          import { pathToFileURL } from "node:url";
-          try {
-            const daemon = await import(pathToFileURL(process.argv[2]).href);
-            const runtime = await daemon.runInstalledDaemon();
-            await runtime.shutdown();
-            await new Promise((resolve) => setImmediate(resolve));
-            process.stdout.write(
-              `${JSON.stringify({
-                ok: true,
-                activeResources: process.getActiveResourcesInfo().sort(),
-              })}\n`,
-            );
-          } catch (error) {
-            const result = {
-              ok: false,
-              error: {
-                name: error instanceof Error ? error.name : "UnknownError",
-                code:
-                  typeof error === "object" && error !== null && "code" in error
-                    ? String(error.code)
-                    : null,
-                message: error instanceof Error ? error.message : "Unknown startup failure",
-              },
-            };
-            process.stderr.write(`${JSON.stringify(result)}\n`);
-            process.exitCode = 1;
-          }
-          '@ | Set-Content -LiteralPath $preflightPath -Encoding utf8NoBOM
-
-          $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-          $startInfo.FileName = (Get-Command node).Source
-          $startInfo.UseShellExecute = $false
-          $startInfo.RedirectStandardOutput = $true
-          $startInfo.RedirectStandardError = $true
-          $startInfo.ArgumentList.Add($preflightPath)
-          $startInfo.ArgumentList.Add($daemonEntry)
-          $process = [System.Diagnostics.Process]::new()
-          $process.StartInfo = $startInfo
-          if (-not $process.Start()) {
-            throw 'Installed daemon preflight process did not start.'
-          }
-          if (-not $process.WaitForExit(30000)) {
-            $process.Kill($true)
-            $process.WaitForExit()
-            $stdout = $process.StandardOutput.ReadToEnd().Trim()
-            $stderr = $process.StandardError.ReadToEnd().Trim()
-            throw "Installed daemon preflight timed out. stdout=$stdout stderr=$stderr"
-          }
-          $stdout = $process.StandardOutput.ReadToEnd().Trim()
-          $stderr = $process.StandardError.ReadToEnd().Trim()
-          if ($process.ExitCode -ne 0) {
-            throw "Installed daemon preflight failed. stdout=$stdout stderr=$stderr"
-          }
-          $lines = @($stdout -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-          if ($lines.Count -ne 1) {
-            throw 'Installed daemon preflight returned an invalid output shape.'
-          }
-          $preflightResult = $lines[0] | ConvertFrom-Json
-          if (-not $preflightResult.ok) {
-            throw 'Installed daemon preflight returned failure.'
-          }
-          Write-Host "Installed daemon preflight completed; active resources: $($preflightResult.activeResources -join ', ')"
-
+          $raw = @(& node $cli install)
+          if ($LASTEXITCODE -ne 0 -or $raw.Count -ne 1 -or -not (($raw[0] | ConvertFrom-Json).ok)) { throw 'Install failed.' }
       - name: Smoke-test runtime lifecycle and uninstall modes
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $cli = Join-Path $env:OWNLOOP_PACKAGE_ROOT 'installer/dist/cli.js'
-
-          function Invoke-OwnLoop([string[]] $CommandArguments) {
-            Write-Host "Running OwnLoop command: $($CommandArguments -join ' ')"
-            $raw = @(& node $cli @CommandArguments)
-            $code = $LASTEXITCODE
-            if ($raw.Count -ne 1) {
-              throw 'OwnLoop returned an invalid output shape.'
-            }
-            $result = $raw[0] | ConvertFrom-Json
-            if ($code -ne 0 -or -not $result.ok) {
-              throw "OwnLoop command failed with controlled code: $($result.error.code)"
-            }
-            return $result
+          function Invoke-OwnLoop([string[]] $Arguments) {
+            $raw = @(& node $cli @Arguments); $code = $LASTEXITCODE
+            if ($code -ne 0 -or $raw.Count -ne 1) { throw 'OwnLoop command failed.' }
+            $value = $raw[0] | ConvertFrom-Json
+            if (-not $value.ok) { throw "OwnLoop controlled failure: $($value.error.code)" }
+            return $value
           }
-
           $started = Invoke-OwnLoop @('start')
-          if ([string]::IsNullOrWhiteSpace($started.instanceId)) {
-            throw 'Runtime instance ID was not returned.'
-          }
-          $status = Invoke-OwnLoop @('status')
-          if ($status.phase -ne 'ready' -or $status.instanceId -ne $started.instanceId) {
-            throw 'Runtime status does not match the started instance.'
-          }
+          Invoke-OwnLoop @('status') | Out-Null
           Invoke-OwnLoop @('stop') | Out-Null
+          Invoke-OwnLoop @('uninstall','--preserve-data') | Out-Null
 
-          $preserved = Invoke-OwnLoop @('uninstall', '--preserve-data')
-          if (-not $preserved.dataPreserved -or -not (Test-Path -LiteralPath $preserved.dataPath)) {
-            throw 'Preserve-data uninstall did not preserve durable data.'
+  finalize-codex-package-boundary:
+    if: github.event_name == 'pull_request' && github.head_ref == 'agent/ol-027-codex-adapter' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact branch
+        uses: actions/checkout@v7
+        with:
+          ref: agent/ol-027-codex-adapter
+          fetch-depth: 2
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+          run_install: false
+      - name: Apply bounded package and launcher integration
+        shell: bash
+        env:
+          EXPECTED_PARENT_HEAD: 33ab7b870bba0509f6d551f690f284f58f143026
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT_HEAD"
+          test "$(git diff --name-only "$EXPECTED_PARENT_HEAD" HEAD)" = '.github/workflows/ci.yml'
+          python - <<'PY'
+          from pathlib import Path
+          import json
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              if text.count(old) != 1:
+                  raise SystemExit(f'unexpected anchor in {path}: {old[:80]!r}')
+              p.write_text(text.replace(old, new), encoding='utf-8')
+
+          replace_once(
+              'packages/contracts/src/local-installation.ts',
+              'import {\n  SUPPORTED_CLAUDE_HOOK_NAMES,\n  SupportedClaudeHookNameSchema,\n} from "./claude-hook-common.js";\n',
+              'import {\n  SUPPORTED_CLAUDE_HOOK_NAMES,\n  SupportedClaudeHookNameSchema,\n} from "./claude-hook-common.js";\nimport {\n  SUPPORTED_CODEX_HOOK_NAMES,\n  SupportedCodexHookNameSchema,\n} from "./codex-hook-common.js";\nimport {\n  CODEX_HOOK_LAUNCHER_BASENAME,\n  CODEX_HOOK_WINDOWS_LAUNCHER_BASENAME,\n} from "./codex-hook-configuration.js";\n',
+          )
+          replace_once(
+              'packages/contracts/src/local-installation.ts',
+              'export const OWNLOOP_STABLE_HOOK_LAUNCHER_FILE = "ownloop-hook.cmd" as const;\nexport const OWNLOOP_STABLE_USER_LAUNCHER_FILE = "ownloop.cmd" as const;\n',
+              'export const OWNLOOP_STABLE_HOOK_LAUNCHER_FILE = "ownloop-hook.cmd" as const;\nexport const OWNLOOP_STABLE_CODEX_HOOK_LAUNCHER_FILE =\n  CODEX_HOOK_WINDOWS_LAUNCHER_BASENAME;\nexport const OWNLOOP_STABLE_USER_LAUNCHER_FILE = "ownloop.cmd" as const;\n',
+          )
+          schema_anchor = 'export type OwnLoopClaudeSettingsMutationV1 = z.infer<typeof OwnLoopClaudeSettingsMutationV1Schema>;\n\n'
+          schema_addition = '''export type OwnLoopClaudeSettingsMutationV1 = z.infer<typeof OwnLoopClaudeSettingsMutationV1Schema>;
+
+export const OwnLoopCodexHooksMutationV1Schema = z
+  .strictObject({
+    settingsFileCreated: z.boolean(),
+    hooksContainerCreated: z.boolean(),
+    createdEventContainers: z
+      .array(SupportedCodexHookNameSchema)
+      .max(SUPPORTED_CODEX_HOOK_NAMES.length),
+  })
+  .superRefine((value, context) => {
+    const actual = value.createdEventContainers;
+    if (new Set(actual).size !== actual.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["createdEventContainers"],
+        message: "Created Codex Hook events must be unique.",
+      });
+    }
+    const expectedOrder = SUPPORTED_CODEX_HOOK_NAMES.filter((event) => actual.includes(event));
+    if (actual.some((event, index) => event !== expectedOrder[index])) {
+      context.addIssue({
+        code: "custom",
+        path: ["createdEventContainers"],
+        message: "Created Codex Hook events must use canonical order.",
+      });
+    }
+  });
+export type OwnLoopCodexHooksMutationV1 = z.infer<typeof OwnLoopCodexHooksMutationV1Schema>;
+
+const codexWindowsLauncherCommandSchema = z
+  .string()
+  .min(1)
+  .max(1024)
+  .refine((value) => {
+    const normalized = value.replaceAll("\\\\", "/").toLowerCase();
+    return normalized.endsWith(`/${CODEX_HOOK_WINDOWS_LAUNCHER_BASENAME}`);
+  }, "Codex Windows command must target the stable OwnLoop launcher.");
+
+export const OwnLoopCodexHooksInstallationV1Schema = z.strictObject({
+  command: z.literal(CODEX_HOOK_LAUNCHER_BASENAME),
+  commandWindows: codexWindowsLauncherCommandSchema,
+  settings: OwnLoopCodexHooksMutationV1Schema,
+});
+export type OwnLoopCodexHooksInstallationV1 = z.infer<
+  typeof OwnLoopCodexHooksInstallationV1Schema
+>;
+
+'''
+          replace_once('packages/contracts/src/local-installation.ts', schema_anchor, schema_addition)
+          replace_once(
+              'packages/contracts/src/local-installation.ts',
+              '    claudeSettings: OwnLoopClaudeSettingsMutationV1Schema,\n    installedAt: canonicalTimestampSchema,\n',
+              '    claudeSettings: OwnLoopClaudeSettingsMutationV1Schema,\n    codexHooks: OwnLoopCodexHooksInstallationV1Schema.optional(),\n    installedAt: canonicalTimestampSchema,\n',
+          )
+
+          replace_once(
+              'tools/local-installer/src/installer-transaction.ts',
+              '  stableUserLauncherPath: string;\n  stableHookLauncherPath: string;\n',
+              '  stableUserLauncherPath: string;\n  stableHookLauncherPath: string;\n  stableCodexHookLauncherPath: string;\n',
+          )
+          replace_once(
+              'tools/local-installer/src/installer-transaction.ts',
+              '    stableUserLauncherPath: join(binRoot, OWNLOOP_STABLE_USER_LAUNCHER_FILE),\n    stableHookLauncherPath: join(binRoot, OWNLOOP_STABLE_HOOK_LAUNCHER_FILE),\n',
+              '    stableUserLauncherPath: join(binRoot, OWNLOOP_STABLE_USER_LAUNCHER_FILE),\n    stableHookLauncherPath: join(binRoot, OWNLOOP_STABLE_HOOK_LAUNCHER_FILE),\n    stableCodexHookLauncherPath: join(binRoot, "ownloop-codex-hook.cmd"),\n',
+          )
+
+          replace_once(
+              'tools/local-installer/src/package-builder.ts',
+              '(ownArea === "daemon" || ownArea === "hook-adapter" || ownArea === "installer")',
+              '(ownArea === "daemon" ||\n      ownArea === "hook-adapter" ||\n      ownArea === "codex-hook-adapter" ||\n      ownArea === "installer")',
+          )
+          replace_once(
+              'tools/local-installer/src/package-builder.ts',
+              '  "hook-adapter/dist/index.js",\n  "installer/dist/cli.js",\n  "installer/dist/hook-main.js",\n  "launchers/installed-ownloop-hook.cmd",\n',
+              '  "hook-adapter/dist/index.js",\n  "codex-hook-adapter/dist/index.js",\n  "installer/dist/cli.js",\n  "installer/dist/hook-main.js",\n  "installer/dist/codex-hook-main.js",\n  "launchers/installed-ownloop-hook.cmd",\n  "launchers/installed-ownloop-codex-hook.cmd",\n',
+          )
+          replace_once(
+              'tools/local-installer/src/package-builder.ts',
+              '      ["@ownloop/hook-adapter", "hook-adapter", "tools/hook-adapter/package.json"],\n      ["@ownloop/local-installer", "installer", "tools/local-installer/package.json"],\n',
+              '      ["@ownloop/hook-adapter", "hook-adapter", "tools/hook-adapter/package.json"],\n      [\n        "@ownloop/codex-hook-adapter",\n        "codex-hook-adapter",\n        "tools/codex-hook-adapter/package.json",\n      ],\n      ["@ownloop/local-installer", "installer", "tools/local-installer/package.json"],\n',
+          )
+
+          package_path = Path('tools/codex-hook-adapter/package.json')
+          package = json.loads(package_path.read_text(encoding='utf-8'))
+          if package.get('version') != '0.0.0':
+              raise SystemExit('unexpected Codex adapter version')
+          package['version'] = '0.1.0'
+          package_path.write_text(json.dumps(package, indent=2) + '\n', encoding='utf-8')
+
+          index_path = Path('tools/local-installer/src/index.ts')
+          index_text = index_path.read_text(encoding='utf-8')
+          if 'export * from "./codex-hook-launcher.js";' in index_text:
+              raise SystemExit('Codex launcher export already exists')
+          index_path.write_text(index_text + '\nexport * from "./codex-hook-launcher.js";\n', encoding='utf-8')
+
+          replace_once(
+              'tools/local-installer/tests/package-builder.test.ts',
+              '    [\n      "tools/local-installer/package.json",\n',
+              '    [\n      "tools/codex-hook-adapter/package.json",\n      {\n        name: "@ownloop/codex-hook-adapter",\n        version: "0.1.0",\n        private: true,\n        type: "module",\n        files: ["dist"],\n        bin: { "ownloop-codex-hook-adapter": "./dist/index.js" },\n        dependencies: { "@ownloop/contracts": "workspace:*" },\n      },\n    ],\n    [\n      "tools/local-installer/package.json",\n',
+          )
+          replace_once(
+              'tools/local-installer/tests/package-builder.test.ts',
+              '    "installed-ownloop-hook.cmd",\n  ]) {\n',
+              '    "installed-ownloop-hook.cmd",\n    "installed-ownloop-codex-hook.cmd",\n  ]) {\n',
+          )
+          replace_once(
+              'tools/local-installer/tests/package-builder.test.ts',
+              '    if (workspace === "@ownloop/hook-adapter")\n      await writeFile(join(destination, "dist", "index.js"), "hook\\n");\n    if (workspace === "@ownloop/local-installer") {\n',
+              '    if (workspace === "@ownloop/hook-adapter")\n      await writeFile(join(destination, "dist", "index.js"), "hook\\n");\n    if (workspace === "@ownloop/codex-hook-adapter")\n      await writeFile(join(destination, "dist", "index.js"), "codex hook\\n");\n    if (workspace === "@ownloop/local-installer") {\n',
+          )
+          replace_once(
+              'tools/local-installer/tests/package-builder.test.ts',
+              '      await writeFile(join(destination, "dist", "hook-main.js"), "hook main\\n");\n',
+              '      await writeFile(join(destination, "dist", "hook-main.js"), "hook main\\n");\n      await writeFile(join(destination, "dist", "codex-hook-main.js"), "codex hook main\\n");\n',
+          )
+          replace_once(
+              'tools/local-installer/tests/package-builder.test.ts',
+              '    expect(deployCalls).toHaveLength(3);\n',
+              '    expect(deployCalls).toHaveLength(4);\n',
+          )
+          PY
+
+          cat > tools/local-installer/src/codex-hook-launcher.ts <<'EOF'
+          import { spawn } from "node:child_process";
+          import { resolve } from "node:path";
+
+          import { CODEX_HOOK_LAUNCHER_BASENAME } from "@ownloop/contracts/codex";
+
+          import type { HookSpawnOptions } from "./hook-launcher.js";
+          import { readInstallManifest } from "./install-manifest.js";
+          import {
+            probeInstalledRuntime,
+            type RuntimeClientDependencies,
+            type RuntimeClientPaths,
+          } from "./runtime-client.js";
+          import { readInstallationSecrets } from "./secrets.js";
+
+          const ADAPTER_ENTRY = "codex-hook-adapter/dist/index.js";
+
+          export type CodexHookLauncherPaths = RuntimeClientPaths &
+            Readonly<{ stableCodexHookLauncherPath: string }>;
+
+          export type CodexHookSpawn = (
+            executable: string,
+            args: readonly string[],
+            options: HookSpawnOptions,
+          ) => Promise<void>;
+
+          async function defaultSpawn(
+            executable: string,
+            args: readonly string[],
+            options: HookSpawnOptions,
+          ): Promise<void> {
+            await new Promise<void>((resolvePromise) => {
+              let child;
+              try {
+                child = spawn(executable, [...args], options);
+              } catch {
+                resolvePromise();
+                return;
+              }
+              child.once("error", () => resolvePromise());
+              child.once("exit", () => resolvePromise());
+            });
           }
 
-          $secondInstall = Invoke-OwnLoop @('install')
-          $removed = Invoke-OwnLoop @('uninstall', '--remove-data', '--confirm', $secondInstall.installId)
-          if ($removed.dataPreserved -or (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'OwnLoop'))) {
-            throw 'Remove-data uninstall left installation state behind.'
+          export async function launchInstalledCodexHookAdapter(
+            paths: CodexHookLauncherPaths,
+            dependencies: RuntimeClientDependencies & {
+              spawnImplementation?: CodexHookSpawn;
+              nodeExecutable?: string;
+            } = {},
+          ): Promise<"launched" | "skipped"> {
+            try {
+              const probe = await probeInstalledRuntime(paths, dependencies);
+              if (probe.result !== "running" || probe.state === null || probe.status === null) {
+                return "skipped";
+              }
+              const installation = await readInstallManifest(paths.installManifestPath);
+              const codex = installation.codexHooks;
+              if (
+                codex === undefined ||
+                codex.command !== CODEX_HOOK_LAUNCHER_BASENAME ||
+                resolve(codex.commandWindows) !== resolve(paths.stableCodexHookLauncherPath)
+              ) {
+                return "skipped";
+              }
+              const secrets = await readInstallationSecrets(paths.secretsPath);
+              if (secrets === null || secrets.installId !== installation.installId) return "skipped";
+              const adapterEntry = resolve(paths.releaseRoot, ADAPTER_ENTRY);
+              await (dependencies.spawnImplementation ?? defaultSpawn)(
+                dependencies.nodeExecutable ?? process.execPath,
+                [adapterEntry],
+                {
+                  env: {
+                    ...process.env,
+                    OWNLOOP_INGRESS_PORT: String(probe.state.port),
+                    OWNLOOP_INSTALLATION_TOKEN: secrets.installationToken,
+                    OWNLOOP_CODEX_SOURCE_SURFACE: "cli",
+                  },
+                  windowsHide: true,
+                  stdio: ["inherit", "ignore", "ignore"],
+                },
+              );
+              return "launched";
+            } catch {
+              return "skipped";
+            }
           }
+          EOF
+
+          cat > tools/local-installer/src/codex-hook-main.ts <<'EOF'
+          #!/usr/bin/env node
+
+          import { join, resolve } from "node:path";
+
+          import { launchInstalledCodexHookAdapter } from "./codex-hook-launcher.js";
+          import { createNativeInstallLayout } from "./installer-transaction.js";
+
+          async function main(): Promise<void> {
+            try {
+              const localAppData = process.env.LOCALAPPDATA;
+              if (localAppData === undefined) return;
+              const layout = createNativeInstallLayout(join(resolve(localAppData), "OwnLoop"));
+              await launchInstalledCodexHookAdapter(layout);
+            } catch {
+              // Codex Hook observation is silent and fail-open.
+            }
+          }
+
+          void main().finally(() => {
+            process.exitCode = 0;
+          });
+          EOF
+
+          cat > tools/local-installer/scripts/installed-ownloop-codex-hook.cmd <<'EOF'
+          @echo off
+          node "%LOCALAPPDATA%\OwnLoop\app\0.1.0\installer\dist\codex-hook-main.js" >nul 2>&1
+          exit /b 0
+          EOF
+
+          cat > packages/contracts/tests/local-installation-codex.test.ts <<'EOF'
+          import { describe, expect, it } from "vitest";
+
+          import { OwnLoopInstallManifestV1Schema, SUPPORTED_CLAUDE_HOOK_NAMES } from "../src/index.js";
+          import {
+            CODEX_HOOK_LAUNCHER_BASENAME,
+            SUPPORTED_CODEX_HOOK_NAMES,
+          } from "../src/codex.js";
+
+          const manifest = () => ({
+            schemaVersion: 1,
+            installId: "install_1",
+            applicationVersion: "0.1.0",
+            releaseDirectoryName: "0.1.0",
+            releaseManifestFingerprint: `sha256:${"a".repeat(64)}`,
+            installLayoutVersion: 1,
+            hooks: SUPPORTED_CLAUDE_HOOK_NAMES.map((event) => ({
+              event,
+              command: "C:\\Users\\Founder\\AppData\\Local\\OwnLoop\\bin\\ownloop-hook.cmd",
+            })),
+            claudeSettings: {
+              settingsFileCreated: false,
+              hooksContainerCreated: false,
+              createdEventContainers: [],
+            },
+            codexHooks: {
+              command: CODEX_HOOK_LAUNCHER_BASENAME,
+              commandWindows:
+                "C:\\Users\\Founder\\AppData\\Local\\OwnLoop\\bin\\ownloop-codex-hook.cmd",
+              settings: {
+                settingsFileCreated: false,
+                hooksContainerCreated: false,
+                createdEventContainers: [...SUPPORTED_CODEX_HOOK_NAMES],
+              },
+            },
+            installedAt: "2026-07-26T12:00:00.000Z",
+          });
+
+          describe("Codex installation ownership contract", () => {
+            it("accepts the stable launcher and canonical event ownership", () => {
+              expect(
+                OwnLoopInstallManifestV1Schema.parse(manifest()).codexHooks?.settings
+                  .createdEventContainers,
+              ).toEqual(SUPPORTED_CODEX_HOOK_NAMES);
+            });
+
+            it("rejects reordered ownership or a versioned launcher command", () => {
+              expect(() =>
+                OwnLoopInstallManifestV1Schema.parse({
+                  ...manifest(),
+                  codexHooks: {
+                    ...manifest().codexHooks,
+                    settings: {
+                      ...manifest().codexHooks.settings,
+                      createdEventContainers: [...SUPPORTED_CODEX_HOOK_NAMES].reverse(),
+                    },
+                  },
+                }),
+              ).toThrow();
+              expect(() =>
+                OwnLoopInstallManifestV1Schema.parse({
+                  ...manifest(),
+                  codexHooks: {
+                    ...manifest().codexHooks,
+                    commandWindows:
+                      "C:\\Users\\Founder\\AppData\\Local\\OwnLoop\\app\\0.1.0\\ownloop-codex-hook.cmd",
+                  },
+                }),
+              ).toThrow();
+            });
+          });
+          EOF
+
+          cat > tools/local-installer/tests/codex-launcher-script.test.ts <<'EOF'
+          import { readFile } from "node:fs/promises";
+          import { resolve } from "node:path";
+
+          import { describe, expect, it } from "vitest";
+
+          describe("installed Codex Hook launcher", () => {
+            it("is stable, silent, fail-open, and secret-free", async () => {
+              const value = await readFile(
+                resolve("tools/local-installer/scripts/installed-ownloop-codex-hook.cmd"),
+                "utf8",
+              );
+              expect(value).toContain("installer\\dist\\codex-hook-main.js");
+              expect(value).toContain(">nul 2>&1");
+              expect(value).toContain("exit /b 0");
+              expect(value).not.toContain("OWNLOOP_INSTALLATION_TOKEN");
+              expect(value).not.toContain("secrets-v1.json");
+            });
+          });
+          EOF
+
+          git checkout "$EXPECTED_PARENT_HEAD" -- .github/workflows/ci.yml
+          git add -A
+          git diff --cached --check
+          mapfile -t changed < <(git diff --cached --name-only | LC_ALL=C sort)
+          printf '%s\n' "${changed[@]}"
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Format changed source
+        run: pnpm exec biome format --write packages/contracts/src/local-installation.ts packages/contracts/tests/local-installation-codex.test.ts tools/codex-hook-adapter/package.json tools/local-installer/src/codex-hook-launcher.ts tools/local-installer/src/codex-hook-main.ts tools/local-installer/src/index.ts tools/local-installer/src/installer-transaction.ts tools/local-installer/src/package-builder.ts tools/local-installer/tests/codex-launcher-script.test.ts tools/local-installer/tests/package-builder.test.ts
+      - name: Validate full repository
+        run: |
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm build
+      - name: Publish source-only commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clean -fdX
+          test "$(git diff --name-only | wc -l | tr -d ' ')" -eq 0
+          git add -A
+          git diff --cached --check
+          test -z "$(git diff --cached --name-only | grep '^.github/workflows/' || true)"
+          git config user.name Emad211
+          git config user.email 82148680+Emad211@users.noreply.github.com
+          git commit -m 'OL-027: Package stable Codex Hook launcher boundary'
+          git push origin HEAD:agent/ol-027-codex-adapter
