@@ -36,15 +36,29 @@ async function fixture() {
   const claudeSettingsPath = join(temp, ".claude", "settings.json");
   await mkdir(join(temp, ".claude"));
   await writeFile(claudeSettingsPath, '{"theme":"dark"}\n');
-  const aclRunner = vi.fn(async (_executable: string, args: readonly string[]) => ({
-    stdout: args.includes("-UserSid")
-      ? ""
-      : JSON.stringify({
-          protected: true,
-          entries: [{ sid: "S-1-5-21-100", type: "Allow", rights: "FullControl" }],
-        }),
-    stderr: "",
-  }));
+  let aclCall = 0;
+  const aclRunner = vi.fn(async () => {
+    aclCall += 1;
+    return {
+      stdout:
+        aclCall % 2 === 1
+          ? ""
+          : JSON.stringify({
+              protected: true,
+              entries: [
+                {
+                  sid: "S-1-5-21-100",
+                  type: "Allow",
+                  rights: "FullControl",
+                  inheritance: "ContainerInherit, ObjectInherit",
+                  propagation: "None",
+                  inherited: false,
+                },
+              ],
+            }),
+      stderr: "",
+    };
+  });
   return { temp, packageRoot, layout, claudeSettingsPath, aclRunner };
 }
 
