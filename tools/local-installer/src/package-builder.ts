@@ -46,7 +46,7 @@ export type PackageBuildInvocationOptions = Readonly<{
   nodeExecutable?: string;
 }>;
 
-const PNPM_JAVASCRIPT_ENTRYPOINT_PATTERN = /(?:^|\/)pnpm(?:\.cjs|\.js)$/iu;
+const PNPM_JAVASCRIPT_ENTRYPOINT_PATTERN = /(?:^|\/)pnpm(?:\.cjs|\.mjs|\.js)$/iu;
 
 export function resolvePackageBuildInvocation(
   executable: string,
