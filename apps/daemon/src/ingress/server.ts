@@ -22,11 +22,12 @@ import {
   type CodexCapabilityEnvironmentFacts,
   registerCodexCapabilityRoute,
 } from "../codex-capability/index.js";
+import { getDistinctRequestHeaderValues } from "../http-headers.js";
 import { diagnosticsError, registerDiagnosticsRoutes } from "../diagnostics-dashboard/index.js";
 import {
-  type LocalSettingsService,
   localSettingsError,
   registerLocalSettingsRoutes,
+  type LocalSettingsService,
 } from "../local-settings/index.js";
 import type {
   NewPreparedIngressReceipt,
@@ -35,6 +36,11 @@ import type {
 } from "../persistence/index.js";
 import { PersistenceDeduplicationConflictError, PersistenceError } from "../persistence/index.js";
 import { createContainedStaticSite, registerReplayRoutes, replayError } from "../replay/index.js";
+import {
+  registerRuntimeRoutes,
+  runtimeError,
+  type RuntimeRouteController,
+} from "../runtime/routes.js";
 import { createInstallationTokenVerifier } from "./auth.js";
 import { CODEX_INGRESS_ROUTE, registerCodexIngressRoute } from "./codex-route.js";
 import { emitIngressDiagnostic, type IngressDiagnosticSink } from "./diagnostics.js";
@@ -69,6 +75,7 @@ export type IngressServerDependencies = Readonly<{
     artifactStore: Pick<LocalArtifactStore, "readPreparedBytes">;
     webRoot?: string;
   }>;
+  runtime?: Readonly<{ controller: RuntimeRouteController }>;
 }>;
 
 export type IngressServerAddress = Readonly<{
@@ -78,7 +85,7 @@ export type IngressServerAddress = Readonly<{
 }>;
 
 function isJsonRequest(request: FastifyRequest): boolean {
-  const values = request.raw.headersDistinct["content-type"];
+  const values = getDistinctRequestHeaderValues(request, "content-type");
   if (values === undefined || values.length !== 1) {
     return false;
   }
@@ -200,6 +207,15 @@ export function createLoopbackIngressServer(
       return;
     }
     const mapped = mapFrameworkError(error);
+    if (/^\/v1\/runtime(?:\/|$)/u.test(request.url)) {
+      const status = mapped.statusCode === 413 ? 413 : mapped.statusCode === 415 ? 415 : 400;
+      void reply
+        .code(status)
+        .header("Cache-Control", "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .send(runtimeError("invalid_request"));
+      return;
+    }
     if (/^\/v1\/settings(?:\/|$)/u.test(request.url)) {
       const status = mapped.statusCode === 413 ? 413 : mapped.statusCode === 415 ? 415 : 400;
       void reply
@@ -222,6 +238,12 @@ export function createLoopbackIngressServer(
     sendRejected(reply, mapped.statusCode, mapped.code, diagnostics);
   });
 
+  if (dependencies.runtime !== undefined) {
+    registerRuntimeRoutes(server, {
+      controller: dependencies.runtime.controller,
+      tokenVerifier,
+    });
+  }
   if (dependencies.settings !== undefined) {
     registerLocalSettingsRoutes(server, { service: dependencies.settings, tokenVerifier });
   }
@@ -266,6 +288,14 @@ export function createLoopbackIngressServer(
   const staticSite = createContainedStaticSite(dependencies.replay?.webRoot);
 
   server.setNotFoundHandler((request, reply) => {
+    if (request.url.startsWith("/v1/runtime")) {
+      void reply
+        .code(404)
+        .header("Cache-Control", "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .send(runtimeError("invalid_request"));
+      return;
+    }
     if (request.url.startsWith("/v1/diagnostics")) {
       void reply
         .code(404)

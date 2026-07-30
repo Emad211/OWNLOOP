@@ -157,9 +157,9 @@ describe("projectDiagnosticsDashboard", () => {
     expect(first).toEqual(second);
     expect(first.dashboardFingerprint).toBe(dashboard.fingerprint);
     expect(first.applicationVersions).toEqual({
-      app: "0.0.0",
-      contracts: "0.0.0",
-      daemon: "0.0.0",
+      app: "0.1.0",
+      contracts: "0.1.0",
+      daemon: "0.1.0",
     });
     expect(first.fingerprint).toMatch(/^sha256:[0-9a-f]{64}$/u);
     const dashboardBytes = JSON.stringify(first.dashboard);

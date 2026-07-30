@@ -1,6 +1,6 @@
 {
   "name": "ownloop",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.4.0",
@@ -15,7 +15,8 @@
     "lint": "biome lint apps packages tools",
     "typecheck": "pnpm --recursive --if-present run typecheck && tsc -p tsconfig.test.json",
     "test": "vitest run",
-    "build": "pnpm --recursive --if-present run build"
+    "build": "pnpm --recursive --if-present run build",
+    "package:windows": "pnpm --filter @ownloop/local-installer... run build && node tools/local-installer/dist/build-package.js"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.4",

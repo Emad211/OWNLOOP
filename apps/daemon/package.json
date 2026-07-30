@@ -1,6 +1,6 @@
 {
   "name": "@ownloop/daemon",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,5 +13,11 @@
     "@ownloop/event-model": "workspace:*",
     "@ownloop/ingress-security": "workspace:*",
     "fastify": "5.10.0"
+  },
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "ownloop-daemon": "./dist/main.js"
   }
 }

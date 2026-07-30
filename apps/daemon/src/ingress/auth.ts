@@ -3,6 +3,8 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 import type { FastifyRequest } from "fastify";
 
+import { getDistinctRequestHeaderValues } from "../http-headers.js";
+
 const MINIMUM_INSTALLATION_TOKEN_BYTES = 32;
 const BASE64URL_TOKEN_PATTERN = /^[A-Za-z0-9_-]+$/;
 const BEARER_PATTERN = /^Bearer ([A-Za-z0-9_-]+)$/;
@@ -41,7 +43,7 @@ export function createInstallationTokenVerifier(
 
   return Object.freeze({
     verifyRequest(request: FastifyRequest): boolean {
-      const values = request.raw.headersDistinct.authorization;
+      const values = getDistinctRequestHeaderValues(request, "authorization");
       if (values === undefined || values.length !== 1) {
         return false;
       }
