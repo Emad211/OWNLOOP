@@ -38,21 +38,19 @@ jobs:
       - name: Apply content-addressed package boundary patch
         shell: bash
         env:
-          PERMANENT_CI_HEAD: 33ab7b870bba0509f6d551f690f284f58f143026
           EXPECTED_FINALIZER_BLOB: ed198b166778cf80194157cbcb6c8df642e85cd4
         run: |
           set -euo pipefail
           parent="$(git rev-parse HEAD^)"
           test "$(git diff --name-only "$parent" HEAD)" = '.ol027-package-boundary-trigger.txt'
           test "$(git rev-parse HEAD^:.ol027-package-finalizer.py)" = "$EXPECTED_FINALIZER_BLOB"
-          git fetch --no-tags --depth=1 origin "$PERMANENT_CI_HEAD"
-          test "$(git rev-parse FETCH_HEAD)" = "$PERMANENT_CI_HEAD"
-          python .ol027-package-finalizer.py
-          git checkout "$PERMANENT_CI_HEAD" -- .github/workflows/ci.yml
+          python -u .ol027-package-finalizer.py
+          echo 'package-boundary-patch=applied'
           rm -f .ol027-package-finalizer.py .ol027-package-boundary-trigger.txt
           git add -A
           git diff --cached --check
           test -z "$(git diff --cached --name-only | grep '^.github/workflows/' || true)"
+          git diff --cached --name-only | LC_ALL=C sort
 
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
