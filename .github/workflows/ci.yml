@@ -43,3 +43,184 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  windows-package-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build verified Windows package
+        run: pnpm package:windows
+
+      - name: Smoke-test private Windows ACL boundary
+        run: pnpm vitest run tools/local-installer/tests/windows-acl.integration.test.ts
+
+      - name: Prepare isolated install environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $packageRoot = (Resolve-Path 'dist/ownloop-windows-0.1.0').Path
+          $localAppData = Join-Path $env:RUNNER_TEMP 'ownloop-localappdata'
+          $userProfile = Join-Path $env:RUNNER_TEMP 'ownloop-userprofile'
+          New-Item -ItemType Directory -Force -Path $localAppData, $userProfile | Out-Null
+          "OWNLOOP_PACKAGE_ROOT=$packageRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "LOCALAPPDATA=$localAppData" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "USERPROFILE=$userProfile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Install and preflight installed daemon
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cli = Join-Path $env:OWNLOOP_PACKAGE_ROOT 'installer/dist/cli.js'
+
+          function Invoke-OwnLoop([string[]] $CommandArguments) {
+            $raw = @(& node $cli @CommandArguments)
+            $code = $LASTEXITCODE
+            if ($raw.Count -ne 1) {
+              throw 'OwnLoop returned an invalid output shape.'
+            }
+            $result = $raw[0] | ConvertFrom-Json
+            if ($code -ne 0 -or -not $result.ok) {
+              throw "OwnLoop command failed with controlled code: $($result.error.code)"
+            }
+            return $result
+          }
+
+          $firstInstall = Invoke-OwnLoop @('install')
+          if ([string]::IsNullOrWhiteSpace($firstInstall.installId)) {
+            throw 'Install ID was not returned.'
+          }
+          $hooks = Invoke-OwnLoop @('hooks', 'status')
+          if ($hooks.status -ne 'installed') {
+            throw 'Claude hooks are not installed.'
+          }
+
+          $settingsPath = Join-Path $env:USERPROFILE '.claude/settings.json'
+          $settingsText = Get-Content -LiteralPath $settingsPath -Raw
+          foreach ($forbidden in @('OWNLOOP_INGRESS_PORT', 'OWNLOOP_INSTALLATION_TOKEN', 'secrets-v1.json', 'app\0.1.0')) {
+            if ($settingsText.Contains($forbidden)) {
+              throw 'Claude settings contain forbidden installation data.'
+            }
+          }
+
+          $daemonEntry = Join-Path $env:LOCALAPPDATA 'OwnLoop/app/0.1.0/daemon/dist/main.js'
+          $preflightPath = Join-Path $env:RUNNER_TEMP 'ownloop-daemon-preflight.mjs'
+          @'
+          import { pathToFileURL } from "node:url";
+          try {
+            const daemon = await import(pathToFileURL(process.argv[2]).href);
+            const runtime = await daemon.runInstalledDaemon();
+            await runtime.shutdown();
+            await new Promise((resolve) => setImmediate(resolve));
+            process.stdout.write(
+              `${JSON.stringify({
+                ok: true,
+                activeResources: process.getActiveResourcesInfo().sort(),
+              })}\n`,
+            );
+          } catch (error) {
+            const result = {
+              ok: false,
+              error: {
+                name: error instanceof Error ? error.name : "UnknownError",
+                code:
+                  typeof error === "object" && error !== null && "code" in error
+                    ? String(error.code)
+                    : null,
+                message: error instanceof Error ? error.message : "Unknown startup failure",
+              },
+            };
+            process.stderr.write(`${JSON.stringify(result)}\n`);
+            process.exitCode = 1;
+          }
+          '@ | Set-Content -LiteralPath $preflightPath -Encoding utf8NoBOM
+
+          $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+          $startInfo.FileName = (Get-Command node).Source
+          $startInfo.UseShellExecute = $false
+          $startInfo.RedirectStandardOutput = $true
+          $startInfo.RedirectStandardError = $true
+          $startInfo.ArgumentList.Add($preflightPath)
+          $startInfo.ArgumentList.Add($daemonEntry)
+          $process = [System.Diagnostics.Process]::new()
+          $process.StartInfo = $startInfo
+          if (-not $process.Start()) {
+            throw 'Installed daemon preflight process did not start.'
+          }
+          if (-not $process.WaitForExit(30000)) {
+            $process.Kill($true)
+            $process.WaitForExit()
+            $stdout = $process.StandardOutput.ReadToEnd().Trim()
+            $stderr = $process.StandardError.ReadToEnd().Trim()
+            throw "Installed daemon preflight timed out. stdout=$stdout stderr=$stderr"
+          }
+          $stdout = $process.StandardOutput.ReadToEnd().Trim()
+          $stderr = $process.StandardError.ReadToEnd().Trim()
+          if ($process.ExitCode -ne 0) {
+            throw "Installed daemon preflight failed. stdout=$stdout stderr=$stderr"
+          }
+          $lines = @($stdout -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+          if ($lines.Count -ne 1) {
+            throw 'Installed daemon preflight returned an invalid output shape.'
+          }
+          $preflightResult = $lines[0] | ConvertFrom-Json
+          if (-not $preflightResult.ok) {
+            throw 'Installed daemon preflight returned failure.'
+          }
+          Write-Host "Installed daemon preflight completed; active resources: $($preflightResult.activeResources -join ', ')"
+
+      - name: Smoke-test runtime lifecycle and uninstall modes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cli = Join-Path $env:OWNLOOP_PACKAGE_ROOT 'installer/dist/cli.js'
+
+          function Invoke-OwnLoop([string[]] $CommandArguments) {
+            Write-Host "Running OwnLoop command: $($CommandArguments -join ' ')"
+            $raw = @(& node $cli @CommandArguments)
+            $code = $LASTEXITCODE
+            if ($raw.Count -ne 1) {
+              throw 'OwnLoop returned an invalid output shape.'
+            }
+            $result = $raw[0] | ConvertFrom-Json
+            if ($code -ne 0 -or -not $result.ok) {
+              throw "OwnLoop command failed with controlled code: $($result.error.code)"
+            }
+            return $result
+          }
+
+          $started = Invoke-OwnLoop @('start')
+          if ([string]::IsNullOrWhiteSpace($started.instanceId)) {
+            throw 'Runtime instance ID was not returned.'
+          }
+          $status = Invoke-OwnLoop @('status')
+          if ($status.phase -ne 'ready' -or $status.instanceId -ne $started.instanceId) {
+            throw 'Runtime status does not match the started instance.'
+          }
+          Invoke-OwnLoop @('stop') | Out-Null
+
+          $preserved = Invoke-OwnLoop @('uninstall', '--preserve-data')
+          if (-not $preserved.dataPreserved -or -not (Test-Path -LiteralPath $preserved.dataPath)) {
+            throw 'Preserve-data uninstall did not preserve durable data.'
+          }
+
+          $secondInstall = Invoke-OwnLoop @('install')
+          $removed = Invoke-OwnLoop @('uninstall', '--remove-data', '--confirm', $secondInstall.installId)
+          if ($removed.dataPreserved -or (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'OwnLoop'))) {
+            throw 'Remove-data uninstall left installation state behind.'
+          }

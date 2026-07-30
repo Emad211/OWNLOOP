@@ -8,12 +8,12 @@ The project observes a coding-agent Task Run, captures verifiable changes and ev
 
 ## Current status
 
-- Stage: v0.1 diagnostics and evidence-quality dashboard
+- Stage: v0.1 Windows local runtime, packaging, and Claude Code Hook installation
 - Product scope: proposed v0.1
 - First coding-agent adapter: Claude Code
 - First project languages: JavaScript and TypeScript
 - Runtime model: local single-user prototype
-- Repository state: trustworthy deterministic evidence foundation, finite validated Ownership Moments, durable append-only local interaction history, deterministic enriched Build Replay, accepted local settings/privacy controls, and a sanitized diagnostics/evidence-quality dashboard in development
+- Repository state: the accepted evidence, Moment, interaction, replay, privacy, and diagnostics layers are being composed into one verified per-user Windows runtime and installer
 
 ## Local setup
 
@@ -36,10 +36,46 @@ Start the daemon bootstrap and React development viewer together:
 pnpm dev
 ```
 
-The React page renders the Raw Replay connection shell. Authenticated Run data is available when a
-caller constructs the existing loopback server with persistence, the OL-010 artifact store, and the
-optional built web root. Production startup configuration remains explicit; the daemon entrypoint does
-not invent database, token, artifact-root, listener, or provider settings.
+The development command starts the daemon and React viewer workspaces. The production entrypoint is
+reserved for an installed, manifest-verified Windows layout and never invents credentials, data paths,
+release identity, or provider settings.
+
+## Windows v0.1 package and installation
+
+The supported founder path is native Windows 10/11 x64 with PowerShell 5.1 or newer, Node.js exactly
+`24.18.0`, Git for Windows, and Claude Code installed for the current user. WSL, macOS, Linux, ARM64,
+MSI/MSIX, services, scheduled tasks, admin/system-wide installation, and auto-update are not part of
+OL-025.
+
+From a frozen clean checkout, build and verify the release directory:
+
+```powershell
+pnpm package:windows
+Set-Location .\dist\ownloop-windows-0.1.0
+node.exe .\installer\dist\cli.js install
+```
+
+The install response returns the non-secret `installId` needed only when explicitly removing durable
+data. Stable commands are then available through:
+
+```powershell
+& "$env:LOCALAPPDATA\OwnLoop\bin\ownloop.cmd" start
+& "$env:LOCALAPPDATA\OwnLoop\bin\ownloop.cmd" status
+& "$env:LOCALAPPDATA\OwnLoop\bin\ownloop.cmd" open
+& "$env:LOCALAPPDATA\OwnLoop\bin\ownloop.cmd" stop
+& "$env:LOCALAPPDATA\OwnLoop\bin\ownloop.cmd" hooks status
+& "$env:LOCALAPPDATA\OwnLoop\bin\ownloop.cmd" uninstall --preserve-data
+```
+
+Permanent data removal is a separate explicit operation:
+
+```powershell
+& "$env:LOCALAPPDATA\OwnLoop\bin\ownloop.cmd" uninstall --remove-data --confirm <installId>
+```
+
+The installer modifies only the current user's Claude settings, adds exactly nine supported Hook events,
+preserves unrelated settings and Hooks, and stores no credential or port there. Application bytes,
+credentials, durable data, and runtime state remain separated under `%LOCALAPPDATA%\OwnLoop`.
 
 ## Verification
 
@@ -91,6 +127,7 @@ The shared packages provide strict ingress, Event, Raw Replay, change-classifica
 - [ADR-0024: Deterministic Enriched Build Replay](docs/adr/0024-deterministic-enriched-build-replay.md)
 - [ADR-0025: Local Settings and Privacy Controls](docs/adr/0025-local-settings-and-privacy-controls.md)
 - [ADR-0026: Sanitized Diagnostics and Evidence-Quality Dashboard](docs/adr/0026-sanitized-diagnostics-and-evidence-quality-dashboard.md)
+- [ADR-0027: Per-User Windows Runtime and Claude Code Hooks](docs/adr/0027-windows-local-installation-runtime-and-hook-orchestration.md)
 
 ### Architecture
 
@@ -117,6 +154,7 @@ Claude Code hook
 → deterministic enriched Build Replay
 → local settings, privacy controls, explicit retention, and Run deletion
 → sanitized diagnostics and evidence-quality dashboard
+→ verified per-user Windows runtime, package, and Claude Hook installation
 ```
 
 Candidate generation is an explicit, disabled-by-default proposal boundary. Provider output is never treated as evidence. OL-019 validates and finitely selects source Candidates; OL-020 joins only that verified selection and renders proposal wording separately from deterministic support. OL-021 records only explicit actions against exact displayed Moments as append-only local history. A stored action attests to recording, not comprehension, correctness, agreement, authorship, safety, or legal ownership.
@@ -127,6 +165,13 @@ The project is currently maintained by a one-person team. Architecture and scope
 
 ## Current milestone
 
-OL-024 adds an observational diagnostics and evidence-quality surface on top of the accepted settings/privacy boundary. The dashboard combines only allowlisted process-lifetime counters, validated persisted redaction summaries, controlled Run/finalization/Evidence-gap facts, and verified current-policy OL-019 validation reports. It displays bounded exact aggregates and recent Run-quality rows without reading payload JSON, prompts, repository/source content, Candidate prose, Evidence IDs/text, provider data, secrets, exceptions, or stacks.
+OL-025 turns the accepted modules into one locally runnable Windows product. It adds strict release and
+installation contracts, a serialized bounded runtime pump, production composition on the existing
+authenticated loopback listener, atomic non-secret runtime state, exact-instance status/shutdown,
+manifest-verified package and installed bytes, current-user-only installation credentials, safe Claude
+user-settings merge/removal, stable fail-open Hook launchers, and explicit data-preserving or confirmed
+data-removing uninstall.
 
-The sanitized diagnostic bundle is generated in memory on explicit authenticated GET, returned as bounded canonical JSON with fixed exclusion declarations, and immediately downloaded through an ephemeral browser object URL. No migration, diagnostics table, bundle artifact, raw-log archive, worker, scheduler, provider call, new listener, CORS surface, browser storage, cloud, analytics, telemetry, billing, or account system is introduced.
+Provider generation remains disabled by default and provider keys remain memory-only. No migration,
+second listener, Windows Service, scheduled task, admin installation, auto-update, force-kill, CORS,
+cloud state, analytics, telemetry, billing, account system, or new production dependency is introduced.

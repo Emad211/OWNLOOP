@@ -724,3 +724,6 @@ export {
   LocalSettingsResponseV1Schema,
   LocalSettingsUpdateRequestV1Schema,
 } from "./local-settings.js";
+
+export * from "./local-installation.js";
+export * from "./strict-json.js";

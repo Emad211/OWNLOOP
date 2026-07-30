@@ -12,6 +12,8 @@ import {
 } from "@ownloop/contracts";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
+import { getDistinctRequestHeaderValues } from "../http-headers.js";
+
 import type { InstallationTokenVerifier } from "../ingress/index.js";
 import { LocalSettingsServiceError } from "./errors.js";
 import type { LocalSettingsService } from "./service.js";
@@ -40,7 +42,7 @@ function unauthorized(reply: FastifyReply): void {
 }
 
 function isJsonRequest(request: FastifyRequest): boolean {
-  const values = request.raw.headersDistinct["content-type"];
+  const values = getDistinctRequestHeaderValues(request, "content-type");
   return (
     values !== undefined &&
     values.length === 1 &&
