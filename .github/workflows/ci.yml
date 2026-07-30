@@ -70,16 +70,23 @@ jobs:
       - name: Smoke-test private Windows ACL boundary
         run: pnpm vitest run tools/local-installer/tests/windows-acl.integration.test.ts
 
-      - name: Smoke-test install, runtime, hooks, and uninstall
+      - name: Prepare isolated install environment
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $packageRoot = (Resolve-Path 'dist/ownloop-windows-0.1.0').Path
-          $cli = Join-Path $packageRoot 'installer/dist/cli.js'
-          $env:OWNLOOP_PACKAGE_ROOT = $packageRoot
-          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'ownloop-localappdata'
-          $env:USERPROFILE = Join-Path $env:RUNNER_TEMP 'ownloop-userprofile'
-          New-Item -ItemType Directory -Force -Path $env:LOCALAPPDATA, $env:USERPROFILE | Out-Null
+          $localAppData = Join-Path $env:RUNNER_TEMP 'ownloop-localappdata'
+          $userProfile = Join-Path $env:RUNNER_TEMP 'ownloop-userprofile'
+          New-Item -ItemType Directory -Force -Path $localAppData, $userProfile | Out-Null
+          "OWNLOOP_PACKAGE_ROOT=$packageRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "LOCALAPPDATA=$localAppData" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "USERPROFILE=$userProfile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Install and preflight installed daemon
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cli = Join-Path $env:OWNLOOP_PACKAGE_ROOT 'installer/dist/cli.js'
 
           function Invoke-OwnLoop([string[]] $CommandArguments) {
             $raw = @(& node $cli @CommandArguments)
@@ -112,13 +119,20 @@ jobs:
           }
 
           $daemonEntry = Join-Path $env:LOCALAPPDATA 'OwnLoop/app/0.1.0/daemon/dist/main.js'
-          $preflightScript = @'
+          $preflightPath = Join-Path $env:RUNNER_TEMP 'ownloop-daemon-preflight.mjs'
+          @'
           import { pathToFileURL } from "node:url";
           try {
-            const daemon = await import(pathToFileURL(process.argv[1]).href);
+            const daemon = await import(pathToFileURL(process.argv[2]).href);
             const runtime = await daemon.runInstalledDaemon();
             await runtime.shutdown();
-            process.stdout.write(`${JSON.stringify({ ok: true })}\n`);
+            await new Promise((resolve) => setImmediate(resolve));
+            process.stdout.write(
+              `${JSON.stringify({
+                ok: true,
+                activeResources: process.getActiveResourcesInfo().sort(),
+              })}\n`,
+            );
           } catch (error) {
             const result = {
               ok: false,
@@ -134,14 +148,60 @@ jobs:
             process.stderr.write(`${JSON.stringify(result)}\n`);
             process.exitCode = 1;
           }
-          '@
-          $preflight = @(& node --input-type=module -e $preflightScript $daemonEntry 2>&1)
-          if ($LASTEXITCODE -ne 0 -or $preflight.Count -ne 1) {
-            throw "Installed daemon preflight failed: $($preflight -join ' ')"
+          '@ | Set-Content -LiteralPath $preflightPath -Encoding utf8NoBOM
+
+          $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+          $startInfo.FileName = (Get-Command node).Source
+          $startInfo.UseShellExecute = $false
+          $startInfo.RedirectStandardOutput = $true
+          $startInfo.RedirectStandardError = $true
+          $startInfo.ArgumentList.Add($preflightPath)
+          $startInfo.ArgumentList.Add($daemonEntry)
+          $process = [System.Diagnostics.Process]::new()
+          $process.StartInfo = $startInfo
+          if (-not $process.Start()) {
+            throw 'Installed daemon preflight process did not start.'
           }
-          $preflightResult = $preflight[0] | ConvertFrom-Json
+          if (-not $process.WaitForExit(30000)) {
+            $process.Kill($true)
+            $process.WaitForExit()
+            $stdout = $process.StandardOutput.ReadToEnd().Trim()
+            $stderr = $process.StandardError.ReadToEnd().Trim()
+            throw "Installed daemon preflight timed out. stdout=$stdout stderr=$stderr"
+          }
+          $stdout = $process.StandardOutput.ReadToEnd().Trim()
+          $stderr = $process.StandardError.ReadToEnd().Trim()
+          if ($process.ExitCode -ne 0) {
+            throw "Installed daemon preflight failed. stdout=$stdout stderr=$stderr"
+          }
+          $lines = @($stdout -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+          if ($lines.Count -ne 1) {
+            throw 'Installed daemon preflight returned an invalid output shape.'
+          }
+          $preflightResult = $lines[0] | ConvertFrom-Json
           if (-not $preflightResult.ok) {
             throw 'Installed daemon preflight returned failure.'
+          }
+          Write-Host "Installed daemon preflight completed; active resources: $($preflightResult.activeResources -join ', ')"
+
+      - name: Smoke-test runtime lifecycle and uninstall modes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cli = Join-Path $env:OWNLOOP_PACKAGE_ROOT 'installer/dist/cli.js'
+
+          function Invoke-OwnLoop([string[]] $CommandArguments) {
+            Write-Host "Running OwnLoop command: $($CommandArguments -join ' ')"
+            $raw = @(& node $cli @CommandArguments)
+            $code = $LASTEXITCODE
+            if ($raw.Count -ne 1) {
+              throw 'OwnLoop returned an invalid output shape.'
+            }
+            $result = $raw[0] | ConvertFrom-Json
+            if ($code -ne 0 -or -not $result.ok) {
+              throw "OwnLoop command failed with controlled code: $($result.error.code)"
+            }
+            return $result
           }
 
           $started = Invoke-OwnLoop @('start')
