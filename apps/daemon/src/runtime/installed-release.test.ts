@@ -10,6 +10,7 @@ import { SUPPORTED_CLAUDE_HOOK_NAMES, type OwnLoopReleaseManifestV1 } from "@own
 import { runInstalledDaemon } from "../main.js";
 import {
   InstalledReleaseError,
+  buildInstalledAclVerificationCommand,
   deriveInstalledRuntimePaths,
   loadVerifiedInstalledRuntime,
 } from "./installed-release.js";
@@ -99,6 +100,20 @@ async function createInstalledFixture() {
 }
 
 describe("installed release verification", () => {
+  it("constructs an encoded module-independent startup ACL command", () => {
+    const configRoot = "C:\\Users\\Fixture User\\AppData\\Local\\OwnLoop\\config";
+    const secretsPath = `${configRoot}\\secrets-v1.json`;
+    const command = buildInstalledAclVerificationCommand(configRoot, secretsPath);
+    expect(command.slice(0, 3)).toEqual(["-NoProfile", "-NonInteractive", "-EncodedCommand"]);
+    expect(command).toHaveLength(4);
+    const script = Buffer.from(command[3]!, "base64").toString("utf16le");
+    expect(script).toContain("[System.IO.Directory]::GetAccessControl");
+    expect(script).toContain("[System.IO.File]::GetAccessControl");
+    expect(script).not.toMatch(/\b(?:Get-Acl|Set-Acl|ConvertTo-Json|ForEach-Object)\b/u);
+    expect(script).not.toContain(configRoot);
+    expect(script).not.toContain(secretsPath);
+  });
+
   it("verifies exact package, installation identity, fixed Hook command, and ACL boundary", async () => {
     const fixture = await createInstalledFixture();
     const result = await loadVerifiedInstalledRuntime({
