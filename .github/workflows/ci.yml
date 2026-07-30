@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - agent/ol-027-codex-adapter
   pull_request:
 
 permissions:
@@ -43,3 +44,41 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  diagnose-main-merge:
+    if: github.event_name == 'push' && github.ref_name == 'agent/ol-027-codex-adapter'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact branch
+        uses: actions/checkout@v7
+        with:
+          ref: agent/ol-027-codex-adapter
+          fetch-depth: 0
+
+      - name: Report exact three-way conflicts
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          git config user.name Emad211
+          git config user.email 82148680+Emad211@users.noreply.github.com
+          set +e
+          git merge --no-commit --no-ff origin/main
+          merge_code=$?
+          set -e
+          if [ "$merge_code" -eq 0 ]; then
+            echo 'merge-clean=true'
+            echo 'staged-start'
+            git diff --cached --name-only | LC_ALL=C sort
+            echo 'staged-end'
+          else
+            echo 'merge-clean=false'
+            echo 'conflicts-start'
+            git diff --name-only --diff-filter=U | LC_ALL=C sort
+            echo 'conflicts-end'
+            echo 'staged-non-conflicts-start'
+            git diff --cached --name-only | LC_ALL=C sort
+            echo 'staged-non-conflicts-end'
+          fi
+          git merge --abort
