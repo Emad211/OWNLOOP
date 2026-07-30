@@ -45,6 +45,16 @@ jobs:
           test "$(git diff --name-only "$parent" HEAD)" = '.ol027-package-boundary-trigger.txt'
           test "$(git rev-parse HEAD^:.ol027-package-finalizer.py)" = "$EXPECTED_FINALIZER_BLOB"
           python -u .ol027-package-finalizer.py
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tools/local-installer/src/codex-hook-launcher.ts')
+          source = path.read_text(encoding='utf-8')
+          old = '    let child;\n'
+          new = '    let child: ReturnType<typeof spawn>;\n'
+          if source.count(old) != 1:
+              raise SystemExit('unexpected Codex child-process type anchor')
+          path.write_text(source.replace(old, new), encoding='utf-8')
+          PY
           echo 'package-boundary-patch=applied'
           rm -f .ol027-package-finalizer.py .ol027-package-boundary-trigger.txt
           git add -A
