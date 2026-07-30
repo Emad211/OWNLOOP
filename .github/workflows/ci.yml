@@ -22,7 +22,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: agent/ol-027-codex-adapter
-          fetch-depth: 2
+          fetch-depth: 4
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -38,13 +38,14 @@ jobs:
       - name: Apply content-addressed package boundary patch
         shell: bash
         env:
-          EXPECTED_PARENT_HEAD: 562f34243c104da3f77dcd40fec4b9394e774b96
           PERMANENT_CI_HEAD: 33ab7b870bba0509f6d551f690f284f58f143026
+          EXPECTED_FINALIZER_BLOB: ed198b166778cf80194157cbcb6c8df642e85cd4
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT_HEAD"
-          test "$(git diff --name-only "$EXPECTED_PARENT_HEAD" HEAD)" = '.ol027-package-boundary-trigger.txt'
-          test "$(sha256sum .ol027-package-finalizer.py | cut -d' ' -f1)" = 'b5c20169968e2bf4b3b22e3f746558544579bc9c71cb3699663639b0085a0667'
+          parent="$(git rev-parse HEAD^)"
+          test "$(git diff --name-only "$parent" HEAD)" = '.ol027-package-boundary-trigger.txt'
+          test "$(git rev-parse HEAD^:.ol027-package-finalizer.py)" = "$EXPECTED_FINALIZER_BLOB"
+          git merge-base --is-ancestor "$PERMANENT_CI_HEAD" HEAD
           python .ol027-package-finalizer.py
           git checkout "$PERMANENT_CI_HEAD" -- .github/workflows/ci.yml
           rm -f .ol027-package-finalizer.py .ol027-package-boundary-trigger.txt
