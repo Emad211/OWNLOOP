@@ -1,0 +1,152 @@
+name: Finalize OL-025 Windows path runner
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: finalize-ol025-windows-path-runner
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'agent/ol-025-windows-installation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact PR branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+          run_install: false
+
+      - name: Apply bounded Windows path fix
+        shell: bash
+        env:
+          EXPECTED_PARENT_HEAD: d9ed1ec837035f73c3f09f31aef4e8b78b2bc017
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT_HEAD"
+          test "$(git diff --name-only "$EXPECTED_PARENT_HEAD" HEAD)" = '.github/workflows/finalize-ol025-windows-path-runner.yml'
+
+          python - <<'PY'
+          from pathlib import Path
+
+          source_path = Path('tools/local-installer/src/package-builder.ts')
+          source = source_path.read_text(encoding='utf-8')
+          old_import = 'import { isAbsolute, join, relative, resolve, sep } from "node:path";'
+          new_import = 'import { isAbsolute, join, relative, resolve, sep, win32 } from "node:path";'
+          if source.count(old_import) != 1:
+              raise SystemExit('unexpected node:path import anchor')
+          source = source.replace(old_import, new_import)
+
+          start = source.index('const PNPM_JAVASCRIPT_ENTRYPOINT_PATTERN = ')
+          end = source.index('\n\nasync function defaultRunner', start)
+          replacement = '''const PNPM_JAVASCRIPT_ENTRYPOINT_PATTERN = /(?:^|\\/)pnpm(?:\\.cjs|\\.js)$/iu;
+
+          export function resolvePackageBuildInvocation(
+            executable: string,
+            args: readonly string[],
+            options: PackageBuildInvocationOptions = {},
+          ): PackageBuildInvocation {
+            if ((options.platform ?? process.platform) !== "win32" || executable !== "pnpm") {
+              return Object.freeze({ executable, args: Object.freeze([...args]) });
+            }
+
+            const environment = options.environment ?? process.env;
+            const pnpmEntrypoint = environment.npm_execpath;
+            const nodeExecutable = options.nodeExecutable ?? process.execPath;
+            const normalizedPnpmEntrypoint = pnpmEntrypoint?.replaceAll("\\\\", "/");
+            if (
+              pnpmEntrypoint === undefined ||
+              normalizedPnpmEntrypoint === undefined ||
+              !win32.isAbsolute(pnpmEntrypoint) ||
+              pnpmEntrypoint.includes("\\0") ||
+              !PNPM_JAVASCRIPT_ENTRYPOINT_PATTERN.test(normalizedPnpmEntrypoint) ||
+              !win32.isAbsolute(nodeExecutable) ||
+              nodeExecutable.includes("\\0")
+            ) {
+              throw new PackageBuilderError("runtime_incompatible");
+            }
+
+            return Object.freeze({
+              executable: win32.resolve(nodeExecutable),
+              args: Object.freeze([win32.resolve(pnpmEntrypoint), ...args]),
+            });
+          }'''
+          source = source[:start] + replacement + source[end:]
+          source_path.write_text(source, encoding='utf-8')
+
+          test_path = Path('tools/local-installer/tests/package-command.test.ts')
+          tests = test_path.read_text(encoding='utf-8')
+          tests = tests.replace(
+              'environment: { npm_execpath: "/pnpm/bin/pnpm.cjs" },\n        nodeExecutable: "/node/node.exe",',
+              'environment: { npm_execpath: "C:\\\\pnpm\\\\bin\\\\pnpm.cjs" },\n        nodeExecutable: "C:\\\\node\\\\node.exe",',
+          )
+          tests = tests.replace(
+              'executable: "/node/node.exe",\n      args: ["/pnpm/bin/pnpm.cjs", "--version"],',
+              'executable: "C:\\\\node\\\\node.exe",\n      args: ["C:\\\\pnpm\\\\bin\\\\pnpm.cjs", "--version"],',
+          )
+          tests = tests.replace(
+              'nodeExecutable: "/node/node.exe",\n      }),\n    ).toThrowError',
+              'nodeExecutable: "C:\\\\node\\\\node.exe",\n      }),\n    ).toThrowError',
+          )
+          if 'npm_execpath: "/pnpm/bin/pnpm.cjs"' in tests or 'nodeExecutable: "/node/node.exe"' in tests:
+              raise SystemExit('POSIX simulation remains in Windows test')
+          test_path.write_text(tests, encoding='utf-8')
+          PY
+
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Format changed files
+        run: pnpm exec biome format --write tools/local-installer/src/package-builder.ts tools/local-installer/tests/package-command.test.ts
+
+      - name: Run full repository gates and package proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm test
+          pnpm build
+          rm -rf /tmp/ol025-windows-path-package
+          pnpm package:windows /tmp/ol025-windows-path-package
+
+      - name: Publish verified source-only fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clean -fdX
+          git diff --check
+          mapfile -t files < <(git status --short | sed 's/^...//' | LC_ALL=C sort)
+          expected=(
+            tools/local-installer/src/package-builder.ts
+            tools/local-installer/tests/package-command.test.ts
+          )
+          test "${#files[@]}" -eq "${#expected[@]}"
+          for index in "${!expected[@]}"; do
+            test "${files[$index]}" = "${expected[$index]}"
+          done
+          git add "${expected[@]}"
+          git diff --cached --check
+          git config user.name Emad211
+          git config user.email 82148680+Emad211@users.noreply.github.com
+          git commit -m 'fix(ol-025): normalize Windows pnpm entrypoint paths'
+          git push origin "HEAD:${{ github.head_ref }}"
