@@ -27,6 +27,10 @@ const MAX_MANIFEST_BYTES = 16 * 1024 * 1024;
 const execFileAsync = promisify(execFile);
 const ACL_SID_PATTERN = /^S-1-[0-9]+(?:-[0-9]+)+$/u;
 
+function compareCanonicalText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function encodedPowerShellUtf8Value(value: string): string {
   const encoded = Buffer.from(value, "utf8").toString("base64");
   return `[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${encoded}'))`;
@@ -214,7 +218,7 @@ async function scan(
   } catch {
     throw new InstalledReleaseError("unsafe_file");
   }
-  entries.sort((left, right) => left.name.localeCompare(right.name, "en"));
+  entries.sort((left, right) => compareCanonicalText(left.name, right.name));
   for (const entry of entries) {
     const path = resolve(directory, entry.name);
     const rawRelative = relative(root, path);
@@ -253,7 +257,7 @@ async function verifyPackage(root: string, manifest: OwnLoopReleaseManifestV1): 
     throw new InstalledReleaseError("invalid_manifest");
   const actual: OwnLoopReleaseFileV1[] = [];
   await scan(root, root, actual);
-  actual.sort((left, right) => left.path.localeCompare(right.path, "en"));
+  actual.sort((left, right) => compareCanonicalText(left.path, right.path));
   if (actual.length !== manifest.files.length) throw new InstalledReleaseError("package_mismatch");
   for (let index = 0; index < actual.length; index += 1) {
     const observed = actual[index]!;
