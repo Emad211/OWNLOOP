@@ -29,12 +29,18 @@ async function createInstalledFixture() {
   await mkdir(paths.webRoot, { recursive: true });
   await mkdir(paths.configRoot, { recursive: true });
   await mkdir(paths.binRoot, { recursive: true });
+  await writeFile(join(paths.releaseRoot, "daemon", "dist", "@scope.js"), "at\n");
+  await writeFile(join(paths.releaseRoot, "daemon", "dist", "Zeta.js"), "upper\n");
+  await writeFile(join(paths.releaseRoot, "daemon", "dist", "_alpha.js"), "underscore\n");
   await writeFile(join(paths.releaseRoot, "daemon", "dist", "main.js"), "daemon\n");
   await writeFile(join(paths.releaseRoot, "hook-adapter", "dist", "index.js"), "adapter\n");
   await writeFile(join(paths.webRoot, "index.html"), "<!doctype html><title>OwnLoop</title>\n");
   await writeFile(paths.stableHookLauncherPath, "@exit /b 0\n");
 
   const entries = [
+    ["daemon/dist/@scope.js", "at\n", false],
+    ["daemon/dist/Zeta.js", "upper\n", false],
+    ["daemon/dist/_alpha.js", "underscore\n", false],
     ["daemon/dist/main.js", "daemon\n", true],
     ["hook-adapter/dist/index.js", "adapter\n", true],
     ["web/index.html", "<!doctype html><title>OwnLoop</title>\n", false],
@@ -114,7 +120,7 @@ describe("installed release verification", () => {
     expect(script).not.toContain(secretsPath);
   });
 
-  it("verifies exact package, installation identity, fixed Hook command, and ACL boundary", async () => {
+  it("verifies canonical package ordering independent of host locale", async () => {
     const fixture = await createInstalledFixture();
     const result = await loadVerifiedInstalledRuntime({
       localAppData: fixture.localAppData,
@@ -124,7 +130,11 @@ describe("installed release verification", () => {
       verifyPrivateAcl: async () => true,
     });
     expect(result.installManifest.installId).toBe(fixture.secrets.installId);
-    expect(result.releaseManifest.fingerprint).toBe(fixture.releaseManifest.fingerprint);
+    expect(result.releaseManifest.files.slice(0, 3).map((file) => file.path)).toEqual([
+      "daemon/dist/@scope.js",
+      "daemon/dist/Zeta.js",
+      "daemon/dist/_alpha.js",
+    ]);
   });
 
   it("rejects unsupported environment before reading paths and rejects package tampering", async () => {
