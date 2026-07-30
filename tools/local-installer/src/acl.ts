@@ -72,8 +72,18 @@ export function buildPrivateAclCommands(
 ): readonly (readonly string[])[] {
   if (!SID_PATTERN.test(userSid)) throw new AclBoundaryError("invalid_sid");
   return [
-    ["-NoProfile", "-NonInteractive", "-EncodedCommand", encodedPowerShellCommand(applyScript(path, userSid))],
-    ["-NoProfile", "-NonInteractive", "-EncodedCommand", encodedPowerShellCommand(verifyScript(path))],
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-EncodedCommand",
+      encodedPowerShellCommand(applyScript(path, userSid)),
+    ],
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-EncodedCommand",
+      encodedPowerShellCommand(verifyScript(path)),
+    ],
   ] as const;
 }
 
