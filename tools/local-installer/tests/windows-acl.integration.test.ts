@@ -6,11 +6,24 @@ import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ensurePrivateWindowsAcl } from "../src/index.js";
+import { buildPrivateAclCommands, ensurePrivateWindowsAcl } from "../src/index.js";
 
 const execFileAsync = promisify(execFile);
 const roots: string[] = [];
 const windowsDescribe = process.platform === "win32" ? describe : describe.skip;
+
+function nativeFailureDetails(error: unknown): string {
+  if (typeof error !== "object" || error === null) return String(error);
+  const value = error as Record<string, unknown>;
+  return JSON.stringify({
+    code: value.code ?? null,
+    exitCode: value.exitCode ?? null,
+    signal: value.signal ?? null,
+    stdout: typeof value.stdout === "string" ? value.stdout.trim() : null,
+    stderr: typeof value.stderr === "string" ? value.stderr.trim() : null,
+    message: typeof value.message === "string" ? value.message : null,
+  });
+}
 
 afterEach(async () => {
   while (roots.length > 0) await rm(roots.pop()!, { recursive: true, force: true });
@@ -31,6 +44,13 @@ windowsDescribe("Windows private ACL boundary", () => {
       { windowsHide: true, timeout: 10_000 },
     );
     const userSid = stdout.trim();
+    const [apply] = buildPrivateAclCommands(root, userSid);
+
+    try {
+      await execFileAsync("powershell.exe", [...apply!], { windowsHide: true, timeout: 10_000 });
+    } catch (error) {
+      throw new Error(`Native Windows ACL apply command failed: ${nativeFailureDetails(error)}`);
+    }
 
     try {
       await ensurePrivateWindowsAcl(root, userSid);
