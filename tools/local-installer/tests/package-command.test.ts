@@ -16,18 +16,22 @@ describe("Windows package command", () => {
     );
   });
 
-  it("invokes the pnpm JavaScript entrypoint through Node on Windows", () => {
-    expect(
-      resolvePackageBuildInvocation("pnpm", ["--version"], {
-        platform: "win32",
-        environment: { npm_execpath: "C:\\pnpm\\bin\\pnpm.cjs" },
-        nodeExecutable: "C:\\node\\node.exe",
-      }),
-    ).toEqual({
-      executable: "C:\\node\\node.exe",
-      args: ["C:\\pnpm\\bin\\pnpm.cjs", "--version"],
-    });
-  });
+  it.each(["pnpm.cjs", "pnpm.mjs", "pnpm.js"])(
+    "invokes the %s JavaScript entrypoint through Node on Windows",
+    (entrypoint) => {
+      const pnpmEntrypoint = `C:\\pnpm\\bin\\${entrypoint}`;
+      expect(
+        resolvePackageBuildInvocation("pnpm", ["--version"], {
+          platform: "win32",
+          environment: { npm_execpath: pnpmEntrypoint },
+          nodeExecutable: "C:\\node\\node.exe",
+        }),
+      ).toEqual({
+        executable: "C:\\node\\node.exe",
+        args: [pnpmEntrypoint, "--version"],
+      });
+    },
+  );
 
   it("fails closed when Windows has no absolute pnpm JavaScript entrypoint", () => {
     expect(() =>
