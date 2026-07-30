@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -20,25 +21,45 @@ export type AclCommandRunner = (
   args: readonly string[],
 ) => Promise<{ stdout: string; stderr: string }>;
 
-const APPLY_SCRIPT = [
-  "param([string]$TargetPath,[string]$UserSid)",
-  "$ErrorActionPreference='Stop'",
-  "$acl=Get-Acl -LiteralPath $TargetPath",
-  "$acl.SetAccessRuleProtection($true,$false)",
-  "@($acl.Access)|ForEach-Object{$acl.RemoveAccessRuleAll($_)}",
-  "$sid=[System.Security.Principal.SecurityIdentifier]::new($UserSid)",
-  "$rule=[System.Security.AccessControl.FileSystemAccessRule]::new($sid,'FullControl','ContainerInherit,ObjectInherit','None','Allow')",
-  "$acl.AddAccessRule($rule)",
-  "Set-Acl -LiteralPath $TargetPath -AclObject $acl",
-].join(";");
+function encodedPowerShellUtf8Value(value: string): string {
+  const encoded = Buffer.from(value, "utf8").toString("base64");
+  return `[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${encoded}'))`;
+}
 
-const VERIFY_SCRIPT = [
-  "param([string]$TargetPath)",
-  "$ErrorActionPreference='Stop'",
-  "$acl=Get-Acl -LiteralPath $TargetPath",
-  "$entries=@($acl.Access|ForEach-Object{[pscustomobject]@{sid=$_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value;type=$_.AccessControlType.ToString();rights=$_.FileSystemRights.ToString()}})",
-  "[pscustomobject]@{protected=$acl.AreAccessRulesProtected;entries=$entries}|ConvertTo-Json -Compress -Depth 4",
-].join(";");
+function encodedPowerShellCommand(script: string): string {
+  return Buffer.from(script, "utf16le").toString("base64");
+}
+
+function applyScript(path: string, userSid: string): string {
+  return [
+    "$ErrorActionPreference='Stop'",
+    `$TargetPath=${encodedPowerShellUtf8Value(path)}`,
+    `$UserSid=${encodedPowerShellUtf8Value(userSid)}`,
+    "if(-not [System.IO.Directory]::Exists($TargetPath)){throw 'missing_directory'}",
+    "$sid=[System.Security.Principal.SecurityIdentifier]::new($UserSid)",
+    "$acl=[System.Security.AccessControl.DirectorySecurity]::new()",
+    "$acl.SetAccessRuleProtection($true,$false)",
+    "$inheritance=[System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit",
+    "$rule=[System.Security.AccessControl.FileSystemAccessRule]::new($sid,[System.Security.AccessControl.FileSystemRights]::FullControl,$inheritance,[System.Security.AccessControl.PropagationFlags]::None,[System.Security.AccessControl.AccessControlType]::Allow)",
+    "$acl.AddAccessRule($rule)",
+    "[System.IO.Directory]::SetAccessControl($TargetPath,$acl)",
+  ].join(";");
+}
+
+function verifyScript(path: string): string {
+  return [
+    "$ErrorActionPreference='Stop'",
+    `$TargetPath=${encodedPowerShellUtf8Value(path)}`,
+    "if(-not [System.IO.Directory]::Exists($TargetPath)){throw 'missing_directory'}",
+    "$acl=[System.IO.Directory]::GetAccessControl($TargetPath,[System.Security.AccessControl.AccessControlSections]::Access)",
+    "$rules=$acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])",
+    "$jsonEntries=[System.Collections.Generic.List[string]]::new()",
+    "for($index=0;$index -lt $rules.Count;$index++){$entry=$rules[$index];$sidValue=$entry.IdentityReference.Value;$typeValue=$entry.AccessControlType.ToString();$rightsValue=$entry.FileSystemRights.ToString();$inheritanceValue=$entry.InheritanceFlags.ToString();$propagationValue=$entry.PropagationFlags.ToString();$inheritedValue=$entry.IsInherited.ToString().ToLowerInvariant();if(-not [System.Text.RegularExpressions.Regex]::IsMatch($sidValue,'^S-1-[0-9]+(?:-[0-9]+)+$')){throw 'invalid_acl_sid'};foreach($enumValue in @($typeValue,$rightsValue,$inheritanceValue,$propagationValue)){if(-not [System.Text.RegularExpressions.Regex]::IsMatch($enumValue,'^[A-Za-z]+(?:, [A-Za-z]+)*$')){throw 'invalid_acl_enum'}};$ignored=$jsonEntries.Add('{\"sid\":\"'+$sidValue+'\",\"type\":\"'+$typeValue+'\",\"rights\":\"'+$rightsValue+'\",\"inheritance\":\"'+$inheritanceValue+'\",\"propagation\":\"'+$propagationValue+'\",\"inherited\":'+$inheritedValue+'}')}",
+    "$protectedValue=$acl.AreAccessRulesProtected.ToString().ToLowerInvariant()",
+    "$json='{\"protected\":'+$protectedValue+',\"entries\":['+[string]::Join(',',$jsonEntries)+']}'",
+    "[Console]::Out.Write($json)",
+  ].join(";");
+}
 
 async function defaultRunner(executable: string, args: readonly string[]) {
   const result = await execFileAsync(executable, [...args], { windowsHide: true, timeout: 10_000 });
@@ -51,17 +72,8 @@ export function buildPrivateAclCommands(
 ): readonly (readonly string[])[] {
   if (!SID_PATTERN.test(userSid)) throw new AclBoundaryError("invalid_sid");
   return [
-    [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      APPLY_SCRIPT,
-      "-TargetPath",
-      path,
-      "-UserSid",
-      userSid,
-    ],
-    ["-NoProfile", "-NonInteractive", "-Command", VERIFY_SCRIPT, "-TargetPath", path],
+    ["-NoProfile", "-NonInteractive", "-EncodedCommand", encodedPowerShellCommand(applyScript(path, userSid))],
+    ["-NoProfile", "-NonInteractive", "-EncodedCommand", encodedPowerShellCommand(verifyScript(path))],
   ] as const;
 }
 
@@ -91,16 +103,24 @@ export async function ensurePrivateWindowsAcl(
       throw new AclBoundaryError("verification_failed");
     }
     const entry = entries[0];
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      throw new AclBoundaryError("verification_failed");
+    }
+    const record = entry as Record<string, unknown>;
+    const inheritance = String(record.inheritance)
+      .split(",")
+      .map((part) => part.trim());
     if (
-      typeof entry !== "object" ||
-      entry === null ||
-      Array.isArray(entry) ||
-      (entry as Record<string, unknown>).sid !== userSid ||
-      (entry as Record<string, unknown>).type !== "Allow" ||
-      !String((entry as Record<string, unknown>).rights)
+      record.sid !== userSid ||
+      record.type !== "Allow" ||
+      record.inherited !== false ||
+      record.propagation !== "None" ||
+      !String(record.rights)
         .split(",")
         .map((part) => part.trim())
-        .includes("FullControl")
+        .includes("FullControl") ||
+      !inheritance.includes("ContainerInherit") ||
+      !inheritance.includes("ObjectInherit")
     ) {
       throw new AclBoundaryError("verification_failed");
     }
