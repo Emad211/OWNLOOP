@@ -1,9 +1,9 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import type { Dirent } from "node:fs";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { promisify } from "node:util";
 
 import {
   OWNLOOP_APPLICATION_VERSION,
@@ -25,35 +25,57 @@ import {
 
 const MAX_MANIFEST_BYTES = 16 * 1024 * 1024;
 const execFileAsync = promisify(execFile);
-const ACL_VERIFY_SCRIPT = [
-  "param([string]$ConfigRoot,[string]$SecretsPath)",
-  "$ErrorActionPreference='Stop'",
-  "$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
-  "$items=@($ConfigRoot,$SecretsPath|ForEach-Object{$acl=Get-Acl -LiteralPath $_;[pscustomobject]@{path=$_;protected=$acl.AreAccessRulesProtected;entries=@($acl.Access|ForEach-Object{[pscustomobject]@{sid=$_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value;type=$_.AccessControlType.ToString();rights=$_.FileSystemRights.ToString()}})}})",
-  "[pscustomobject]@{userSid=$sid;items=$items}|ConvertTo-Json -Compress -Depth 6",
-].join(";");
+const ACL_SID_PATTERN = /^S-1-[0-9]+(?:-[0-9]+)+$/u;
+
+function encodedPowerShellUtf8Value(value: string): string {
+  const encoded = Buffer.from(value, "utf8").toString("base64");
+  return `[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${encoded}'))`;
+}
+
+function encodedPowerShellCommand(script: string): string {
+  return Buffer.from(script, "utf16le").toString("base64");
+}
+
+export function buildInstalledAclVerificationCommand(
+  configRoot: string,
+  secretsPath: string,
+): readonly string[] {
+  const script = [
+    "$ErrorActionPreference='Stop'",
+    `$ConfigRoot=${encodedPowerShellUtf8Value(configRoot)}`,
+    `$SecretsPath=${encodedPowerShellUtf8Value(secretsPath)}`,
+    "if(-not [System.IO.Directory]::Exists($ConfigRoot)){throw 'missing_config'}",
+    "if(-not [System.IO.File]::Exists($SecretsPath)){throw 'missing_secrets'}",
+    "$userSid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
+    "function ConvertAclToJson([System.Security.AccessControl.FileSystemSecurity]$Acl){$rules=$Acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]);$entries=[System.Collections.Generic.List[string]]::new();for($index=0;$index -lt $rules.Count;$index++){$entry=$rules[$index];$sidValue=$entry.IdentityReference.Value;$typeValue=$entry.AccessControlType.ToString();$rightsValue=$entry.FileSystemRights.ToString();$inheritanceValue=$entry.InheritanceFlags.ToString();$propagationValue=$entry.PropagationFlags.ToString();$inheritedValue=$entry.IsInherited.ToString().ToLowerInvariant();if(-not [System.Text.RegularExpressions.Regex]::IsMatch($sidValue,'^S-1-[0-9]+(?:-[0-9]+)+$')){throw 'invalid_acl_sid'};foreach($enumValue in @($typeValue,$rightsValue,$inheritanceValue,$propagationValue)){if(-not [System.Text.RegularExpressions.Regex]::IsMatch($enumValue,'^[A-Za-z]+(?:, [A-Za-z]+)*$')){throw 'invalid_acl_enum'}};$ignored=$entries.Add('{\"sid\":\"'+$sidValue+'\",\"type\":\"'+$typeValue+'\",\"rights\":\"'+$rightsValue+'\",\"inheritance\":\"'+$inheritanceValue+'\",\"propagation\":\"'+$propagationValue+'\",\"inherited\":'+$inheritedValue+'}')};$protectedValue=$Acl.AreAccessRulesProtected.ToString().ToLowerInvariant();return '{\"protected\":'+$protectedValue+',\"entries\":['+[string]::Join(',',$entries)+']}' }",
+    "$configAcl=[System.IO.Directory]::GetAccessControl($ConfigRoot,[System.Security.AccessControl.AccessControlSections]::Access)",
+    "$secretsAcl=[System.IO.File]::GetAccessControl($SecretsPath,[System.Security.AccessControl.AccessControlSections]::Access)",
+    "$configJson=ConvertAclToJson $configAcl",
+    "$secretsJson=ConvertAclToJson $secretsAcl",
+    "[Console]::Out.Write('{\"userSid\":\"'+$userSid+'\",\"items\":['+$configJson+','+$secretsJson+']}')",
+  ].join(";");
+  return ["-NoProfile", "-NonInteractive", "-EncodedCommand", encodedPowerShellCommand(script)];
+}
 
 async function verifyDefaultPrivateAcl(configRoot: string, secretsPath: string): Promise<boolean> {
   if (process.platform !== "win32") return false;
   try {
     const { stdout } = await execFileAsync(
       "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        ACL_VERIFY_SCRIPT,
-        "-ConfigRoot",
-        configRoot,
-        "-SecretsPath",
-        secretsPath,
-      ],
+      [...buildInstalledAclVerificationCommand(configRoot, secretsPath)],
       { windowsHide: true, timeout: 10_000 },
     );
     const parsed = parseStrictJsonObject(stdout.trim(), 64 * 1024);
     const userSid = parsed.userSid;
     const items = parsed.items;
-    if (typeof userSid !== "string" || !Array.isArray(items) || items.length !== 2) return false;
+    if (
+      typeof userSid !== "string" ||
+      !ACL_SID_PATTERN.test(userSid) ||
+      !Array.isArray(items) ||
+      items.length !== 2
+    ) {
+      return false;
+    }
     return items.every((item, index) => {
       if (typeof item !== "object" || item === null || Array.isArray(item)) return false;
       const record = item as Record<string, unknown>;
@@ -62,13 +84,26 @@ async function verifyDefaultPrivateAcl(configRoot: string, secretsPath: string):
       const entry = record.entries[0];
       if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return false;
       const access = entry as Record<string, unknown>;
-      return (
-        access.sid === userSid &&
-        access.type === "Allow" &&
-        String(access.rights)
+      const inheritance = String(access.inheritance)
+        .split(",")
+        .map((part) => part.trim());
+      if (
+        access.sid !== userSid ||
+        access.type !== "Allow" ||
+        typeof access.inherited !== "boolean" ||
+        access.propagation !== "None" ||
+        !String(access.rights)
           .split(",")
           .map((part) => part.trim())
           .includes("FullControl")
+      ) {
+        return false;
+      }
+      return (
+        index !== 0 ||
+        (access.inherited === false &&
+          inheritance.includes("ContainerInherit") &&
+          inheritance.includes("ObjectInherit"))
       );
     });
   } catch {
