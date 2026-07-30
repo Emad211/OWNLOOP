@@ -45,7 +45,8 @@ jobs:
           parent="$(git rev-parse HEAD^)"
           test "$(git diff --name-only "$parent" HEAD)" = '.ol027-package-boundary-trigger.txt'
           test "$(git rev-parse HEAD^:.ol027-package-finalizer.py)" = "$EXPECTED_FINALIZER_BLOB"
-          git merge-base --is-ancestor "$PERMANENT_CI_HEAD" HEAD
+          git fetch --no-tags --depth=1 origin "$PERMANENT_CI_HEAD"
+          test "$(git rev-parse FETCH_HEAD)" = "$PERMANENT_CI_HEAD"
           python .ol027-package-finalizer.py
           git checkout "$PERMANENT_CI_HEAD" -- .github/workflows/ci.yml
           rm -f .ol027-package-finalizer.py .ol027-package-boundary-trigger.txt
