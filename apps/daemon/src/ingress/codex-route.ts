@@ -5,6 +5,7 @@ import { CodexAdapterIngressSchema, SUPPORTED_CODEX_HOOK_NAMES } from "@ownloop/
 import { IngressSecurityError, prepareCodexIngressReceipt } from "@ownloop/ingress-security";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
+import { getDistinctRequestHeaderValues } from "../http-headers.js";
 import type { NewCodexPreparedIngressReceipt, OwnLoopPersistence } from "../persistence/index.js";
 import { PersistenceDeduplicationConflictError, PersistenceError } from "../persistence/index.js";
 import type { InstallationTokenVerifier } from "./auth.js";
@@ -32,7 +33,7 @@ export type CodexIngressRouteDependencies = Readonly<{
 }>;
 
 function isJsonRequest(request: FastifyRequest): boolean {
-  const values = request.raw.headersDistinct["content-type"];
+  const values = getDistinctRequestHeaderValues(request, "content-type");
   if (values === undefined || values.length !== 1) return false;
   return values[0]?.split(";", 1)[0]?.trim().toLowerCase() === "application/json";
 }
