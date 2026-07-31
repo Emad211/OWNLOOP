@@ -63,6 +63,19 @@ jobs:
               source = source.replace(old, new)
           path.write_text(source, encoding='utf-8')
           PY
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('packages/contracts/src/local-installation.ts')
+          source = path.read_text(encoding='utf-8')
+          old = '    return normalized.endsWith(`/${CODEX_HOOK_WINDOWS_LAUNCHER_BASENAME}`);\n'
+          new = '''    return normalized.endsWith(
+              `/ownloop/bin/${CODEX_HOOK_WINDOWS_LAUNCHER_BASENAME}`,
+            );
+          '''
+          if source.count(old) != 1:
+              raise SystemExit('unexpected Codex stable launcher validation anchor')
+          path.write_text(source.replace(old, new), encoding='utf-8')
+          PY
           cat > tools/local-installer/scripts/installed-ownloop-codex-hook.cmd <<'EOF'
           @echo off
           node "%LOCALAPPDATA%\OwnLoop\app\0.1.0\installer\dist\codex-hook-main.js" >nul 2>&1
