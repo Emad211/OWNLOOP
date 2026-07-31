@@ -18,6 +18,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import {
   OWNLOOP_APPLICATION_VERSION,
   OWNLOOP_RELEASE_MANIFEST_FILE,
+  OWNLOOP_STABLE_CODEX_HOOK_LAUNCHER_FILE,
   OWNLOOP_STABLE_HOOK_LAUNCHER_FILE,
   OWNLOOP_STABLE_USER_LAUNCHER_FILE,
   SUPPORTED_CLAUDE_HOOK_NAMES,
@@ -47,6 +48,7 @@ export type NativeInstallLayout = Readonly<{
   runtimeStatePath: string;
   stableUserLauncherPath: string;
   stableHookLauncherPath: string;
+  stableCodexHookLauncherPath: string;
 }>;
 
 export class InstallerTransactionError extends Error {
@@ -100,6 +102,7 @@ export function createNativeInstallLayout(rootInput: string): NativeInstallLayou
     runtimeStatePath: join(runRoot, "runtime-v1.json"),
     stableUserLauncherPath: join(binRoot, OWNLOOP_STABLE_USER_LAUNCHER_FILE),
     stableHookLauncherPath: join(binRoot, OWNLOOP_STABLE_HOOK_LAUNCHER_FILE),
+    stableCodexHookLauncherPath: join(binRoot, OWNLOOP_STABLE_CODEX_HOOK_LAUNCHER_FILE),
   };
 }
 

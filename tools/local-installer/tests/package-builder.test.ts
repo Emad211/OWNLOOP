@@ -46,6 +46,18 @@ async function fixture() {
       },
     ],
     [
+      "tools/codex-hook-adapter/package.json",
+      {
+        name: "@ownloop/codex-hook-adapter",
+        version: "0.1.0",
+        private: true,
+        type: "module",
+        files: ["dist"],
+        bin: { "ownloop-codex-hook-adapter": "./dist/index.js" },
+        dependencies: { "@ownloop/contracts": "workspace:*" },
+      },
+    ],
+    [
       "tools/local-installer/package.json",
       {
         name: "@ownloop/local-installer",
@@ -68,6 +80,7 @@ async function fixture() {
     "ownloop.cmd",
     "installed-ownloop.cmd",
     "installed-ownloop-hook.cmd",
+    "installed-ownloop-codex-hook.cmd",
   ]) {
     await writeFile(join(repositoryRoot, "tools", "local-installer", "scripts", name), `${name}\n`);
   }
@@ -112,9 +125,12 @@ function runner(
       await writeFile(join(destination, "dist", "main.js"), "daemon\n");
     if (workspace === "@ownloop/hook-adapter")
       await writeFile(join(destination, "dist", "index.js"), "hook\n");
+    if (workspace === "@ownloop/codex-hook-adapter")
+      await writeFile(join(destination, "dist", "index.js"), "codex hook\n");
     if (workspace === "@ownloop/local-installer") {
       await writeFile(join(destination, "dist", "cli.js"), "cli\n");
       await writeFile(join(destination, "dist", "hook-main.js"), "hook main\n");
+      await writeFile(join(destination, "dist", "codex-hook-main.js"), "codex hook main\n");
       if (options.forbidden) await writeFile(join(destination, "dist", ".env"), "SECRET=x\n");
     }
     return { stdout: "", stderr: "" };
@@ -140,7 +156,7 @@ describe("Windows package builder", () => {
       "doctype",
     );
     const deployCalls = firstRunner.mock.calls.filter(([, args]) => args.includes("deploy"));
-    expect(deployCalls).toHaveLength(3);
+    expect(deployCalls).toHaveLength(4);
     for (const [, args] of deployCalls) {
       expect(args).toEqual(
         expect.arrayContaining([

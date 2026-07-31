@@ -12,3 +12,5 @@ export * from "./acl.js";
 export * from "./installer-transaction.js";
 export * from "./cli.js";
 export * from "./package-builder.js";
+
+export * from "./codex-hook-launcher.js";

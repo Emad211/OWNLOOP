@@ -280,7 +280,10 @@ function forbidden(relativePath: string): boolean {
       segments.includes("tests") ||
       filename.includes(".test.") ||
       filename.includes(".spec.")) &&
-    (ownArea === "daemon" || ownArea === "hook-adapter" || ownArea === "installer")
+    (ownArea === "daemon" ||
+      ownArea === "hook-adapter" ||
+      ownArea === "codex-hook-adapter" ||
+      ownArea === "installer")
   );
 }
 
@@ -312,9 +315,12 @@ export type BuiltWindowsPackage = Readonly<{
 const CRITICAL_FILES = [
   "daemon/dist/main.js",
   "hook-adapter/dist/index.js",
+  "codex-hook-adapter/dist/index.js",
   "installer/dist/cli.js",
   "installer/dist/hook-main.js",
+  "installer/dist/codex-hook-main.js",
   "launchers/installed-ownloop-hook.cmd",
+  "launchers/installed-ownloop-codex-hook.cmd",
   "launchers/installed-ownloop.cmd",
   "launchers/ownloop.cmd",
   "launchers/ownloop.ps1",
@@ -354,6 +360,11 @@ export async function buildWindowsReleasePackage(
     const deploys = [
       ["@ownloop/daemon", "daemon", "apps/daemon/package.json"],
       ["@ownloop/hook-adapter", "hook-adapter", "tools/hook-adapter/package.json"],
+      [
+        "@ownloop/codex-hook-adapter",
+        "codex-hook-adapter",
+        "tools/codex-hook-adapter/package.json",
+      ],
       ["@ownloop/local-installer", "installer", "tools/local-installer/package.json"],
     ] as const;
     for (const [workspace, destination, sourcePackagePath] of deploys) {
