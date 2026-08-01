@@ -19,10 +19,7 @@ import type { CodexCapabilityEnvironmentFacts } from "./projector.js";
 
 const TOML_MAX_BYTES = 1024 * 1024;
 const UTF8 = new TextDecoder("utf-8", { fatal: true });
-const MATCHER_IGNORED_EVENTS = new Set<SupportedCodexHookName>([
-  "UserPromptSubmit",
-  "Stop",
-]);
+const MATCHER_IGNORED_EVENTS = new Set<SupportedCodexHookName>(["UserPromptSubmit", "Stop"]);
 const EVENT_LABELS: Readonly<Record<SupportedCodexHookName, string>> = {
   PreToolUse: "pre_tool_use",
   PermissionRequest: "permission_request",
@@ -75,12 +72,7 @@ async function readBoundedRegularFile(pathInput: string, maxBytes: number): Prom
     }
     return { kind: "text", text: UTF8.decode(await readFile(path)) };
   } catch (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
       return { kind: "missing" };
     }
     return { kind: "invalid" };
@@ -251,11 +243,7 @@ function parseCodexConfigToml(text: string): ParsedCodexConfig | null {
     mutableStates.set(stateKey, state);
   }
 
-  if (
-    featureHooks !== null &&
-    legacyFeatureHooks !== null &&
-    featureHooks !== legacyFeatureHooks
-  ) {
+  if (featureHooks !== null && legacyFeatureHooks !== null && featureHooks !== legacyFeatureHooks) {
     return null;
   }
   return {
@@ -273,7 +261,10 @@ function trustAndEngineState(
 ): Pick<CodexCapabilityEnvironmentFacts, "hookEngineState" | "trustState"> {
   if (positions === null) return { hookEngineState: "enabled", trustState: "not_applicable" };
   if (config.kind === "invalid") return { hookEngineState: "unknown", trustState: "unknown" };
-  const parsed = config.kind === "missing" ? { featureHooks: null, states: new Map() } : parseCodexConfigToml(config.text);
+  const parsed =
+    config.kind === "missing"
+      ? { featureHooks: null, states: new Map() }
+      : parseCodexConfigToml(config.text);
   if (parsed === null) return { hookEngineState: "unknown", trustState: "unknown" };
   const source = resolve(hooksPath);
   let needsTrust = false;
@@ -346,9 +337,8 @@ export async function inspectCodexCapabilityEnvironment(
     const document = parseCodexHookConfigurationJson(hooks.text);
     const inspection = inspectCodexHookConfiguration(document, options.launcherCommands);
     const configurationState = inspection.state === "ambiguous" ? "ambiguous" : inspection.state;
-    const positions = configurationState === "exact"
-      ? findHookPositions(document, options.launcherCommands)
-      : null;
+    const positions =
+      configurationState === "exact" ? findHookPositions(document, options.launcherCommands) : null;
     const runtime = trustAndEngineState(
       config,
       options.hooksPath,
