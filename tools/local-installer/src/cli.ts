@@ -16,14 +16,8 @@ import { CODEX_HOOK_LAUNCHER_BASENAME } from "@ownloop/contracts/codex";
 
 import { inspectClaudeHooksFile } from "./claude-settings.js";
 import { inspectCodexHooksFile } from "./codex-hooks-file.js";
-import {
-  installConfiguredHooks,
-  removeConfiguredHooks,
-} from "./hook-reconciliation.js";
-import {
-  InstallManifestError,
-  readInstallManifest,
-} from "./install-manifest.js";
+import { installConfiguredHooks, removeConfiguredHooks } from "./hook-reconciliation.js";
+import { InstallManifestError, readInstallManifest } from "./install-manifest.js";
 import {
   createNativeInstallLayout,
   installOwnLoop,
@@ -209,13 +203,12 @@ async function verifyHookInstallation(
       secrets === null ||
       secrets.installId !== manifest.installId ||
       manifest.releaseManifestFingerprint !== release.fingerprint ||
-      manifest.hooks.some((hook) => !sameWindowsPath(hook.command, layout.stableHookLauncherPath)) ||
+      manifest.hooks.some(
+        (hook) => !sameWindowsPath(hook.command, layout.stableHookLauncherPath),
+      ) ||
       manifest.codexHooks === undefined ||
       manifest.codexHooks.command !== CODEX_HOOK_LAUNCHER_BASENAME ||
-      !sameWindowsPath(
-        manifest.codexHooks.commandWindows,
-        layout.stableCodexHookLauncherPath,
-      )
+      !sameWindowsPath(manifest.codexHooks.commandWindows, layout.stableCodexHookLauncherPath)
     ) {
       throw new Error("reconciliation failed");
     }
@@ -327,10 +320,11 @@ export async function executeCli(
       try {
         const manifest = await verifyHookInstallation(layout, { allowMissing: true });
         if (manifest === null) {
+          const cleanAbsence = claudeStatus === "missing" && codexStatus === "missing";
           return {
             ok: true,
             command: "hooks status",
-            status: status === "missing" ? "missing" : "repair_needed",
+            status: cleanAbsence ? "missing" : "repair_needed",
           };
         }
         return { ok: true, command: "hooks status", status };
