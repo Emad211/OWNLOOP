@@ -35,7 +35,10 @@ function nativeFailureDetails(error: unknown): string {
   });
 }
 
-function restoreEnvironment(name: "USERPROFILE" | "LOCALAPPDATA" | "ProgramData", value: string | undefined) {
+function restoreEnvironment(
+  name: "USERPROFILE" | "LOCALAPPDATA" | "ProgramData",
+  value: string | undefined,
+) {
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
 }
