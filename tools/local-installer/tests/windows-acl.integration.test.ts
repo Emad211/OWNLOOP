@@ -1,8 +1,8 @@
 import { Buffer } from "node:buffer";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -41,6 +41,40 @@ function restoreEnvironment(
 ) {
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
+}
+
+function object(value: unknown): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Expected an object response.");
+  }
+  return value as Record<string, unknown>;
+}
+
+async function invokeInstalledCli(
+  cliPath: string,
+  environment: NodeJS.ProcessEnv,
+  args: readonly string[],
+): Promise<Record<string, unknown>> {
+  try {
+    const { stdout, stderr } = await execFileAsync(process.execPath, [cliPath, ...args], {
+      env: environment,
+      windowsHide: true,
+      timeout: 60_000,
+      encoding: "utf8",
+    });
+    const lines = stdout
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+    if (lines.length !== 1 || stderr.trim().length !== 0) {
+      throw new Error(`Invalid installed CLI output. stdout=${stdout} stderr=${stderr}`);
+    }
+    const parsed = object(JSON.parse(lines[0]!));
+    if (parsed.ok !== true) throw new Error(`Installed CLI returned failure: ${lines[0]}`);
+    return parsed;
+  } catch (error) {
+    throw new Error(`Installed CLI command failed: ${args.join(" ")} ${nativeFailureDetails(error)}`);
+  }
 }
 
 afterEach(async () => {
@@ -168,4 +202,106 @@ windowsDescribe("installed Codex capability paths", () => {
       restoreEnvironment("ProgramData", previous.ProgramData);
     }
   });
+});
+
+windowsDescribe("installed Codex CLI package boundary", () => {
+  it("runs Codex-only status, doctor, remove, install, and uninstall without changing Claude", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ownloop-installed-codex-cli-"));
+    roots.push(root);
+    const packageRoot = resolve("dist", "ownloop-windows-0.1.0");
+    const cliPath = join(packageRoot, "installer", "dist", "cli.js");
+    const localAppData = join(root, "LocalAppData");
+    const userProfile = join(root, "User");
+    const codexRoot = join(userProfile, ".codex");
+    const codexSettingsPath = join(codexRoot, "hooks.json");
+    await mkdir(codexRoot, { recursive: true });
+    await writeFile(
+      codexSettingsPath,
+      `${JSON.stringify({
+        theme: "native-package-smoke",
+        hooks: {
+          SessionStart: [
+            {
+              matcher: "foreign-tool",
+              hooks: [{ type: "command", command: "foreign-hook", timeout: 3 }],
+            },
+          ],
+        },
+      })}\n`,
+    );
+
+    const environment: NodeJS.ProcessEnv = {
+      ...process.env,
+      LOCALAPPDATA: localAppData,
+      USERPROFILE: userProfile,
+      OWNLOOP_PACKAGE_ROOT: packageRoot,
+    };
+    const installed = await invokeInstalledCli(cliPath, environment, ["install"]);
+    const installId = String(installed.installId ?? "");
+    expect(installId).not.toBe("");
+
+    const claudeSettingsPath = join(userProfile, ".claude", "settings.json");
+    const claudeBefore = await readFile(claudeSettingsPath);
+    expect(await invokeInstalledCli(cliPath, environment, ["codex", "hooks", "status"])).toMatchObject(
+      { command: "codex hooks status", status: "installed" },
+    );
+
+    const doctor = await invokeInstalledCli(cliPath, environment, ["codex", "doctor"]);
+    expect(doctor).toMatchObject({
+      command: "codex doctor",
+      source: "local",
+      runtime: "stopped",
+      capability: { state: "installed_unverified" },
+    });
+    const doctorText = JSON.stringify(doctor);
+    expect(doctorText).not.toContain(root);
+    expect(doctorText).not.toContain("installationToken");
+    expect(doctorText).not.toContain("hmacKey");
+
+    const removed = await invokeInstalledCli(cliPath, environment, ["codex", "hooks", "remove"]);
+    expect(removed).toMatchObject({ command: "codex hooks remove", changed: true });
+    expect(await invokeInstalledCli(cliPath, environment, ["codex", "hooks", "status"])).toMatchObject(
+      { command: "codex hooks status", status: "missing" },
+    );
+    expect(await readFile(claudeSettingsPath)).toEqual(claudeBefore);
+    expect(JSON.parse(await readFile(codexSettingsPath, "utf8"))).toEqual({
+      hooks: {
+        SessionStart: [
+          {
+            hooks: [{ command: "foreign-hook", timeout: 3, type: "command" }],
+            matcher: "foreign-tool",
+          },
+        ],
+      },
+      theme: "native-package-smoke",
+    });
+
+    const reconciled = await invokeInstalledCli(cliPath, environment, ["codex", "hooks", "install"]);
+    expect(reconciled).toMatchObject({ command: "codex hooks install", changed: true });
+    expect(await readFile(claudeSettingsPath)).toEqual(claudeBefore);
+    expect(await invokeInstalledCli(cliPath, environment, ["codex", "hooks", "status"])).toMatchObject(
+      { command: "codex hooks status", status: "installed" },
+    );
+
+    await invokeInstalledCli(cliPath, environment, [
+      "uninstall",
+      "--remove-data",
+      "--confirm",
+      installId,
+    ]);
+    await expect(readFile(join(localAppData, "OwnLoop", "install-manifest.json"))).rejects.toMatchObject(
+      { code: "ENOENT" },
+    );
+    expect(JSON.parse(await readFile(codexSettingsPath, "utf8"))).toEqual({
+      hooks: {
+        SessionStart: [
+          {
+            hooks: [{ command: "foreign-hook", timeout: 3, type: "command" }],
+            matcher: "foreign-tool",
+          },
+        ],
+      },
+      theme: "native-package-smoke",
+    });
+  }, 120_000);
 });
