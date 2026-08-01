@@ -4,7 +4,10 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { CODEX_HOOK_LAUNCHER_BASENAME, parseCodexHookConfigurationJson } from "@ownloop/contracts/codex";
+import {
+  CODEX_HOOK_LAUNCHER_BASENAME,
+  parseCodexHookConfigurationJson,
+} from "@ownloop/contracts/codex";
 
 import {
   buildReleaseManifest,
@@ -118,9 +121,7 @@ describe("installer transaction", () => {
     );
     const settings = parseStrictJsonObject(await readFile(setup.claudeSettingsPath, "utf8"));
     expect(settings.theme).toBe("dark");
-    const codex = parseCodexHookConfigurationJson(
-      await readFile(setup.codexSettingsPath, "utf8"),
-    );
+    const codex = parseCodexHookConfigurationJson(await readFile(setup.codexSettingsPath, "utf8"));
     expect(codex.theme).toBe("light");
     const manifest = await readInstallManifest(setup.layout.installManifestPath);
     expect(manifest.codexHooks).toMatchObject({
