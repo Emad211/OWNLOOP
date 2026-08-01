@@ -98,6 +98,61 @@ export type ReconcileInstalledHooksOptions = Readonly<{
   clock?: () => Date;
 }>;
 
+export type ReconcileInstalledCodexHooksOptions = Readonly<{
+  layout: NativeInstallLayout;
+  codexSettingsPath: string;
+  manifest: OwnLoopInstallManifestV1;
+  clock?: () => Date;
+}>;
+
+export async function installConfiguredCodexHooks(
+  options: ReconcileInstalledCodexHooksOptions,
+): Promise<{ changed: boolean; manifest: OwnLoopInstallManifestV1 }> {
+  assertCodexOwnership(options.manifest, options.layout);
+  const codexSnapshot = await snapshot(options.codexSettingsPath);
+  const manifestSnapshot = await snapshot(options.layout.installManifestPath);
+  try {
+    const codex = await installCodexHooksFile(
+      options.codexSettingsPath,
+      codexCommands(options.layout),
+      options.clock,
+    );
+    if (!codex.changed) return { changed: false, manifest: options.manifest };
+    const manifest: OwnLoopInstallManifestV1 = {
+      ...options.manifest,
+      codexHooks: {
+        ...options.manifest.codexHooks,
+        settings: codex.mutation,
+      },
+    };
+    await writeInstallManifestAtomic(options.layout.installManifestPath, manifest);
+    return { changed: true, manifest };
+  } catch {
+    await restore(options.layout.installManifestPath, manifestSnapshot).catch(() => undefined);
+    await restore(options.codexSettingsPath, codexSnapshot).catch(() => undefined);
+    throw new HookReconciliationError();
+  }
+}
+
+export async function removeConfiguredCodexHooks(
+  options: ReconcileInstalledCodexHooksOptions,
+): Promise<{ changed: boolean }> {
+  assertCodexOwnership(options.manifest, options.layout);
+  const codexSnapshot = await snapshot(options.codexSettingsPath);
+  try {
+    const codex = await removeCodexHooksFile(
+      options.codexSettingsPath,
+      codexCommands(options.layout),
+      options.manifest.codexHooks.settings,
+      options.clock,
+    );
+    return { changed: codex.changed };
+  } catch {
+    await restore(options.codexSettingsPath, codexSnapshot).catch(() => undefined);
+    throw new HookReconciliationError();
+  }
+}
+
 export async function installConfiguredHooks(
   options: ReconcileInstalledHooksOptions,
 ): Promise<{ changed: boolean; manifest: OwnLoopInstallManifestV1 }> {
