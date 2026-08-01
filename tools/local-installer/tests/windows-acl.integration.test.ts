@@ -73,7 +73,9 @@ async function invokeInstalledCli(
     if (parsed.ok !== true) throw new Error(`Installed CLI returned failure: ${lines[0]}`);
     return parsed;
   } catch (error) {
-    throw new Error(`Installed CLI command failed: ${args.join(" ")} ${nativeFailureDetails(error)}`);
+    throw new Error(
+      `Installed CLI command failed: ${args.join(" ")} ${nativeFailureDetails(error)}`,
+    );
   }
 }
 
@@ -242,9 +244,9 @@ windowsDescribe("installed Codex CLI package boundary", () => {
 
     const claudeSettingsPath = join(userProfile, ".claude", "settings.json");
     const claudeBefore = await readFile(claudeSettingsPath);
-    expect(await invokeInstalledCli(cliPath, environment, ["codex", "hooks", "status"])).toMatchObject(
-      { command: "codex hooks status", status: "installed" },
-    );
+    expect(
+      await invokeInstalledCli(cliPath, environment, ["codex", "hooks", "status"]),
+    ).toMatchObject({ command: "codex hooks status", status: "installed" });
 
     const doctor = await invokeInstalledCli(cliPath, environment, ["codex", "doctor"]);
     expect(doctor).toMatchObject({
@@ -260,9 +262,9 @@ windowsDescribe("installed Codex CLI package boundary", () => {
 
     const removed = await invokeInstalledCli(cliPath, environment, ["codex", "hooks", "remove"]);
     expect(removed).toMatchObject({ command: "codex hooks remove", changed: true });
-    expect(await invokeInstalledCli(cliPath, environment, ["codex", "hooks", "status"])).toMatchObject(
-      { command: "codex hooks status", status: "missing" },
-    );
+    expect(
+      await invokeInstalledCli(cliPath, environment, ["codex", "hooks", "status"]),
+    ).toMatchObject({ command: "codex hooks status", status: "missing" });
     expect(await readFile(claudeSettingsPath)).toEqual(claudeBefore);
     expect(JSON.parse(await readFile(codexSettingsPath, "utf8"))).toEqual({
       hooks: {
@@ -276,12 +278,16 @@ windowsDescribe("installed Codex CLI package boundary", () => {
       theme: "native-package-smoke",
     });
 
-    const reconciled = await invokeInstalledCli(cliPath, environment, ["codex", "hooks", "install"]);
+    const reconciled = await invokeInstalledCli(cliPath, environment, [
+      "codex",
+      "hooks",
+      "install",
+    ]);
     expect(reconciled).toMatchObject({ command: "codex hooks install", changed: true });
     expect(await readFile(claudeSettingsPath)).toEqual(claudeBefore);
-    expect(await invokeInstalledCli(cliPath, environment, ["codex", "hooks", "status"])).toMatchObject(
-      { command: "codex hooks status", status: "installed" },
-    );
+    expect(
+      await invokeInstalledCli(cliPath, environment, ["codex", "hooks", "status"]),
+    ).toMatchObject({ command: "codex hooks status", status: "installed" });
 
     await invokeInstalledCli(cliPath, environment, [
       "uninstall",
@@ -289,9 +295,9 @@ windowsDescribe("installed Codex CLI package boundary", () => {
       "--confirm",
       installId,
     ]);
-    await expect(readFile(join(localAppData, "OwnLoop", "install-manifest.json"))).rejects.toMatchObject(
-      { code: "ENOENT" },
-    );
+    await expect(
+      readFile(join(localAppData, "OwnLoop", "install-manifest.json")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
     expect(JSON.parse(await readFile(codexSettingsPath, "utf8"))).toEqual({
       hooks: {
         SessionStart: [
