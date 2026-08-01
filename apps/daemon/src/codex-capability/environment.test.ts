@@ -91,10 +91,7 @@ describe("Codex capability environment inspection", () => {
 
   it("reports exact default-enabled Hooks as needing trust when state is absent", async () => {
     const setup = await fixture();
-    await writeFile(
-      setup.hooksPath,
-      serializeCodexHookConfigurationJson(exactDocument()),
-    );
+    await writeFile(setup.hooksPath, serializeCodexHookConfigurationJson(exactDocument()));
     expect(
       await inspectCodexCapabilityEnvironment({
         ...setup,
@@ -112,10 +109,7 @@ describe("Codex capability environment inspection", () => {
 
   it("proves trusted and unrestricted only from exact state and explicit policy", async () => {
     const setup = await fixture();
-    await writeFile(
-      setup.hooksPath,
-      serializeCodexHookConfigurationJson(exactDocument(true)),
-    );
+    await writeFile(setup.hooksPath, serializeCodexHookConfigurationJson(exactDocument(true)));
     await writeFile(setup.configPath, trustedConfig(setup.hooksPath, true));
     await writeFile(setup.requirementsPath, "allow_managed_hooks_only = false\n");
     expect(
@@ -137,10 +131,12 @@ describe("Codex capability environment inspection", () => {
     const setup = await fixture();
     const hooksText = serializeCodexHookConfigurationJson(exactDocument());
     await writeFile(setup.hooksPath, hooksText);
-    const config = trustedConfig(setup.hooksPath).replace(
-      "[features]\nhooks = true",
-      "[features]\nhooks = false",
-    ).replace(/trusted_hash = "sha256:[0-9a-f]{64}"/u, `trusted_hash = "sha256:${"0".repeat(64)}"`);
+    const config = trustedConfig(setup.hooksPath)
+      .replace("[features]\nhooks = true", "[features]\nhooks = false")
+      .replace(
+        /trusted_hash = "sha256:[0-9a-f]{64}"/u,
+        `trusted_hash = "sha256:${"0".repeat(64)}"`,
+      );
     await writeFile(setup.configPath, config);
     await writeFile(setup.requirementsPath, "allow_managed_hooks_only = true\n");
     expect(
@@ -155,9 +151,9 @@ describe("Codex capability environment inspection", () => {
       trustState: "needs_trust",
       managedPolicyState: "managed_only",
     });
-    expect(await import("node:fs/promises").then(({ readFile }) => readFile(setup.hooksPath, "utf8"))).toBe(
-      hooksText,
-    );
+    expect(
+      await import("node:fs/promises").then(({ readFile }) => readFile(setup.hooksPath, "utf8")),
+    ).toBe(hooksText);
   });
 
   it("fails closed for malformed Hooks or conflicting feature aliases", async () => {
@@ -175,10 +171,7 @@ describe("Codex capability environment inspection", () => {
       trustState: "unknown",
     });
 
-    await writeFile(
-      setup.hooksPath,
-      serializeCodexHookConfigurationJson(exactDocument()),
-    );
+    await writeFile(setup.hooksPath, serializeCodexHookConfigurationJson(exactDocument()));
     await writeFile(setup.configPath, "[features]\nhooks = true\ncodex_hooks = false\n");
     expect(
       await inspectCodexCapabilityEnvironment({
