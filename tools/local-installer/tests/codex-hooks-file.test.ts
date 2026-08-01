@@ -100,11 +100,7 @@ describe("Codex Hooks user file", () => {
     });
     expect(await inspectCodexHooksFile(setup.hooksPath, commands)).toBe("installed");
 
-    const removed = await removeCodexHooksFile(
-      setup.hooksPath,
-      commands,
-      installed.mutation,
-    );
+    const removed = await removeCodexHooksFile(setup.hooksPath, commands, installed.mutation);
     expect(removed).toMatchObject({ changed: true, deleted: true });
     await expect(lstat(setup.hooksPath)).rejects.toMatchObject({ code: "ENOENT" });
   });
