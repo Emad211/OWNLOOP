@@ -15,8 +15,14 @@ import {
 import { CODEX_HOOK_LAUNCHER_BASENAME } from "@ownloop/contracts/codex";
 
 import { inspectClaudeHooksFile } from "./claude-settings.js";
+import { runCodexDoctor } from "./codex-doctor.js";
 import { inspectCodexHooksFile } from "./codex-hooks-file.js";
-import { installConfiguredHooks, removeConfiguredHooks } from "./hook-reconciliation.js";
+import {
+  installConfiguredCodexHooks,
+  installConfiguredHooks,
+  removeConfiguredCodexHooks,
+  removeConfiguredHooks,
+} from "./hook-reconciliation.js";
 import { InstallManifestError, readInstallManifest } from "./install-manifest.js";
 import {
   createNativeInstallLayout,
@@ -41,6 +47,10 @@ export type CliCommand =
   | Readonly<{ name: "hooks_install" }>
   | Readonly<{ name: "hooks_status" }>
   | Readonly<{ name: "hooks_remove" }>
+  | Readonly<{ name: "codex_hooks_install" }>
+  | Readonly<{ name: "codex_hooks_status" }>
+  | Readonly<{ name: "codex_hooks_remove" }>
+  | Readonly<{ name: "codex_doctor" }>
   | Readonly<{ name: "uninstall"; dataMode: "preserve" }>
   | Readonly<{ name: "uninstall"; dataMode: "remove"; confirmationInstallId: string }>;
 
@@ -72,6 +82,14 @@ export function parseCliCommand(args: readonly string[]): CliCommand {
     if (args[1] === "install") return { name: "hooks_install" };
     if (args[1] === "status") return { name: "hooks_status" };
     if (args[1] === "remove") return { name: "hooks_remove" };
+  }
+  if (args.length === 2 && args[0] === "codex" && args[1] === "doctor") {
+    return { name: "codex_doctor" };
+  }
+  if (args.length === 3 && args[0] === "codex" && args[1] === "hooks") {
+    if (args[2] === "install") return { name: "codex_hooks_install" };
+    if (args[2] === "status") return { name: "codex_hooks_status" };
+    if (args[2] === "remove") return { name: "codex_hooks_remove" };
   }
   if (args.length === 2 && args[0] === "uninstall" && args[1] === "--preserve-data") {
     return { name: "uninstall", dataMode: "preserve" };
@@ -311,6 +329,29 @@ export async function executeCli(
       await (dependencies.stopImplementation ?? stopInstalledRuntime)(runtimePaths, dependencies);
       return { ok: true, command: "stop", status: "stopped" };
     }
+    if (command.name === "codex_doctor") {
+      const result = await runCodexDoctor({ ...layout, codexSettingsPath }, dependencies);
+      return { ok: true, command: "codex doctor", ...result };
+    }
+    if (command.name === "codex_hooks_status") {
+      const status = await inspectCodexHooksFile(
+        codexSettingsPath,
+        codexLauncherCommands(layout),
+      );
+      try {
+        const manifest = await verifyHookInstallation(layout, { allowMissing: true });
+        if (manifest === null) {
+          return {
+            ok: true,
+            command: "codex hooks status",
+            status: status === "missing" ? "missing" : "repair_needed",
+          };
+        }
+        return { ok: true, command: "codex hooks status", status };
+      } catch {
+        return { ok: true, command: "codex hooks status", status: "repair_needed" };
+      }
+    }
     if (command.name === "hooks_status") {
       const [claudeStatus, codexStatus] = await Promise.all([
         inspectClaudeHooksFile(claudeSettingsPath, layout.stableHookLauncherPath),
@@ -334,6 +375,22 @@ export async function executeCli(
     }
     const manifest = await verifyHookInstallation(layout);
     if (manifest === null) return { ok: false, error: { code: "repair_needed" } };
+    if (command.name === "codex_hooks_install") {
+      const result = await installConfiguredCodexHooks({
+        layout,
+        codexSettingsPath,
+        manifest,
+      });
+      return { ok: true, command: "codex hooks install", changed: result.changed };
+    }
+    if (command.name === "codex_hooks_remove") {
+      const result = await removeConfiguredCodexHooks({
+        layout,
+        codexSettingsPath,
+        manifest,
+      });
+      return { ok: true, command: "codex hooks remove", changed: result.changed };
+    }
     if (command.name === "hooks_install") {
       const result = await installConfiguredHooks({
         layout,
