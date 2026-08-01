@@ -10,8 +10,7 @@ import {
 
 const COMMANDS: CodexHookLauncherCommands = {
   command: "ownloop-codex-hook",
-  commandWindows:
-    "C:\\Users\\Emad Karimi\\AppData\\Local\\OwnLoop\\bin\\ownloop-codex-hook.cmd",
+  commandWindows: "C:\\Users\\Emad Karimi\\AppData\\Local\\OwnLoop\\bin\\ownloop-codex-hook.cmd",
 };
 
 function installedDocument(): Record<string, unknown> {
@@ -210,9 +209,9 @@ describe("Codex Hook configuration core", () => {
       "C:\\Users\\Fixture%TEMP%\\OwnLoop\\bin\\ownloop-codex-hook.cmd",
       "C:\\Users\\Fixture\\OwnLoop\\bin\\ownloop-codex-hook.cmd ",
     ]) {
-      expect(() =>
-        installCodexHookConfiguration({}, { ...COMMANDS, commandWindows }),
-      ).toThrowError(expect.objectContaining({ code: "invalid_launcher_command" }));
+      expect(() => installCodexHookConfiguration({}, { ...COMMANDS, commandWindows })).toThrowError(
+        expect.objectContaining({ code: "invalid_launcher_command" }),
+      );
     }
   });
 });
