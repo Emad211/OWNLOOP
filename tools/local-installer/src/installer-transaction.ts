@@ -430,9 +430,7 @@ export async function uninstallOwnLoop(
     secrets === null ||
     secrets.installId !== manifest.installId ||
     release.fingerprint !== manifest.releaseManifestFingerprint ||
-    manifest.hooks.some(
-      (hook) => !samePath(hook.command, options.layout.stableHookLauncherPath),
-    ) ||
+    manifest.hooks.some((hook) => !samePath(hook.command, options.layout.stableHookLauncherPath)) ||
     manifest.codexHooks === undefined ||
     manifest.codexHooks.command !== CODEX_HOOK_LAUNCHER_BASENAME ||
     !samePath(manifest.codexHooks.commandWindows, options.layout.stableCodexHookLauncherPath)
