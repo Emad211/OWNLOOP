@@ -10,7 +10,8 @@ import {
 
 const COMMANDS: CodexHookLauncherCommands = {
   command: "ownloop-codex-hook",
-  commandWindows: '"C:\\Users\\Fixture\\AppData\\Local\\OwnLoop\\bin\\ownloop-codex-hook.cmd"',
+  commandWindows:
+    "C:\\Users\\Emad Karimi\\AppData\\Local\\OwnLoop\\bin\\ownloop-codex-hook.cmd",
 };
 
 function installedDocument(): Record<string, unknown> {
@@ -58,6 +59,14 @@ describe("Codex Hook configuration core", () => {
     const second = installCodexHookConfiguration(first.document, COMMANDS);
     expect(second.changed).toBe(false);
     expect(second.document).toEqual(first.document);
+  });
+
+  it("accepts the equivalent fully quoted Windows launcher command", () => {
+    const quoted = {
+      ...COMMANDS,
+      commandWindows: `"${COMMANDS.commandWindows}"`,
+    };
+    expect(installCodexHookConfiguration({}, quoted).inspection.state).toBe("exact");
   });
 
   it("preserves unknown top-level fields, unknown events, and unrelated handlers", () => {
@@ -190,9 +199,20 @@ describe("Codex Hook configuration core", () => {
         {
           ...COMMANDS,
           commandWindows:
-            '"C:\\Users\\Fixture\\AppData\\Local\\OwnLoop\\app\\0.1.0\\ownloop-codex-hook.cmd"',
+            "C:\\Users\\Fixture\\AppData\\Local\\OwnLoop\\app\\0.1.0\\ownloop-codex-hook.cmd",
         },
       ),
     ).toThrowError(expect.objectContaining({ code: "invalid_launcher_command" }));
+    for (const commandWindows of [
+      "OwnLoop\\bin\\ownloop-codex-hook.cmd",
+      "C:\\Users\\Fixture\\..\\OwnLoop\\bin\\ownloop-codex-hook.cmd",
+      "C:\\Users\\Fixture & whoami\\OwnLoop\\bin\\ownloop-codex-hook.cmd",
+      "C:\\Users\\Fixture%TEMP%\\OwnLoop\\bin\\ownloop-codex-hook.cmd",
+      "C:\\Users\\Fixture\\OwnLoop\\bin\\ownloop-codex-hook.cmd ",
+    ]) {
+      expect(() =>
+        installCodexHookConfiguration({}, { ...COMMANDS, commandWindows }),
+      ).toThrowError(expect.objectContaining({ code: "invalid_launcher_command" }));
+    }
   });
 });
