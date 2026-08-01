@@ -334,10 +334,7 @@ export async function executeCli(
       return { ok: true, command: "codex doctor", ...result };
     }
     if (command.name === "codex_hooks_status") {
-      const status = await inspectCodexHooksFile(
-        codexSettingsPath,
-        codexLauncherCommands(layout),
-      );
+      const status = await inspectCodexHooksFile(codexSettingsPath, codexLauncherCommands(layout));
       try {
         const manifest = await verifyHookInstallation(layout, { allowMissing: true });
         if (manifest === null) {
