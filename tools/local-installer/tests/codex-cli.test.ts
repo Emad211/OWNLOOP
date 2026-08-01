@@ -58,7 +58,7 @@ async function fixture() {
     join(layout.releaseRoot, "release-manifest.json"),
     `${JSON.stringify(release)}\n`,
   );
-  const secrets = await createOrReadInstallationSecrets(
+  const { secrets } = await createOrReadInstallationSecrets(
     layout.secretsPath,
     () => new Date("2026-08-01T00:00:00.000Z"),
   );
