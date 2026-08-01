@@ -78,6 +78,28 @@ jobs:
           $localAppData = Join-Path $env:RUNNER_TEMP 'ownloop-localappdata'
           $userProfile = Join-Path $env:RUNNER_TEMP 'ownloop-userprofile'
           New-Item -ItemType Directory -Force -Path $localAppData, $userProfile | Out-Null
+
+          $codexRoot = Join-Path $userProfile '.codex'
+          $codexSettingsPath = Join-Path $codexRoot 'hooks.json'
+          New-Item -ItemType Directory -Force -Path $codexRoot | Out-Null
+          [ordered]@{
+            theme = 'smoke'
+            hooks = [ordered]@{
+              SessionStart = @(
+                [ordered]@{
+                  matcher = 'foreign-tool'
+                  hooks = @(
+                    [ordered]@{
+                      type = 'command'
+                      command = 'foreign-hook'
+                      timeout = 3
+                    }
+                  )
+                }
+              )
+            }
+          } | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $codexSettingsPath -Encoding utf8NoBOM
+
           "OWNLOOP_PACKAGE_ROOT=$packageRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "LOCALAPPDATA=$localAppData" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "USERPROFILE=$userProfile" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -101,21 +123,145 @@ jobs:
             return $result
           }
 
+          foreach ($relativePath in @(
+            'codex-hook-adapter/dist/index.js',
+            'installer/dist/codex-hook-main.js',
+            'launchers/installed-ownloop-codex-hook.cmd'
+          )) {
+            if (-not (Test-Path -LiteralPath (Join-Path $env:OWNLOOP_PACKAGE_ROOT $relativePath))) {
+              throw "Verified package is missing Codex boundary file: $relativePath"
+            }
+          }
+
           $firstInstall = Invoke-OwnLoop @('install')
           if ([string]::IsNullOrWhiteSpace($firstInstall.installId)) {
             throw 'Install ID was not returned.'
           }
           $hooks = Invoke-OwnLoop @('hooks', 'status')
           if ($hooks.status -ne 'installed') {
-            throw 'Claude hooks are not installed.'
+            throw 'Claude and Codex hooks are not installed.'
           }
 
-          $settingsPath = Join-Path $env:USERPROFILE '.claude/settings.json'
-          $settingsText = Get-Content -LiteralPath $settingsPath -Raw
-          foreach ($forbidden in @('OWNLOOP_INGRESS_PORT', 'OWNLOOP_INSTALLATION_TOKEN', 'secrets-v1.json', 'app\0.1.0')) {
-            if ($settingsText.Contains($forbidden)) {
+          $claudeSettingsPath = Join-Path $env:USERPROFILE '.claude/settings.json'
+          $claudeSettingsText = Get-Content -LiteralPath $claudeSettingsPath -Raw
+          foreach ($forbidden in @('OWNLOOP_INGRESS_PORT', 'OWNLOOP_INSTALLATION_TOKEN', 'secrets-v1.json', 'app\\0.1.0')) {
+            if ($claudeSettingsText.Contains($forbidden)) {
               throw 'Claude settings contain forbidden installation data.'
             }
+          }
+
+          $stableCodexLauncher = Join-Path $env:LOCALAPPDATA 'OwnLoop/bin/ownloop-codex-hook.cmd'
+          if (-not (Test-Path -LiteralPath $stableCodexLauncher)) {
+            throw 'Stable Codex Hook launcher was not installed.'
+          }
+          $codexSettingsPath = Join-Path $env:USERPROFILE '.codex/hooks.json'
+          $codexSettingsText = Get-Content -LiteralPath $codexSettingsPath -Raw
+          foreach ($forbidden in @(
+            'OWNLOOP_INGRESS_PORT',
+            'OWNLOOP_INSTALLATION_TOKEN',
+            'secrets-v1.json',
+            'app\\0.1.0'
+          )) {
+            if ($codexSettingsText.Contains($forbidden)) {
+              throw 'Codex Hooks contain forbidden installation data.'
+            }
+          }
+          if ($codexSettingsText -match '127\.0\.0\.1:\d|localhost:\d') {
+            throw 'Codex Hooks contain a forbidden loopback route.'
+          }
+
+          $codex = $codexSettingsText | ConvertFrom-Json -AsHashtable
+          if ($codex['theme'] -ne 'smoke') {
+            throw 'Unrelated Codex root settings were not preserved.'
+          }
+          $expectedEvents = @(
+            'SessionStart',
+            'UserPromptSubmit',
+            'PreToolUse',
+            'PermissionRequest',
+            'PostToolUse',
+            'PreCompact',
+            'PostCompact',
+            'SubagentStart',
+            'SubagentStop',
+            'Stop',
+            'SessionEnd'
+          )
+          $expectedWindowsCommand = [System.IO.Path]::GetFullPath($stableCodexLauncher)
+          foreach ($event in $expectedEvents) {
+            if (-not $codex['hooks'].Contains($event)) {
+              throw "Codex Hooks are missing event: $event"
+            }
+            $groups = @($codex['hooks'][$event])
+            $ownLoopGroups = @()
+            foreach ($group in $groups) {
+              $handlers = @($group['hooks'])
+              if (
+                $group['matcher'] -eq '*' -and
+                $handlers.Count -eq 1 -and
+                $handlers[0]['command'] -eq 'ownloop-codex-hook'
+              ) {
+                $ownLoopGroups += ,$group
+              }
+            }
+            if ($ownLoopGroups.Count -ne 1) {
+              throw "Codex event does not contain exactly one OwnLoop group: $event"
+            }
+            $ownLoopGroup = $ownLoopGroups[0]
+            $handler = @($ownLoopGroup['hooks'])[0]
+            if (@($ownLoopGroup.Keys).Count -ne 2 -or @($handler.Keys).Count -ne 6) {
+              throw "Codex OwnLoop group has an unexpected shape: $event"
+            }
+            if (
+              $handler['type'] -ne 'command' -or
+              $handler['command'] -ne 'ownloop-codex-hook' -or
+              [System.IO.Path]::GetFullPath([string]$handler['commandWindows']).ToLowerInvariant() -ne
+                $expectedWindowsCommand.ToLowerInvariant() -or
+              [int]$handler['timeout'] -ne 5 -or
+              [bool]$handler['async'] -ne $false -or
+              [int]$handler['additionalContextLimit'] -ne 0
+            ) {
+              throw "Codex OwnLoop handler is not canonical: $event"
+            }
+          }
+          $sessionStartGroups = @($codex['hooks']['SessionStart'])
+          $foreignGroups = @(
+            $sessionStartGroups | Where-Object {
+              $candidateHandlers = @($_['hooks'])
+              $_['matcher'] -eq 'foreign-tool' -and
+                $candidateHandlers.Count -eq 1 -and
+                $candidateHandlers[0]['command'] -eq 'foreign-hook'
+            }
+          )
+          if ($foreignGroups.Count -ne 1) {
+            throw 'Foreign Codex Hook was not preserved during installation.'
+          }
+
+          $installManifestPath = Join-Path $env:LOCALAPPDATA 'OwnLoop/install-manifest.json'
+          $installManifest = Get-Content -LiteralPath $installManifestPath -Raw |
+            ConvertFrom-Json -AsHashtable
+          if (
+            $installManifest['codexHooks']['command'] -ne 'ownloop-codex-hook' -or
+            [System.IO.Path]::GetFullPath(
+              [string]$installManifest['codexHooks']['commandWindows']
+            ).ToLowerInvariant() -ne $expectedWindowsCommand.ToLowerInvariant()
+          ) {
+            throw 'Install manifest does not own the stable Codex launcher.'
+          }
+
+          $claudeHashBefore = (Get-FileHash -LiteralPath $claudeSettingsPath -Algorithm SHA256).Hash
+          $codexHashBefore = (Get-FileHash -LiteralPath $codexSettingsPath -Algorithm SHA256).Hash
+          $manifestHashBefore = (Get-FileHash -LiteralPath $installManifestPath -Algorithm SHA256).Hash
+          $reinstall = Invoke-OwnLoop @('install')
+          if ($reinstall.installId -ne $firstInstall.installId) {
+            throw 'Idempotent reinstall rotated the installation identity.'
+          }
+          if (
+            (Get-FileHash -LiteralPath $claudeSettingsPath -Algorithm SHA256).Hash -ne $claudeHashBefore -or
+            (Get-FileHash -LiteralPath $codexSettingsPath -Algorithm SHA256).Hash -ne $codexHashBefore -or
+            (Get-FileHash -LiteralPath $installManifestPath -Algorithm SHA256).Hash -ne $manifestHashBefore
+          ) {
+            throw 'Idempotent reinstall changed Hook or ownership bytes.'
           }
 
           $daemonEntry = Join-Path $env:LOCALAPPDATA 'OwnLoop/app/0.1.0/daemon/dist/main.js'
@@ -189,6 +335,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $cli = Join-Path $env:OWNLOOP_PACKAGE_ROOT 'installer/dist/cli.js'
+          $codexSettingsPath = Join-Path $env:USERPROFILE '.codex/hooks.json'
 
           function Invoke-OwnLoop([string[]] $CommandArguments) {
             Write-Host "Running OwnLoop command: $($CommandArguments -join ' ')"
@@ -202,6 +349,50 @@ jobs:
               throw "OwnLoop command failed with controlled code: $($result.error.code)"
             }
             return $result
+          }
+
+          function Assert-ForeignCodexOnly {
+            if (-not (Test-Path -LiteralPath $codexSettingsPath)) {
+              throw 'Unrelated Codex settings file was removed.'
+            }
+            $text = Get-Content -LiteralPath $codexSettingsPath -Raw
+            if ($text.Contains('ownloop-codex-hook')) {
+              throw 'OwnLoop Codex Hooks remained after removal.'
+            }
+            $document = $text | ConvertFrom-Json -AsHashtable
+            if ($document['theme'] -ne 'smoke') {
+              throw 'Unrelated Codex root setting was changed.'
+            }
+            $groups = @($document['hooks']['SessionStart'])
+            if ($groups.Count -ne 1) {
+              throw 'Unexpected SessionStart groups remain after OwnLoop removal.'
+            }
+            $handlers = @($groups[0]['hooks'])
+            if (
+              $groups[0]['matcher'] -ne 'foreign-tool' -or
+              $handlers.Count -ne 1 -or
+              $handlers[0]['command'] -ne 'foreign-hook'
+            ) {
+              throw 'Foreign Codex Hook was changed.'
+            }
+          }
+
+          $hookRemoval = Invoke-OwnLoop @('hooks', 'remove')
+          if (-not $hookRemoval.changed) {
+            throw 'Dual-client Hook removal reported no change.'
+          }
+          $missingHooks = Invoke-OwnLoop @('hooks', 'status')
+          if ($missingHooks.status -ne 'missing') {
+            throw 'Removed dual-client Hooks do not report missing.'
+          }
+          Assert-ForeignCodexOnly
+          $hookInstall = Invoke-OwnLoop @('hooks', 'install')
+          if (-not $hookInstall.changed) {
+            throw 'Dual-client Hook installation reported no change.'
+          }
+          $installedHooks = Invoke-OwnLoop @('hooks', 'status')
+          if ($installedHooks.status -ne 'installed') {
+            throw 'Reconciled dual-client Hooks do not report installed.'
           }
 
           $started = Invoke-OwnLoop @('start')
@@ -218,9 +409,15 @@ jobs:
           if (-not $preserved.dataPreserved -or -not (Test-Path -LiteralPath $preserved.dataPath)) {
             throw 'Preserve-data uninstall did not preserve durable data.'
           }
+          Assert-ForeignCodexOnly
 
           $secondInstall = Invoke-OwnLoop @('install')
+          $secondHooks = Invoke-OwnLoop @('hooks', 'status')
+          if ($secondHooks.status -ne 'installed') {
+            throw 'Reinstall did not restore both Hook clients.'
+          }
           $removed = Invoke-OwnLoop @('uninstall', '--remove-data', '--confirm', $secondInstall.installId)
           if ($removed.dataPreserved -or (Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'OwnLoop'))) {
             throw 'Remove-data uninstall left installation state behind.'
           }
+          Assert-ForeignCodexOnly
