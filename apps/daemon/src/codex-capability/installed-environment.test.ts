@@ -61,12 +61,7 @@ describe("installed Codex capability environment provider", () => {
 
     const commands = {
       command: CODEX_HOOK_LAUNCHER_BASENAME,
-      commandWindows: join(
-        setup.localAppData,
-        "OwnLoop",
-        "bin",
-        "ownloop-codex-hook.cmd",
-      ),
+      commandWindows: join(setup.localAppData, "OwnLoop", "bin", "ownloop-codex-hook.cmd"),
     } as const;
     const document = installCodexHookConfiguration({}, commands).document;
     await writeFile(setup.hooksPath, serializeCodexHookConfigurationJson(document));
