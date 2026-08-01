@@ -5,12 +5,17 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SUPPORTED_CLAUDE_HOOK_NAMES } from "@ownloop/contracts";
+import {
+  CODEX_HOOK_LAUNCHER_BASENAME,
+  SUPPORTED_CODEX_HOOK_NAMES,
+} from "@ownloop/contracts/codex";
 
 import {
   buildReleaseManifest,
   createNativeInstallLayout,
   createOrReadInstallationSecrets,
   installClaudeHooksFile,
+  installCodexHooksFile,
   writeInstallManifestAtomic,
 } from "../src/index.js";
 import { CliParseError, executeCli, parseCliCommand } from "../src/cli.js";
@@ -29,6 +34,10 @@ async function environment() {
   await mkdir(join(packageRoot, "launchers"), { recursive: true });
   await writeFile(join(packageRoot, "launchers", "installed-ownloop.cmd"), "user launcher\n");
   await writeFile(join(packageRoot, "launchers", "installed-ownloop-hook.cmd"), "hook launcher\n");
+  await writeFile(
+    join(packageRoot, "launchers", "installed-ownloop-codex-hook.cmd"),
+    "codex hook launcher\n",
+  );
   return {
     packageRoot,
     environment: { LOCALAPPDATA: localAppData, USERPROFILE: userProfile },
@@ -49,7 +58,14 @@ async function prepareVerifiedInstallation(setup: Awaited<ReturnType<typeof envi
     join(layout.releaseRoot, "installer", "dist", "hook-main.js"),
     "process.exitCode = 0;\n",
   );
-  const release = await buildReleaseManifest(layout.releaseRoot, ["installer/dist/hook-main.js"]);
+  await writeFile(
+    join(layout.releaseRoot, "installer", "dist", "codex-hook-main.js"),
+    "process.exitCode = 0;\n",
+  );
+  const release = await buildReleaseManifest(layout.releaseRoot, [
+    "installer/dist/hook-main.js",
+    "installer/dist/codex-hook-main.js",
+  ]);
   await writeFile(
     join(layout.releaseRoot, "release-manifest.json"),
     `${JSON.stringify(release)}\n`,
@@ -74,6 +90,15 @@ async function prepareVerifiedInstallation(setup: Awaited<ReturnType<typeof envi
       hooksContainerCreated: false,
       createdEventContainers: [],
     },
+    codexHooks: {
+      command: CODEX_HOOK_LAUNCHER_BASENAME,
+      commandWindows: layout.stableCodexHookLauncherPath,
+      settings: {
+        settingsFileCreated: false,
+        hooksContainerCreated: false,
+        createdEventContainers: [],
+      },
+    },
     installedAt: "2026-07-26T12:00:00.000Z",
   });
   return {
@@ -81,6 +106,7 @@ async function prepareVerifiedInstallation(setup: Awaited<ReturnType<typeof envi
     release,
     secrets,
     claudeSettingsPath: join(setup.environment.USERPROFILE, ".claude", "settings.json"),
+    codexSettingsPath: join(setup.environment.USERPROFILE, ".codex", "hooks.json"),
   };
 }
 
@@ -121,6 +147,8 @@ describe("CLI execution", () => {
         userSid: "S-1-5-21-100",
         userLauncher: "user launcher\n",
         hookLauncher: "hook launcher\n",
+        codexHookLauncher: "codex hook launcher\n",
+        codexSettingsPath: join(setup.environment.USERPROFILE, ".codex", "hooks.json"),
       }),
     );
   });
@@ -231,12 +259,11 @@ describe("CLI execution", () => {
       uninstallImplementation,
       stopImplementation: vi.fn(async () => undefined),
     });
-    // Destructive uninstall requires complete installation reconciliation before any mutation.
     expect(result).toEqual({ ok: false, error: { code: "repair_needed" } });
     expect(uninstallImplementation).not.toHaveBeenCalled();
   });
 
-  it("distinguishes missing Hook state from orphaned settings that require repair", async () => {
+  it("distinguishes a clean absence from orphaned dual-client Hook settings", async () => {
     const setup = await environment();
     const missing = await executeCli(["hooks", "status"], {
       ...compatible,
@@ -245,8 +272,13 @@ describe("CLI execution", () => {
     expect(missing).toEqual({ ok: true, command: "hooks status", status: "missing" });
 
     const layout = createNativeInstallLayout(join(setup.environment.LOCALAPPDATA, "OwnLoop"));
-    const settingsPath = join(setup.environment.USERPROFILE, ".claude", "settings.json");
-    await installClaudeHooksFile(settingsPath, layout.stableHookLauncherPath);
+    const claudeSettingsPath = join(setup.environment.USERPROFILE, ".claude", "settings.json");
+    const codexSettingsPath = join(setup.environment.USERPROFILE, ".codex", "hooks.json");
+    await installClaudeHooksFile(claudeSettingsPath, layout.stableHookLauncherPath);
+    await installCodexHooksFile(codexSettingsPath, {
+      command: CODEX_HOOK_LAUNCHER_BASENAME,
+      commandWindows: layout.stableCodexHookLauncherPath,
+    });
     const orphaned = await executeCli(["hooks", "status"], {
       ...compatible,
       environment: setup.environment,
@@ -254,12 +286,15 @@ describe("CLI execution", () => {
     expect(orphaned).toEqual({ ok: true, command: "hooks status", status: "repair_needed" });
   });
 
-  it("verifies install identity and release bytes before Hook mutation", async () => {
+  it("verifies install identity and release bytes before either Hook mutation", async () => {
     const setup = await environment();
     const installed = await prepareVerifiedInstallation(setup);
     await mkdir(join(setup.environment.USERPROFILE, ".claude"), { recursive: true });
+    await mkdir(join(setup.environment.USERPROFILE, ".codex"), { recursive: true });
     await writeFile(installed.claudeSettingsPath, '{"theme":"dark"}\n');
-    const before = await readFile(installed.claudeSettingsPath, "utf8");
+    await writeFile(installed.codexSettingsPath, '{"theme":"light"}\n');
+    const claudeBefore = await readFile(installed.claudeSettingsPath, "utf8");
+    const codexBefore = await readFile(installed.codexSettingsPath, "utf8");
     await writeFile(
       join(installed.layout.releaseRoot, "installer", "dist", "hook-main.js"),
       "tampered\n",
@@ -270,12 +305,13 @@ describe("CLI execution", () => {
       environment: setup.environment,
     });
     expect(result).toEqual({ ok: false, error: { code: "repair_needed" } });
-    expect(await readFile(installed.claudeSettingsPath, "utf8")).toBe(before);
+    expect(await readFile(installed.claudeSettingsPath, "utf8")).toBe(claudeBefore);
+    expect(await readFile(installed.codexSettingsPath, "utf8")).toBe(codexBefore);
   });
 
-  it("installs and reports exact Hooks only after verified installation reconciliation", async () => {
+  it("installs and reports exact Hooks only after dual-client reconciliation", async () => {
     const setup = await environment();
-    await prepareVerifiedInstallation(setup);
+    const prepared = await prepareVerifiedInstallation(setup);
     const installed = await executeCli(["hooks", "install"], {
       ...compatible,
       environment: setup.environment,
@@ -286,6 +322,8 @@ describe("CLI execution", () => {
       environment: setup.environment,
     });
     expect(status).toEqual({ ok: true, command: "hooks status", status: "installed" });
+    const codexText = await readFile(prepared.codexSettingsPath, "utf8");
+    for (const event of SUPPORTED_CODEX_HOOK_NAMES) expect(codexText).toContain(`"${event}"`);
   });
 
   it("rejects unsupported platform before filesystem access", async () => {
