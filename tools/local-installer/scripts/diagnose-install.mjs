@@ -1,24 +1,14 @@
 #!/usr/bin/env node
 
 import { execFile } from "node:child_process";
-import {
-  copyFile,
-  lstat,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-} from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 
 import { installClaudeHooksFile } from "../dist/claude-settings.js";
 import { installCodexHooksFile } from "../dist/codex-hooks-file.js";
-import {
-  createNativeInstallLayout,
-  installOwnLoop,
-} from "../dist/installer-transaction.js";
+import { createNativeInstallLayout, installOwnLoop } from "../dist/installer-transaction.js";
 import { readAndVerifyReleasePackage } from "../dist/manifest.js";
 
 const execFileAsync = promisify(execFile);
@@ -43,12 +33,7 @@ async function regularFileOrMissing(path) {
     const stats = await lstat(path);
     return stats.isFile() && !stats.isSymbolicLink() ? "regular_file" : "unsafe_entry";
   } catch (error) {
-    if (
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      error.code === "ENOENT"
-    ) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
       return "missing";
     }
     return "unreadable";
@@ -188,17 +173,11 @@ async function main() {
   }
 
   const [claudeSettings, codexHooks] = await Promise.all([
-    diagnoseSettings(
-      "claude-settings",
-      claudeSource,
-      join(".claude", "settings.json"),
-      (target) => installClaudeHooksFile(target, join(stableRoot, "bin", "ownloop-hook.cmd")),
+    diagnoseSettings("claude-settings", claudeSource, join(".claude", "settings.json"), (target) =>
+      installClaudeHooksFile(target, join(stableRoot, "bin", "ownloop-hook.cmd")),
     ),
-    diagnoseSettings(
-      "codex-hooks",
-      codexSource,
-      join(".codex", "hooks.json"),
-      (target) => installCodexHooksFile(target, commands),
+    diagnoseSettings("codex-hooks", codexSource, join(".codex", "hooks.json"), (target) =>
+      installCodexHooksFile(target, commands),
     ),
   ]);
 
@@ -238,9 +217,7 @@ async function main() {
 
 void main()
   .catch((error) => {
-    process.stdout.write(
-      `${JSON.stringify({ ok: false, error: controlledError(error) })}\n`,
-    );
+    process.stdout.write(`${JSON.stringify({ ok: false, error: controlledError(error) })}\n`);
     process.exitCode = 1;
   })
   .finally(async () => {
