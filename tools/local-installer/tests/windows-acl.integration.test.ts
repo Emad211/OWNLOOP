@@ -1,12 +1,19 @@
 import { Buffer } from "node:buffer";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import {
+  CODEX_HOOK_LAUNCHER_BASENAME,
+  installCodexHookConfiguration,
+  serializeCodexHookConfigurationJson,
+} from "@ownloop/contracts/codex";
+
+import { createInstalledCodexCapabilityEnvironmentProvider } from "../../../apps/daemon/src/codex-capability/installed-environment.js";
 import { buildPrivateAclCommands, ensurePrivateWindowsAcl } from "../src/index.js";
 
 const execFileAsync = promisify(execFile);
@@ -26,6 +33,11 @@ function nativeFailureDetails(error: unknown): string {
     stderr: typeof value.stderr === "string" ? value.stderr.trim() : null,
     message: typeof value.message === "string" ? value.message : null,
   });
+}
+
+function restoreEnvironment(name: "USERPROFILE" | "LOCALAPPDATA" | "ProgramData", value: string | undefined) {
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
 }
 
 afterEach(async () => {
@@ -99,4 +111,58 @@ windowsDescribe("Windows private ACL boundary", () => {
 
     expect(userSid).toMatch(/^S-1-[0-9]+(?:-[0-9]+)+$/u);
   }, 20_000);
+});
+
+windowsDescribe("installed Codex capability paths", () => {
+  it("reads current-user Hooks and the official ProgramData policy without overrides", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ownloop-codex-capability-smoke-"));
+    roots.push(root);
+    const userProfile = join(root, "User");
+    const localAppData = join(root, "LocalAppData");
+    const programData = join(root, "ProgramData");
+    const codexRoot = join(userProfile, ".codex");
+    const requirementsRoot = join(programData, "OpenAI", "Codex");
+    await mkdir(codexRoot, { recursive: true });
+    await mkdir(localAppData, { recursive: true });
+    await mkdir(requirementsRoot, { recursive: true });
+
+    const launcherCommands = {
+      command: CODEX_HOOK_LAUNCHER_BASENAME,
+      commandWindows: join(localAppData, "OwnLoop", "bin", "ownloop-codex-hook.cmd"),
+    } as const;
+    await writeFile(
+      join(codexRoot, "hooks.json"),
+      serializeCodexHookConfigurationJson(
+        installCodexHookConfiguration({}, launcherCommands).document,
+      ),
+    );
+    await writeFile(
+      join(requirementsRoot, "requirements.toml"),
+      "allow_managed_hooks_only = false\n",
+    );
+
+    const previous = {
+      USERPROFILE: process.env.USERPROFILE,
+      LOCALAPPDATA: process.env.LOCALAPPDATA,
+      ProgramData: process.env.ProgramData,
+    };
+    process.env.USERPROFILE = userProfile;
+    process.env.LOCALAPPDATA = localAppData;
+    process.env.ProgramData = programData;
+    try {
+      const provider = createInstalledCodexCapabilityEnvironmentProvider();
+      if (provider === null) throw new Error("Installed Codex capability provider is unavailable.");
+      expect(await provider()).toEqual({
+        configurationState: "exact",
+        hookEngineState: "enabled",
+        trustState: "needs_trust",
+        managedPolicyState: "unrestricted",
+        verifiedSourceSurfaces: [],
+      });
+    } finally {
+      restoreEnvironment("USERPROFILE", previous.USERPROFILE);
+      restoreEnvironment("LOCALAPPDATA", previous.LOCALAPPDATA);
+      restoreEnvironment("ProgramData", previous.ProgramData);
+    }
+  });
 });
