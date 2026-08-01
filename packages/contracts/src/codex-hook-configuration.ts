@@ -72,7 +72,7 @@ const SECRET_OR_ROUTE_PATTERN =
   /(?:authorization|bearer|password|passwd|secret|api[_.-]?key|access[_.-]?token|refresh[_.-]?token|id[_.-]?token|--port|127\.0\.0\.1:\d|localhost:\d)/iu;
 const VERSIONED_APP_PATH_PATTERN = /[\\/]app[\\/](?:v?\d+\.\d+\.\d+|current)[\\/]/iu;
 const OWNLOOP_LAUNCHER_PATTERN = /ownloop-codex-hook(?:\.cmd)?/iu;
-const WINDOWS_PATH_FORBIDDEN_PATTERN = /[<>|?*%!]/u;
+const WINDOWS_PATH_FORBIDDEN_PATTERN = /[&<>|?*%!^]/u;
 
 function isPlainObject(value: unknown): value is JsonObject {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
@@ -183,8 +183,16 @@ function unwrapOptionalQuotes(command: string): string | null {
 
 function windowsCommandPath(command: string): string | null {
   const path = unwrapOptionalQuotes(command);
-  if (path === null || !/^[A-Za-z]:[\\/]/u.test(path)) return null;
-  if (WINDOWS_PATH_FORBIDDEN_PATTERN.test(path) || path.slice(2).includes(":")) return null;
+  if (path === null) return null;
+  const windowsAbsolute = /^[A-Za-z]:[\\/]/u.test(path);
+  const posixAbsolute = path.startsWith("/");
+  if (!windowsAbsolute && !posixAbsolute) return null;
+  if (
+    WINDOWS_PATH_FORBIDDEN_PATTERN.test(path) ||
+    path.slice(windowsAbsolute ? 2 : 0).includes(":")
+  ) {
+    return null;
+  }
   const normalized = path.replaceAll("\\", "/");
   const segments = normalized.split("/");
   if (
