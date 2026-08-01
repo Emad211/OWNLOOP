@@ -2,6 +2,7 @@ export * from "./layout.js";
 export * from "./manifest.js";
 export * from "./claude-settings.js";
 export * from "./codex-hooks-file.js";
+export * from "./codex-doctor.js";
 export * from "./hook-reconciliation.js";
 export * from "./secrets.js";
 export * from "./strict-json.js";
