@@ -189,14 +189,16 @@ function windowsCommandPath(command: string): string | null {
   const segments = normalized.split("/");
   if (
     segments.length < 2 ||
-    segments.slice(1).some(
-      (segment) =>
-        segment.length === 0 ||
-        segment === "." ||
-        segment === ".." ||
-        segment.endsWith(".") ||
-        segment.endsWith(" "),
-    )
+    segments
+      .slice(1)
+      .some(
+        (segment) =>
+          segment.length === 0 ||
+          segment === "." ||
+          segment === ".." ||
+          segment.endsWith(".") ||
+          segment.endsWith(" "),
+      )
   ) {
     return null;
   }
