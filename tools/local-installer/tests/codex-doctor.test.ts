@@ -47,10 +47,7 @@ async function fixture() {
     join(layout.releaseRoot, "release-manifest.json"),
     `${JSON.stringify(release)}\n`,
   );
-  const { secrets } = await createOrReadInstallationSecrets(
-    layout.secretsPath,
-    () => new Date(AT),
-  );
+  const { secrets } = await createOrReadInstallationSecrets(layout.secretsPath, () => new Date(AT));
   await writeInstallManifestAtomic(layout.installManifestPath, {
     schemaVersion: 1,
     installId: secrets.installId,
