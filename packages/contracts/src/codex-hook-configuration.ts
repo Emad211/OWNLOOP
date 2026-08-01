@@ -72,6 +72,7 @@ const SECRET_OR_ROUTE_PATTERN =
   /(?:authorization|bearer|password|passwd|secret|api[_.-]?key|access[_.-]?token|refresh[_.-]?token|id[_.-]?token|--port|127\.0\.0\.1:\d|localhost:\d)/iu;
 const VERSIONED_APP_PATH_PATTERN = /[\\/]app[\\/](?:v?\d+\.\d+\.\d+|current)[\\/]/iu;
 const OWNLOOP_LAUNCHER_PATTERN = /ownloop-codex-hook(?:\.cmd)?/iu;
+const WINDOWS_PATH_FORBIDDEN_PATTERN = /[<>|?*%!]/u;
 
 function isPlainObject(value: unknown): value is JsonObject {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
@@ -171,15 +172,43 @@ export function validateCodexHookConfigurationDocument(value: unknown): Record<s
   return cloneDocument(value);
 }
 
-function unquotedCommandPath(command: string): string | null {
-  const trimmed = command.trim();
-  if (trimmed.length === 0 || containsControlCharacter(trimmed)) return null;
-  if (trimmed.startsWith('"')) {
-    if (!trimmed.endsWith('"') || trimmed.length < 3) return null;
-    const inner = trimmed.slice(1, -1);
+function unwrapOptionalQuotes(command: string): string | null {
+  if (command.startsWith('"')) {
+    if (!command.endsWith('"') || command.length < 3) return null;
+    const inner = command.slice(1, -1);
     return inner.includes('"') ? null : inner;
   }
-  return /\s/u.test(trimmed) ? null : trimmed;
+  return command.includes('"') ? null : command;
+}
+
+function windowsCommandPath(command: string): string | null {
+  const path = unwrapOptionalQuotes(command);
+  if (path === null || !/^[A-Za-z]:[\\/]/u.test(path)) return null;
+  if (WINDOWS_PATH_FORBIDDEN_PATTERN.test(path) || path.slice(2).includes(":")) return null;
+  const normalized = path.replaceAll("\\", "/");
+  const segments = normalized.split("/");
+  if (
+    segments.length < 2 ||
+    segments.slice(1).some(
+      (segment) =>
+        segment.length === 0 ||
+        segment === "." ||
+        segment === ".." ||
+        segment.endsWith(".") ||
+        segment.endsWith(" "),
+    )
+  ) {
+    return null;
+  }
+  return path;
+}
+
+function unquotedCommandPath(command: string, windows: boolean): string | null {
+  const trimmed = command.trim();
+  if (trimmed.length === 0 || trimmed !== command || containsControlCharacter(trimmed)) return null;
+  if (windows) return windowsCommandPath(trimmed);
+  const path = unwrapOptionalQuotes(trimmed);
+  return path === null || /\s/u.test(path) ? null : path;
 }
 
 function validateLauncherCommand(command: string, windows: boolean): string {
@@ -190,7 +219,7 @@ function validateLauncherCommand(command: string, windows: boolean): string {
   ) {
     throw new CodexHookConfigurationError("invalid_launcher_command");
   }
-  const path = unquotedCommandPath(command);
+  const path = unquotedCommandPath(command, windows);
   if (path === null) throw new CodexHookConfigurationError("invalid_launcher_command");
   const normalized = path.replaceAll("\\", "/").toLowerCase();
   const expected = windows ? CODEX_HOOK_WINDOWS_LAUNCHER_BASENAME : CODEX_HOOK_LAUNCHER_BASENAME;
