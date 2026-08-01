@@ -7,6 +7,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { diagnosticsError } from "../diagnostics-dashboard/index.js";
 import type { InstallationTokenVerifier } from "../ingress/index.js";
 import type { OwnLoopPersistence } from "../persistence/index.js";
+import { createInstalledCodexCapabilityEnvironmentProvider } from "./installed-environment.js";
 import {
   type CodexCapabilityEnvironmentFacts,
   projectCodexCapabilityFromPersistence,
@@ -29,10 +30,14 @@ const DEFAULT_ENVIRONMENT: CodexCapabilityEnvironmentFacts = Object.freeze({
   verifiedSourceSurfaces: Object.freeze([]),
 });
 
+export type CodexCapabilityEnvironmentProvider = () =>
+  | CodexCapabilityEnvironmentFacts
+  | Promise<CodexCapabilityEnvironmentFacts>;
+
 export type CodexCapabilityRouteDependencies = Readonly<{
   persistence: OwnLoopPersistence;
   tokenVerifier: InstallationTokenVerifier;
-  environment?: () => CodexCapabilityEnvironmentFacts;
+  environment?: CodexCapabilityEnvironmentProvider;
 }>;
 
 function secure(reply: FastifyReply): FastifyReply {
@@ -51,6 +56,9 @@ export function registerCodexCapabilityRoute(
   server: FastifyInstance,
   dependencies: CodexCapabilityRouteDependencies,
 ): void {
+  const environmentProvider =
+    dependencies.environment ?? createInstalledCodexCapabilityEnvironmentProvider();
+
   server.get(
     CODEX_CAPABILITY_ROUTE,
     {
@@ -66,13 +74,12 @@ export function registerCodexCapabilityRoute(
         done();
       },
     },
-    (_request, reply) => {
+    async (_request, reply) => {
       try {
+        const environment =
+          environmentProvider === null ? DEFAULT_ENVIRONMENT : await environmentProvider();
         const status = CodexCapabilityStatusV1Schema.parse(
-          projectCodexCapabilityFromPersistence(
-            dependencies.persistence,
-            dependencies.environment?.() ?? DEFAULT_ENVIRONMENT,
-          ),
+          projectCodexCapabilityFromPersistence(dependencies.persistence, environment),
         );
         const body = canonicalizeJson(status, CAPABILITY_LIMITS);
         const bytes = Buffer.from(body, "utf8");
