@@ -1,4 +1,4 @@
-import { lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -42,23 +42,16 @@ function object(value: unknown): Record<string, unknown> {
 describe("Codex Hooks user file", () => {
   it("preserves unrelated configuration and removes only owned entries and containers", async () => {
     const setup = await fixture();
-    const firstEvent = SUPPORTED_CODEX_HOOK_NAMES[0];
+    const firstEvent = "SessionStart" as const;
     const foreignGroup = {
       matcher: "foreign-tool",
       hooks: [{ type: "command", command: "foreign-hook", timeout: 3 }],
     };
+    await mkdir(join(setup.root, ".codex"), { recursive: true });
     await writeFile(
       setup.hooksPath,
       `${JSON.stringify({ theme: "dark", hooks: { [firstEvent]: [foreignGroup] } })}\n`,
-      { recursive: true } as never,
-    ).catch(async () => {
-      const { mkdir } = await import("node:fs/promises");
-      await mkdir(join(setup.root, ".codex"), { recursive: true });
-      await writeFile(
-        setup.hooksPath,
-        `${JSON.stringify({ theme: "dark", hooks: { [firstEvent]: [foreignGroup] } })}\n`,
-      );
-    });
+    );
 
     const installed = await installCodexHooksFile(
       setup.hooksPath,
@@ -118,7 +111,6 @@ describe("Codex Hooks user file", () => {
 
   it("rejects duplicate keys and ambiguous OwnLoop-like entries without changing bytes", async () => {
     const setup = await fixture();
-    const { mkdir } = await import("node:fs/promises");
     await mkdir(join(setup.root, ".codex"), { recursive: true });
     const duplicate = '{"hooks":{},"hooks":{}}\n';
     await writeFile(setup.hooksPath, duplicate);
