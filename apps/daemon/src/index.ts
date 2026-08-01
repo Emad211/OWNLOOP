@@ -1,6 +1,7 @@
 export * from "./artifact-store/index.js";
 export * from "./candidate-generation/index.js";
 export * from "./change-classification/index.js";
+export * from "./codex-capability/index.js";
 export * from "./evidence-graph/index.js";
 export * from "./enriched-replay/index.js";
 export * from "./diagnostics-dashboard/index.js";

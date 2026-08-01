@@ -1,10 +1,11 @@
 import type {
   DiagnosticsProcessSnapshotV1,
   IngestionErrorCode,
+  IngressAgentSource,
   LOCAL_DIAGNOSTIC_EVENT_CODES,
-  LocalDiagnosticsResponseV1,
   LocalDiagnosticMode,
-  SupportedClaudeHookName,
+  LocalDiagnosticsResponseV1,
+  SupportedAgentHookName,
 } from "@ownloop/contracts";
 
 import type { IngressDiagnosticEvent, IngressDiagnosticSink } from "../ingress/diagnostics.js";
@@ -24,12 +25,50 @@ const eventCode = (
   }
 };
 
+type HookCounter = Readonly<{
+  source: IngressAgentSource;
+  hookName: SupportedAgentHookName;
+  count: number;
+}>;
+
+function hookCounterKey(source: IngressAgentSource, hookName: SupportedAgentHookName): string {
+  return `${source}:${hookName}`;
+}
+
+function incrementHookCounter(
+  target: Map<string, HookCounter>,
+  source: IngressAgentSource,
+  hookName: SupportedAgentHookName,
+): void {
+  const key = hookCounterKey(source, hookName);
+  const current = target.get(key);
+  target.set(key, {
+    source,
+    hookName,
+    count: (current?.count ?? 0) + 1,
+  });
+}
+
+function snapshotHookCounters(target: ReadonlyMap<string, HookCounter>) {
+  return [...target.values()]
+    .sort((left, right) =>
+      hookCounterKey(left.source, left.hookName).localeCompare(
+        hookCounterKey(right.source, right.hookName),
+      ),
+    )
+    .map(({ source, hookName, count }) => ({
+      ...(source === "claude_code" ? {} : { source }),
+      hookName,
+      count,
+    }));
+}
+
 export class LocalDiagnosticCounters {
   #mode: LocalDiagnosticMode;
   readonly #counts = new Map<string, number>();
   readonly #rejections = new Map<IngestionErrorCode, number>();
-  readonly #acceptedByHook = new Map<SupportedClaudeHookName, number>();
-  readonly #duplicateByHook = new Map<SupportedClaudeHookName, number>();
+  readonly #acceptedByHook = new Map<string, HookCounter>();
+  readonly #duplicateByHook = new Map<string, HookCounter>();
 
   constructor(mode: LocalDiagnosticMode) {
     this.#mode = mode;
@@ -55,7 +94,7 @@ export class LocalDiagnosticCounters {
       this.#rejections.set(event.code, (this.#rejections.get(event.code) ?? 0) + 1);
     } else if (event.type === "receipt.accepted") {
       const target = event.duplicate ? this.#duplicateByHook : this.#acceptedByHook;
-      target.set(event.hookName, (target.get(event.hookName) ?? 0) + 1);
+      incrementHookCounter(target, event.source ?? "claude_code", event.hookName);
     }
   };
 
@@ -68,12 +107,8 @@ export class LocalDiagnosticCounters {
       acceptedReceipts: count("receipt_accepted"),
       duplicateReceipts: count("receipt_duplicate"),
       rejectedRequests: count("request_rejected"),
-      acceptedByHook: [...this.#acceptedByHook]
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([hookName, value]) => ({ hookName, count: value })),
-      duplicateByHook: [...this.#duplicateByHook]
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([hookName, value]) => ({ hookName, count: value })),
+      acceptedByHook: snapshotHookCounters(this.#acceptedByHook),
+      duplicateByHook: snapshotHookCounters(this.#duplicateByHook),
       rejectedByCode: [...this.#rejections]
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([code, value]) => ({ code, count: value })),

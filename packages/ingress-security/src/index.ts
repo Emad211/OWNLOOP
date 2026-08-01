@@ -5,6 +5,14 @@ export {
   parseCanonicalJson,
 } from "./canonical-json.js";
 export {
+  createCodexDeduplicationKey,
+  extractCodexSourceEventId,
+  fingerprintCodexSourcePayload,
+} from "./codex-fingerprint.js";
+export type { PrepareCodexIngressReceiptOptions } from "./codex-prepare.js";
+export { prepareCodexIngressReceipt } from "./codex-prepare.js";
+export { reduceAndRedactCodexIngress } from "./codex-reduction.js";
+export {
   ARRAY_TRUNCATION_MARKER,
   MAX_ARRAY_ITEMS,
   MAX_INPUT_CANONICAL_UTF8_BYTES,
@@ -37,11 +45,10 @@ export {
 } from "./path-reduction.js";
 export type { PrepareIngressReceiptOptions } from "./prepare.js";
 export { prepareIngressReceipt } from "./prepare.js";
-export { PERSISTED_HOOK_FIELD_ALLOWLISTS, reduceAndRedactHookPayload } from "./reduction.js";
-
 export {
   isSecretFieldName,
   matchesCustomSecretFieldPattern,
   normalizeSecretFieldName,
   secretFieldMatch,
 } from "./redaction.js";
+export { PERSISTED_HOOK_FIELD_ALLOWLISTS, reduceAndRedactHookPayload } from "./reduction.js";

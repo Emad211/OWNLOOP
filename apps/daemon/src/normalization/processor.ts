@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  NORMALIZED_EVENT_SCHEMA_VERSION,
-  NormalizedEventEnvelopeSchema,
-  type NormalizedEventEnvelope,
-  type NormalizedEventType,
   type JsonObject,
+  NORMALIZED_EVENT_SCHEMA_VERSION,
+  type NormalizedEventEnvelope,
+  NormalizedEventEnvelopeSchema,
+  type NormalizedEventSource,
+  type NormalizedEventType,
 } from "@ownloop/event-model";
 import { parseCanonicalJson } from "@ownloop/ingress-security";
 
@@ -13,8 +14,8 @@ import {
   type EventNormalizationDiagnosticCode,
   type LifecycleResolutionAction,
   type OwnLoopPersistence,
-  type PersistenceRepositories,
   PersistenceError,
+  type PersistenceRepositories,
   type PreparedIngressReceiptRecord,
   type ReceiptEventNormalization,
   type ReceiptLifecycleResolution,
@@ -68,6 +69,11 @@ function parsePayload(receipt: PreparedIngressReceiptRecord): JsonObject {
   return parsed as JsonObject;
 }
 
+function sourceVersionFromPayload(payload: JsonObject): string | null {
+  const value = payload.source_version;
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
 function requirePayloadField(
   payload: JsonObject,
   key: string,
@@ -85,7 +91,71 @@ function requirePayloadField(
   }
 }
 
+function requireCodexTurnMetadata(payload: JsonObject, requirePermissionMode: boolean): void {
+  requirePayloadField(payload, "turn_id", "string");
+  requirePayloadField(payload, "model", "string");
+  if (requirePermissionMode) {
+    requirePayloadField(payload, "permission_mode", "string");
+  }
+}
+
 function validateSourcePayload(receipt: PreparedIngressReceiptRecord, payload: JsonObject): void {
+  if (receipt.source === "codex") {
+    switch (receipt.sourceEventName) {
+      case "SessionStart":
+        requirePayloadField(payload, "source", "string");
+        requirePayloadField(payload, "model", "string");
+        requirePayloadField(payload, "permission_mode", "string");
+        return;
+      case "UserPromptSubmit":
+        requireCodexTurnMetadata(payload, true);
+        requirePayloadField(payload, "prompt", "string");
+        return;
+      case "PreToolUse":
+      case "PermissionRequest":
+        requireCodexTurnMetadata(payload, true);
+        requirePayloadField(payload, "tool_name", "string");
+        requirePayloadField(payload, "tool_input", "present");
+        return;
+      case "PostToolUse":
+        requireCodexTurnMetadata(payload, true);
+        requirePayloadField(payload, "tool_name", "string");
+        requirePayloadField(payload, "tool_input", "present");
+        requirePayloadField(payload, "tool_response", "present");
+        return;
+      case "PreCompact":
+      case "PostCompact":
+        requireCodexTurnMetadata(payload, false);
+        requirePayloadField(payload, "trigger", "string");
+        return;
+      case "SubagentStart":
+        requireCodexTurnMetadata(payload, true);
+        requirePayloadField(payload, "agent_id", "string");
+        requirePayloadField(payload, "agent_type", "string");
+        return;
+      case "SubagentStop":
+        requireCodexTurnMetadata(payload, true);
+        requirePayloadField(payload, "agent_id", "string");
+        requirePayloadField(payload, "agent_type", "string");
+        requirePayloadField(payload, "stop_hook_active", "boolean");
+        requirePayloadField(payload, "last_assistant_message", "present");
+        return;
+      case "Stop":
+        requireCodexTurnMetadata(payload, true);
+        requirePayloadField(payload, "stop_hook_active", "boolean");
+        requirePayloadField(payload, "last_assistant_message", "present");
+        return;
+      case "SessionEnd":
+        requirePayloadField(payload, "reason", "string");
+        return;
+      default:
+        throw new ExpectedNormalizationFailure("invalid_event_mapping");
+    }
+  }
+
+  if (receipt.source !== "claude_code") {
+    throw new ExpectedNormalizationFailure("invalid_event_mapping");
+  }
   switch (receipt.sourceEventName) {
     case "SessionStart":
       requirePayloadField(payload, "source", "string");
@@ -120,12 +190,14 @@ function validateSourcePayload(receipt: PreparedIngressReceiptRecord, payload: J
     case "SessionEnd":
       requirePayloadField(payload, "reason", "string");
       break;
+    default:
+      throw new ExpectedNormalizationFailure("invalid_event_mapping");
   }
 }
 
 type EventSpecification = Readonly<{
   type: NormalizedEventType;
-  source: "claude_code" | "ownloop";
+  source: NormalizedEventSource;
   payload: JsonObject;
   sensitivity: "normal" | "sensitive";
   sourceFields: boolean;
@@ -151,11 +223,12 @@ function requireRun(resolution: ReceiptLifecycleResolution): string {
 }
 
 function sourceSpec(
+  source: Exclude<NormalizedEventSource, "ownloop">,
   type: NormalizedEventType,
   payload: JsonObject,
   sensitivity: "normal" | "sensitive",
 ): EventSpecification {
-  return { type, source: "claude_code", payload, sensitivity, sourceFields: true };
+  return { type, source, payload, sensitivity, sourceFields: true };
 }
 
 function ownLoopSpec(type: NormalizedEventType, payload: JsonObject): EventSpecification {
@@ -174,10 +247,10 @@ function buildSpecifications(
         throw new ExpectedNormalizationFailure("invalid_event_mapping");
       }
       if (resolution.action === "conversation_started") {
-        return [sourceSpec("conversation.started", payload, "normal")];
+        return [sourceSpec(receipt.source, "conversation.started", payload, "normal")];
       }
       if (resolution.action === "conversation_resumed") {
-        return [sourceSpec("conversation.resumed", payload, "normal")];
+        return [sourceSpec(receipt.source, "conversation.resumed", payload, "normal")];
       }
       throw new ExpectedNormalizationFailure("invalid_event_mapping");
     }
@@ -195,7 +268,7 @@ function buildSpecifications(
           "run.started",
           syntheticPayload(receipt.sourceEventName, resolution.action, run.runNumber),
         ),
-        sourceSpec("user.prompt_submitted", payload, "sensitive"),
+        sourceSpec(receipt.source, "user.prompt_submitted", payload, "sensitive"),
       ];
     }
     case "PreToolUse":
@@ -203,32 +276,69 @@ function buildSpecifications(
       if (resolution.action !== "run_associated") {
         throw new ExpectedNormalizationFailure("invalid_event_mapping");
       }
-      return [sourceSpec("tool.requested", payload, "sensitive")];
+      return [sourceSpec(receipt.source, "tool.requested", payload, "sensitive")];
+    case "PermissionRequest":
+      requireRun(resolution);
+      if (resolution.action !== "run_associated") {
+        throw new ExpectedNormalizationFailure("invalid_event_mapping");
+      }
+      return [sourceSpec(receipt.source, "permission.requested", payload, "sensitive")];
     case "PostToolUse":
       requireRun(resolution);
       if (resolution.action !== "run_associated") {
         throw new ExpectedNormalizationFailure("invalid_event_mapping");
       }
-      return [sourceSpec("tool.succeeded", payload, "sensitive")];
+      return [
+        sourceSpec(
+          receipt.source,
+          receipt.source === "codex" ? "tool.completed" : "tool.succeeded",
+          payload,
+          "sensitive",
+        ),
+      ];
     case "PostToolUseFailure":
       requireRun(resolution);
       if (resolution.action !== "run_associated") {
         throw new ExpectedNormalizationFailure("invalid_event_mapping");
       }
-      return [sourceSpec("tool.failed", payload, "sensitive")];
+      return [sourceSpec(receipt.source, "tool.failed", payload, "sensitive")];
     case "PostToolBatch":
       requireRun(resolution);
       if (resolution.action !== "run_associated") {
         throw new ExpectedNormalizationFailure("invalid_event_mapping");
       }
-      return [sourceSpec("tool.batch_completed", payload, "sensitive")];
+      return [sourceSpec(receipt.source, "tool.batch_completed", payload, "sensitive")];
+    case "PreCompact":
+      requireRun(resolution);
+      if (resolution.action !== "run_associated") {
+        throw new ExpectedNormalizationFailure("invalid_event_mapping");
+      }
+      return [sourceSpec(receipt.source, "context.compaction_started", payload, "normal")];
+    case "PostCompact":
+      requireRun(resolution);
+      if (resolution.action !== "run_associated") {
+        throw new ExpectedNormalizationFailure("invalid_event_mapping");
+      }
+      return [sourceSpec(receipt.source, "context.compaction_completed", payload, "normal")];
+    case "SubagentStart":
+      requireRun(resolution);
+      if (resolution.action !== "run_associated") {
+        throw new ExpectedNormalizationFailure("invalid_event_mapping");
+      }
+      return [sourceSpec(receipt.source, "agent.subagent_started", payload, "normal")];
+    case "SubagentStop":
+      requireRun(resolution);
+      if (resolution.action !== "run_associated") {
+        throw new ExpectedNormalizationFailure("invalid_event_mapping");
+      }
+      return [sourceSpec(receipt.source, "agent.subagent_stopped", payload, "sensitive")];
     case "Stop":
       requireRun(resolution);
       if (resolution.action !== "run_finalizing") {
         throw new ExpectedNormalizationFailure("invalid_event_mapping");
       }
       return [
-        sourceSpec("run.stop_observed", payload, "sensitive"),
+        sourceSpec(receipt.source, "run.stop_observed", payload, "sensitive"),
         ownLoopSpec(
           "run.finalization_started",
           syntheticPayload(receipt.sourceEventName, resolution.action),
@@ -240,7 +350,7 @@ function buildSpecifications(
         throw new ExpectedNormalizationFailure("invalid_event_mapping");
       }
       return [
-        sourceSpec("run.stop_failed", payload, "sensitive"),
+        sourceSpec(receipt.source, "run.stop_failed", payload, "sensitive"),
         ownLoopSpec(
           "run.finalization_started",
           syntheticPayload(receipt.sourceEventName, resolution.action),
@@ -250,7 +360,7 @@ function buildSpecifications(
       if (resolution.runId !== null || resolution.action !== "conversation_ended") {
         throw new ExpectedNormalizationFailure("invalid_event_mapping");
       }
-      return [sourceSpec("conversation.ended", payload, "normal")];
+      return [sourceSpec(receipt.source, "conversation.ended", payload, "normal")];
     default:
       throw new ExpectedNormalizationFailure("invalid_event_mapping");
   }
@@ -368,7 +478,7 @@ function normalizeInsideTransaction(
       payload: spec.payload,
       metadata: {
         collectorVersion: receipt.adapterVersion,
-        sourceVersion: null,
+        sourceVersion: sourceVersionFromPayload(payload),
       },
     });
     persistence.events.append(event);

@@ -18,6 +18,10 @@ import Fastify, {
   LogController,
 } from "fastify";
 import type { LocalArtifactStore } from "../artifact-store/index.js";
+import {
+  type CodexCapabilityEnvironmentFacts,
+  registerCodexCapabilityRoute,
+} from "../codex-capability/index.js";
 import { getDistinctRequestHeaderValues } from "../http-headers.js";
 import { diagnosticsError, registerDiagnosticsRoutes } from "../diagnostics-dashboard/index.js";
 import {
@@ -38,12 +42,15 @@ import {
   type RuntimeRouteController,
 } from "../runtime/routes.js";
 import { createInstallationTokenVerifier } from "./auth.js";
+import { CODEX_INGRESS_ROUTE, registerCodexIngressRoute } from "./codex-route.js";
 import { emitIngressDiagnostic, type IngressDiagnosticSink } from "./diagnostics.js";
 import { acceptedResponse, rejectedResponse, summarizeZodError } from "./responses.js";
 
 export const INGRESS_LOOPBACK_HOST = "127.0.0.1" as const;
 export const INGRESS_ROUTE = "/v1/ingress/claude" as const;
 export const INGRESS_BODY_LIMIT_BYTES = 1024 * 1024;
+
+export { CODEX_INGRESS_ROUTE };
 
 const SAFE_RECEIPT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const SUPPORTED_HOOK_SET = new Set<string>(SUPPORTED_CLAUDE_HOOK_NAMES);
@@ -61,6 +68,7 @@ export type IngressServerDependencies = Readonly<{
   receiptIdGenerator?: () => string;
   diagnostics?: IngressDiagnosticSink;
   customSecretFieldPatterns?: () => readonly string[];
+  codexCapabilityEnvironment?: () => CodexCapabilityEnvironmentFacts;
   settings?: LocalSettingsService;
   replay?: Readonly<{
     persistence: ReplayPersistence;
@@ -249,6 +257,13 @@ export function createLoopbackIngressServer(
     });
   }
   if (dependencies.replay !== undefined) {
+    registerCodexCapabilityRoute(server, {
+      persistence: dependencies.replay.persistence,
+      tokenVerifier,
+      ...(dependencies.codexCapabilityEnvironment === undefined
+        ? {}
+        : { environment: dependencies.codexCapabilityEnvironment }),
+    });
     registerReplayRoutes(server, {
       persistence: dependencies.replay.persistence,
       artifactStore: dependencies.replay.artifactStore,
@@ -256,6 +271,20 @@ export function createLoopbackIngressServer(
       clock,
     });
   }
+  registerCodexIngressRoute(server, {
+    persistence,
+    tokenVerifier,
+    hmacKey,
+    ...(homePath === undefined ? {} : { homePath }),
+    clock,
+    receiptIdGenerator,
+    ...(diagnostics === undefined ? {} : { diagnostics }),
+    customSecretFieldPatterns: () =>
+      dependencies.settings?.getCustomSecretFieldPatterns() ??
+      dependencies.customSecretFieldPatterns?.() ??
+      [],
+  });
+
   const staticSite = createContainedStaticSite(dependencies.replay?.webRoot);
 
   server.setNotFoundHandler((request, reply) => {

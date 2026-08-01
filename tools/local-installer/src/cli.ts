@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 import { execFile } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 
@@ -12,17 +12,18 @@ import {
   OWNLOOP_SUPPORTED_PLATFORM,
   type OwnLoopInstallManifestV1,
 } from "@ownloop/contracts";
+import { CODEX_HOOK_LAUNCHER_BASENAME } from "@ownloop/contracts/codex";
 
+import { inspectClaudeHooksFile } from "./claude-settings.js";
+import { runCodexDoctor } from "./codex-doctor.js";
+import { inspectCodexHooksFile } from "./codex-hooks-file.js";
 import {
-  inspectClaudeHooksFile,
-  installClaudeHooksFile,
-  removeClaudeHooksFile,
-} from "./claude-settings.js";
-import {
-  InstallManifestError,
-  readInstallManifest,
-  writeInstallManifestAtomic,
-} from "./install-manifest.js";
+  installConfiguredCodexHooks,
+  installConfiguredHooks,
+  removeConfiguredCodexHooks,
+  removeConfiguredHooks,
+} from "./hook-reconciliation.js";
+import { InstallManifestError, readInstallManifest } from "./install-manifest.js";
 import {
   createNativeInstallLayout,
   installOwnLoop,
@@ -46,6 +47,10 @@ export type CliCommand =
   | Readonly<{ name: "hooks_install" }>
   | Readonly<{ name: "hooks_status" }>
   | Readonly<{ name: "hooks_remove" }>
+  | Readonly<{ name: "codex_hooks_install" }>
+  | Readonly<{ name: "codex_hooks_status" }>
+  | Readonly<{ name: "codex_hooks_remove" }>
+  | Readonly<{ name: "codex_doctor" }>
   | Readonly<{ name: "uninstall"; dataMode: "preserve" }>
   | Readonly<{ name: "uninstall"; dataMode: "remove"; confirmationInstallId: string }>;
 
@@ -77,6 +82,14 @@ export function parseCliCommand(args: readonly string[]): CliCommand {
     if (args[1] === "install") return { name: "hooks_install" };
     if (args[1] === "status") return { name: "hooks_status" };
     if (args[1] === "remove") return { name: "hooks_remove" };
+  }
+  if (args.length === 2 && args[0] === "codex" && args[1] === "doctor") {
+    return { name: "codex_doctor" };
+  }
+  if (args.length === 3 && args[0] === "codex" && args[1] === "hooks") {
+    if (args[2] === "install") return { name: "codex_hooks_install" };
+    if (args[2] === "status") return { name: "codex_hooks_status" };
+    if (args[2] === "remove") return { name: "codex_hooks_remove" };
   }
   if (args.length === 2 && args[0] === "uninstall" && args[1] === "--preserve-data") {
     return { name: "uninstall", dataMode: "preserve" };
@@ -136,6 +149,7 @@ async function defaultOpenUrl(url: string): Promise<void> {
 function environmentPaths(environment: NodeJS.ProcessEnv): {
   layout: NativeInstallLayout;
   claudeSettingsPath: string;
+  codexSettingsPath: string;
 } {
   const localAppData = environment.LOCALAPPDATA;
   const userProfile = environment.USERPROFILE;
@@ -144,6 +158,7 @@ function environmentPaths(environment: NodeJS.ProcessEnv): {
   return {
     layout: createNativeInstallLayout(join(resolve(localAppData), "OwnLoop")),
     claudeSettingsPath: join(resolve(userProfile), ".claude", "settings.json"),
+    codexSettingsPath: join(resolve(userProfile), ".codex", "hooks.json"),
   };
 }
 
@@ -161,6 +176,21 @@ function controlledError(error: unknown): CliResponse {
 
 function sameWindowsPath(left: string, right: string): boolean {
   return resolve(left).toLowerCase() === resolve(right).toLowerCase();
+}
+
+function codexLauncherCommands(layout: NativeInstallLayout) {
+  return {
+    command: CODEX_HOOK_LAUNCHER_BASENAME,
+    commandWindows: layout.stableCodexHookLauncherPath,
+  } as const;
+}
+
+function combinedHooksStatus(
+  claude: "installed" | "missing" | "repair_needed",
+  codex: "installed" | "missing" | "repair_needed",
+): "installed" | "missing" | "repair_needed" {
+  if (claude === "repair_needed" || codex === "repair_needed") return "repair_needed";
+  return claude === "installed" && codex === "installed" ? "installed" : "missing";
 }
 
 async function verifyHookInstallation(
@@ -191,7 +221,12 @@ async function verifyHookInstallation(
       secrets === null ||
       secrets.installId !== manifest.installId ||
       manifest.releaseManifestFingerprint !== release.fingerprint ||
-      manifest.hooks.some((hook) => !sameWindowsPath(hook.command, layout.stableHookLauncherPath))
+      manifest.hooks.some(
+        (hook) => !sameWindowsPath(hook.command, layout.stableHookLauncherPath),
+      ) ||
+      manifest.codexHooks === undefined ||
+      manifest.codexHooks.command !== CODEX_HOOK_LAUNCHER_BASENAME ||
+      !sameWindowsPath(manifest.codexHooks.commandWindows, layout.stableCodexHookLauncherPath)
     ) {
       throw new Error("reconciliation failed");
     }
@@ -217,7 +252,7 @@ export async function executeCli(
     }
     const command = parseCliCommand(args);
     const environment = dependencies.environment ?? process.env;
-    const { layout, claudeSettingsPath } = environmentPaths(environment);
+    const { layout, claudeSettingsPath, codexSettingsPath } = environmentPaths(environment);
     const runtimePaths = layout;
 
     if (command.name === "install") {
@@ -225,17 +260,20 @@ export async function executeCli(
       if (packageRoot === undefined) return { ok: false, error: { code: "package_unavailable" } };
       const sid = await (dependencies.userSid ?? defaultUserSid)();
       if (!SID_PATTERN.test(sid)) return { ok: false, error: { code: "acl_failed" } };
-      const [userLauncher, hookLauncher] = await Promise.all([
+      const [userLauncher, hookLauncher, codexHookLauncher] = await Promise.all([
         readFile(join(packageRoot, "launchers", "installed-ownloop.cmd"), "utf8"),
         readFile(join(packageRoot, "launchers", "installed-ownloop-hook.cmd"), "utf8"),
+        readFile(join(packageRoot, "launchers", "installed-ownloop-codex-hook.cmd"), "utf8"),
       ]);
       const result = await (dependencies.installImplementation ?? installOwnLoop)({
         sourcePackageRoot: packageRoot,
         layout,
         claudeSettingsPath,
+        codexSettingsPath,
         userSid: sid,
         userLauncher,
         hookLauncher,
+        codexHookLauncher,
       });
       return { ok: true, command: "install", installId: result.installId, created: result.created };
     }
@@ -291,18 +329,40 @@ export async function executeCli(
       await (dependencies.stopImplementation ?? stopInstalledRuntime)(runtimePaths, dependencies);
       return { ok: true, command: "stop", status: "stopped" };
     }
-    if (command.name === "hooks_status") {
-      const status = await inspectClaudeHooksFile(
-        claudeSettingsPath,
-        layout.stableHookLauncherPath,
-      );
+    if (command.name === "codex_doctor") {
+      const result = await runCodexDoctor({ ...layout, codexSettingsPath }, dependencies);
+      return { ok: true, command: "codex doctor", ...result };
+    }
+    if (command.name === "codex_hooks_status") {
+      const status = await inspectCodexHooksFile(codexSettingsPath, codexLauncherCommands(layout));
       try {
         const manifest = await verifyHookInstallation(layout, { allowMissing: true });
         if (manifest === null) {
           return {
             ok: true,
-            command: "hooks status",
+            command: "codex hooks status",
             status: status === "missing" ? "missing" : "repair_needed",
+          };
+        }
+        return { ok: true, command: "codex hooks status", status };
+      } catch {
+        return { ok: true, command: "codex hooks status", status: "repair_needed" };
+      }
+    }
+    if (command.name === "hooks_status") {
+      const [claudeStatus, codexStatus] = await Promise.all([
+        inspectClaudeHooksFile(claudeSettingsPath, layout.stableHookLauncherPath),
+        inspectCodexHooksFile(codexSettingsPath, codexLauncherCommands(layout)),
+      ]);
+      const status = combinedHooksStatus(claudeStatus, codexStatus);
+      try {
+        const manifest = await verifyHookInstallation(layout, { allowMissing: true });
+        if (manifest === null) {
+          const cleanAbsence = claudeStatus === "missing" && codexStatus === "missing";
+          return {
+            ok: true,
+            command: "hooks status",
+            status: cleanAbsence ? "missing" : "repair_needed",
           };
         }
         return { ok: true, command: "hooks status", status };
@@ -312,30 +372,44 @@ export async function executeCli(
     }
     const manifest = await verifyHookInstallation(layout);
     if (manifest === null) return { ok: false, error: { code: "repair_needed" } };
+    if (command.name === "codex_hooks_install") {
+      const result = await installConfiguredCodexHooks({
+        layout,
+        codexSettingsPath,
+        manifest,
+      });
+      return { ok: true, command: "codex hooks install", changed: result.changed };
+    }
+    if (command.name === "codex_hooks_remove") {
+      const result = await removeConfiguredCodexHooks({
+        layout,
+        codexSettingsPath,
+        manifest,
+      });
+      return { ok: true, command: "codex hooks remove", changed: result.changed };
+    }
     if (command.name === "hooks_install") {
-      const result = await installClaudeHooksFile(
+      const result = await installConfiguredHooks({
+        layout,
         claudeSettingsPath,
-        layout.stableHookLauncherPath,
-      );
-      if (result.changed) {
-        await writeInstallManifestAtomic(layout.installManifestPath, {
-          ...manifest,
-          claudeSettings: result.mutation,
-        });
-      }
+        codexSettingsPath,
+        manifest,
+      });
       return { ok: true, command: "hooks install", changed: result.changed };
     }
     if (command.name === "hooks_remove") {
-      const result = await removeClaudeHooksFile(
+      const result = await removeConfiguredHooks({
+        layout,
         claudeSettingsPath,
-        layout.stableHookLauncherPath,
-        manifest.claudeSettings,
-      );
+        codexSettingsPath,
+        manifest,
+      });
       return { ok: true, command: "hooks remove", changed: result.changed };
     }
     const result = await (dependencies.uninstallImplementation ?? uninstallOwnLoop)({
       layout,
       claudeSettingsPath,
+      codexSettingsPath,
       dataMode: command.dataMode,
       ...(command.dataMode === "remove"
         ? { confirmationInstallId: command.confirmationInstallId }

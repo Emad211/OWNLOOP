@@ -3,7 +3,9 @@ import { runMigrations } from "./migrations.js";
 import { ArtifactRepository } from "./repositories/artifacts.js";
 import { CandidateGenerationRepository } from "./repositories/candidate-generations.js";
 import { CandidateValidationRepository } from "./repositories/candidate-validations.js";
+import { CodexCapabilityRepository } from "./repositories/codex-capability.js";
 import { AgentConversationRepository } from "./repositories/conversations.js";
+import { DiagnosticsRepository } from "./repositories/diagnostics.js";
 import { EventNormalizationRepository } from "./repositories/event-normalizations.js";
 import { EventRepository } from "./repositories/events.js";
 import { GitBaselineRepository } from "./repositories/git-baselines.js";
@@ -11,7 +13,6 @@ import { GitReconciliationRepository } from "./repositories/git-reconciliations.
 import { IngressReceiptRepository } from "./repositories/ingress-receipts.js";
 import { LifecycleResolutionRepository } from "./repositories/lifecycle-resolutions.js";
 import { LocalSettingsRepository } from "./repositories/local-settings.js";
-import { DiagnosticsRepository } from "./repositories/diagnostics.js";
 import { MomentInteractionRepository } from "./repositories/moment-interactions.js";
 import { RunFinalizationRepository } from "./repositories/run-finalizations.js";
 import { RunSupportRepository } from "./repositories/run-support.js";
@@ -21,6 +22,7 @@ import { assertSynchronousTransactionOperation, runInTransaction } from "./trans
 
 export type PersistenceRepositories = Readonly<{
   ingressReceipts: IngressReceiptRepository;
+  codexCapabilities: CodexCapabilityRepository;
   lifecycleResolutions: LifecycleResolutionRepository;
   localSettings: LocalSettingsRepository;
   diagnostics: DiagnosticsRepository;
@@ -67,6 +69,7 @@ export function openPersistence(databasePath: string): OwnLoopPersistence {
 
   const repositories: PersistenceRepositories = {
     ingressReceipts: new IngressReceiptRepository(database),
+    codexCapabilities: new CodexCapabilityRepository(database),
     lifecycleResolutions: new LifecycleResolutionRepository(database),
     localSettings: new LocalSettingsRepository(database),
     diagnostics: new DiagnosticsRepository(database),
@@ -105,6 +108,7 @@ export function openPersistence(databasePath: string): OwnLoopPersistence {
   };
 }
 
+export type { CandidateGenerationRecordV1 } from "@ownloop/contracts";
 export type { PersistenceConnectionInfo } from "./database.js";
 export type {
   MigrationErrorCode,
@@ -123,12 +127,20 @@ export type {
   RunArtifactReference,
 } from "./repositories/artifacts.js";
 export { ARTIFACT_STORAGE_VERSIONS } from "./repositories/artifacts.js";
+export { CandidateGenerationRepository } from "./repositories/candidate-generations.js";
+export type { CodexCapabilityObservationFacts } from "./repositories/codex-capability.js";
+export { CodexCapabilityRepository } from "./repositories/codex-capability.js";
 export type {
   AgentConversation,
   AgentConversationStatus,
   NewAgentConversation,
 } from "./repositories/conversations.js";
 export { AGENT_CONVERSATION_STATUSES } from "./repositories/conversations.js";
+export type {
+  DiagnosticsFinalizationRow,
+  DiagnosticsRunIndexRow,
+} from "./repositories/diagnostics.js";
+export { DiagnosticsRepository } from "./repositories/diagnostics.js";
 export type {
   EventNormalizationDiagnosticCode,
   EventNormalizationOutcome,
@@ -180,9 +192,13 @@ export {
   GIT_RECONCILIATION_OUTCOMES,
 } from "./repositories/git-reconciliations.js";
 export type {
+  ClaudePreparedIngressReceiptRecord,
+  CodexPreparedIngressReceiptRecord,
   IngressReceipt,
   IngressReceiptStatus,
   LegacyIngressReceipt,
+  NewAgentPreparedIngressReceipt,
+  NewCodexPreparedIngressReceipt,
   NewPreparedIngressReceipt,
   PreparedIngressInsertResult,
   PreparedIngressReceiptRecord,
@@ -203,6 +219,8 @@ export {
   LIFECYCLE_RESOLUTION_ACTIONS,
   LIFECYCLE_RESOLUTION_OUTCOMES,
 } from "./repositories/lifecycle-resolutions.js";
+export { LocalSettingsRepository } from "./repositories/local-settings.js";
+export { MomentInteractionRepository } from "./repositories/moment-interactions.js";
 export type {
   NewRunFinalization,
   RunFinalization,
@@ -233,16 +251,3 @@ export type {
   WorkspaceIdentityBasis,
 } from "./repositories/workspaces.js";
 export { WORKSPACE_IDENTITY_BASES } from "./repositories/workspaces.js";
-
-export type { CandidateGenerationRecordV1 } from "@ownloop/contracts";
-export { CandidateGenerationRepository } from "./repositories/candidate-generations.js";
-
-export { MomentInteractionRepository } from "./repositories/moment-interactions.js";
-
-export { LocalSettingsRepository } from "./repositories/local-settings.js";
-
-export { DiagnosticsRepository } from "./repositories/diagnostics.js";
-export type {
-  DiagnosticsFinalizationRow,
-  DiagnosticsRunIndexRow,
-} from "./repositories/diagnostics.js";

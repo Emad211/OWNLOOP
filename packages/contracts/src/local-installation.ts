@@ -4,6 +4,11 @@ import {
   SUPPORTED_CLAUDE_HOOK_NAMES,
   SupportedClaudeHookNameSchema,
 } from "./claude-hook-common.js";
+import { SUPPORTED_CODEX_HOOK_NAMES, SupportedCodexHookNameSchema } from "./codex-hook-common.js";
+import {
+  CODEX_HOOK_LAUNCHER_BASENAME,
+  CODEX_HOOK_WINDOWS_LAUNCHER_BASENAME,
+} from "./codex-hook-configuration.js";
 
 export const OWNLOOP_APPLICATION_VERSION = "0.1.0" as const;
 export const OWNLOOP_DAEMON_VERSION = "0.1.0" as const;
@@ -28,6 +33,7 @@ export const OWNLOOP_INSTALL_MANIFEST_FILE = "install-manifest.json" as const;
 export const OWNLOOP_SECRETS_FILE = "secrets-v1.json" as const;
 export const OWNLOOP_RUNTIME_STATE_FILE = "runtime-v1.json" as const;
 export const OWNLOOP_STABLE_HOOK_LAUNCHER_FILE = "ownloop-hook.cmd" as const;
+export const OWNLOOP_STABLE_CODEX_HOOK_LAUNCHER_FILE = CODEX_HOOK_WINDOWS_LAUNCHER_BASENAME;
 export const OWNLOOP_STABLE_USER_LAUNCHER_FILE = "ownloop.cmd" as const;
 
 export const OWNLOOP_RUNTIME_PHASES = ["starting", "ready", "stopping"] as const;
@@ -203,6 +209,50 @@ export const OwnLoopClaudeSettingsMutationV1Schema = z
   });
 export type OwnLoopClaudeSettingsMutationV1 = z.infer<typeof OwnLoopClaudeSettingsMutationV1Schema>;
 
+export const OwnLoopCodexHooksMutationV1Schema = z
+  .strictObject({
+    settingsFileCreated: z.boolean(),
+    hooksContainerCreated: z.boolean(),
+    createdEventContainers: z
+      .array(SupportedCodexHookNameSchema)
+      .max(SUPPORTED_CODEX_HOOK_NAMES.length),
+  })
+  .superRefine((value, context) => {
+    const actual = value.createdEventContainers;
+    if (new Set(actual).size !== actual.length) {
+      context.addIssue({
+        code: "custom",
+        path: ["createdEventContainers"],
+        message: "Created Codex Hook events must be unique.",
+      });
+    }
+    const expectedOrder = SUPPORTED_CODEX_HOOK_NAMES.filter((event) => actual.includes(event));
+    if (actual.some((event, index) => event !== expectedOrder[index])) {
+      context.addIssue({
+        code: "custom",
+        path: ["createdEventContainers"],
+        message: "Created Codex Hook events must use canonical order.",
+      });
+    }
+  });
+export type OwnLoopCodexHooksMutationV1 = z.infer<typeof OwnLoopCodexHooksMutationV1Schema>;
+
+const codexWindowsLauncherCommandSchema = z
+  .string()
+  .min(1)
+  .max(1024)
+  .refine((value) => {
+    const normalized = value.replaceAll("\\", "/").toLowerCase();
+    return normalized.endsWith(`/ownloop/bin/${CODEX_HOOK_WINDOWS_LAUNCHER_BASENAME}`);
+  }, "Codex Windows command must target the stable OwnLoop launcher.");
+
+export const OwnLoopCodexHooksInstallationV1Schema = z.strictObject({
+  command: z.literal(CODEX_HOOK_LAUNCHER_BASENAME),
+  commandWindows: codexWindowsLauncherCommandSchema,
+  settings: OwnLoopCodexHooksMutationV1Schema,
+});
+export type OwnLoopCodexHooksInstallationV1 = z.infer<typeof OwnLoopCodexHooksInstallationV1Schema>;
+
 export const OwnLoopInstallManifestV1Schema = z
   .strictObject({
     schemaVersion: z.literal(OWNLOOP_INSTALL_MANIFEST_SCHEMA_VERSION),
@@ -213,6 +263,7 @@ export const OwnLoopInstallManifestV1Schema = z
     installLayoutVersion: z.literal(OWNLOOP_INSTALL_LAYOUT_VERSION),
     hooks: z.array(OwnLoopInstalledHookV1Schema).length(SUPPORTED_CLAUDE_HOOK_NAMES.length),
     claudeSettings: OwnLoopClaudeSettingsMutationV1Schema,
+    codexHooks: OwnLoopCodexHooksInstallationV1Schema.optional(),
     installedAt: canonicalTimestampSchema,
   })
   .superRefine((value, context) => {

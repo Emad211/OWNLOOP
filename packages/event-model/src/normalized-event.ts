@@ -8,7 +8,7 @@ const timestampSchema = z.iso.datetime({ offset: true });
 
 export const NORMALIZED_EVENT_SCHEMA_VERSION = 1 as const;
 
-export const NORMALIZED_EVENT_SOURCES = ["claude_code", "ownloop"] as const;
+export const NORMALIZED_EVENT_SOURCES = ["claude_code", "codex", "ownloop"] as const;
 export const NormalizedEventSourceSchema = z.enum(NORMALIZED_EVENT_SOURCES);
 export type NormalizedEventSource = z.infer<typeof NormalizedEventSourceSchema>;
 
@@ -31,7 +31,13 @@ export const NORMALIZED_EVENT_TYPES = [
   "user.prompt_submitted",
   "agent.plan_observed",
   "agent.summary_observed",
+  "agent.subagent_started",
+  "agent.subagent_stopped",
+  "permission.requested",
+  "context.compaction_started",
+  "context.compaction_completed",
   "tool.requested",
+  "tool.completed",
   "tool.succeeded",
   "tool.failed",
   "tool.batch_completed",

@@ -21,28 +21,28 @@ import {
 import {
   type ArtifactMetadata,
   type OwnLoopPersistence,
-  type PersistenceRepositories,
   PersistenceError,
+  type PersistenceRepositories,
   type RunArtifactRecord,
   type RunFinalization,
   type TaskRun,
 } from "../persistence/index.js";
+import {
+  type PreparedVerificationEvidence,
+  parseCanonicalVerificationEvidence,
+  prepareDeterministicVerificationEvidence,
+} from "./artifact.js";
 import {
   DETERMINISTIC_VERIFICATION_EVIDENCE_KIND,
   DETERMINISTIC_VERIFICATION_EVIDENCE_MEDIA_TYPE,
   DETERMINISTIC_VERIFICATION_EVIDENCE_ROLE,
   DETERMINISTIC_VERIFICATION_EVIDENCE_SENSITIVITY,
   MAX_VERIFICATION_EXTRACTION_BATCH,
-  VERIFICATION_EXTRACTOR_VERSION,
   VERIFICATION_EXTRACTION_EVENT_DEDUPLICATION_VERSION,
+  VERIFICATION_EXTRACTOR_VERSION,
   VERIFICATION_MAX_ARTIFACT_BYTES,
   VERIFICATION_MAX_RUN_EVENTS,
 } from "./constants.js";
-import {
-  parseCanonicalVerificationEvidence,
-  prepareDeterministicVerificationEvidence,
-  type PreparedVerificationEvidence,
-} from "./artifact.js";
 
 export type VerificationExtractionDependencies = Readonly<{
   persistence: OwnLoopPersistence;
@@ -209,9 +209,14 @@ function assertMetadata(metadata: ArtifactMetadata, expectedSize?: number): void
 }
 
 function expectedCommandEventType(
-  sourceOutcome: "succeeded" | "failed",
+  observation: DeterministicVerificationEvidenceV1["commandObservations"][number],
 ): "command.completed" | "command.failed" {
-  return sourceOutcome === "succeeded" ? "command.completed" : "command.failed";
+  return observation.sourceToolOutcome === "failed" ||
+    (observation.sourceToolOutcome === "completed" &&
+      observation.exitCode !== null &&
+      observation.exitCode !== 0)
+    ? "command.failed"
+    : "command.completed";
 }
 
 function expectedVerificationEventType(
@@ -369,7 +374,7 @@ function assertDerivedEvents(
       eventId: observation.commandEventId,
       finalization,
       sequence,
-      type: expectedCommandEventType(observation.sourceToolOutcome),
+      type: expectedCommandEventType(observation),
       occurredAt: source.occurredAt,
       payload: commandPayload(observation),
     });
@@ -580,7 +585,7 @@ function persistPrepared(
           eventId: observation.commandEventId,
           finalization: source.finalization,
           sequence,
-          type: expectedCommandEventType(observation.sourceToolOutcome),
+          type: expectedCommandEventType(observation),
           occurredAt: sourceEvent.occurredAt,
           ingestedAt,
           payload: commandPayload(observation),

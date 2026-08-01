@@ -18,14 +18,17 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import {
   OWNLOOP_APPLICATION_VERSION,
   OWNLOOP_RELEASE_MANIFEST_FILE,
+  OWNLOOP_STABLE_CODEX_HOOK_LAUNCHER_FILE,
   OWNLOOP_STABLE_HOOK_LAUNCHER_FILE,
   OWNLOOP_STABLE_USER_LAUNCHER_FILE,
   SUPPORTED_CLAUDE_HOOK_NAMES,
   type OwnLoopInstallManifestV1,
 } from "@ownloop/contracts";
+import { CODEX_HOOK_LAUNCHER_BASENAME } from "@ownloop/contracts/codex";
 
 import { ensurePrivateWindowsAcl, type AclCommandRunner } from "./acl.js";
 import { installClaudeHooksFile, removeClaudeHooksFile } from "./claude-settings.js";
+import { installCodexHooksFile, removeCodexHooksFile } from "./codex-hooks-file.js";
 import { readInstallManifest, writeInstallManifestAtomic } from "./install-manifest.js";
 import { readAndVerifyReleasePackage, verifyReleasePackage } from "./manifest.js";
 import { stopInstalledRuntime } from "./runtime-operations.js";
@@ -47,6 +50,7 @@ export type NativeInstallLayout = Readonly<{
   runtimeStatePath: string;
   stableUserLauncherPath: string;
   stableHookLauncherPath: string;
+  stableCodexHookLauncherPath: string;
 }>;
 
 export class InstallerTransactionError extends Error {
@@ -100,12 +104,28 @@ export function createNativeInstallLayout(rootInput: string): NativeInstallLayou
     runtimeStatePath: join(runRoot, "runtime-v1.json"),
     stableUserLauncherPath: join(binRoot, OWNLOOP_STABLE_USER_LAUNCHER_FILE),
     stableHookLauncherPath: join(binRoot, OWNLOOP_STABLE_HOOK_LAUNCHER_FILE),
+    stableCodexHookLauncherPath: join(binRoot, OWNLOOP_STABLE_CODEX_HOOK_LAUNCHER_FILE),
   };
 }
 
 function within(root: string, path: string): boolean {
   const value = relative(root, path);
   return value === "" || (!isAbsolute(value) && value !== ".." && !value.startsWith(`..${sep}`));
+}
+
+function samePath(left: string, right: string): boolean {
+  const actualLeft = resolve(left);
+  const actualRight = resolve(right);
+  return process.platform === "win32"
+    ? actualLeft.toLowerCase() === actualRight.toLowerCase()
+    : actualLeft === actualRight;
+}
+
+function codexLauncherCommands(layout: NativeInstallLayout) {
+  return {
+    command: CODEX_HOOK_LAUNCHER_BASENAME,
+    commandWindows: layout.stableCodexHookLauncherPath,
+  } as const;
 }
 
 async function statsOrNull(path: string) {
@@ -195,9 +215,11 @@ export type InstallOwnLoopOptions = Readonly<{
   sourcePackageRoot: string;
   layout: NativeInstallLayout;
   claudeSettingsPath: string;
+  codexSettingsPath: string;
   userSid: string;
   userLauncher: string;
   hookLauncher: string;
+  codexHookLauncher: string;
   clock?: () => Date;
   aclRunner?: AclCommandRunner;
 }>;
@@ -210,9 +232,11 @@ export async function installOwnLoop(
   const sourceManifest = await readAndVerifyReleasePackage(options.sourcePackageRoot).catch(() => {
     throw new InstallerTransactionError("package_invalid");
   });
-  const settingsSnapshot = await snapshot(options.claudeSettingsPath);
+  const claudeSettingsSnapshot = await snapshot(options.claudeSettingsPath);
+  const codexSettingsSnapshot = await snapshot(options.codexSettingsPath);
   const userLauncherSnapshot = await snapshot(options.layout.stableUserLauncherPath);
   const hookLauncherSnapshot = await snapshot(options.layout.stableHookLauncherPath);
+  const codexHookLauncherSnapshot = await snapshot(options.layout.stableCodexHookLauncherPath);
   const installManifestSnapshot = await snapshot(options.layout.installManifestPath);
   const secretsSnapshot = await snapshot(options.layout.secretsPath);
   const existingRelease = await statsOrNull(options.layout.releaseRoot);
@@ -234,8 +258,24 @@ export async function installOwnLoop(
         throw new InstallerTransactionError("ambiguous_layout");
       })
     : null;
+  if (
+    previousManifest !== null &&
+    (previousManifest.releaseManifestFingerprint !== sourceManifest.fingerprint ||
+      previousManifest.hooks.some(
+        (hook) => !samePath(hook.command, options.layout.stableHookLauncherPath),
+      ) ||
+      (previousManifest.codexHooks !== undefined &&
+        (previousManifest.codexHooks.command !== CODEX_HOOK_LAUNCHER_BASENAME ||
+          !samePath(
+            previousManifest.codexHooks.commandWindows,
+            options.layout.stableCodexHookLauncherPath,
+          ))))
+  ) {
+    throw new InstallerTransactionError("ambiguous_layout");
+  }
   let releaseCreated = false;
-  let settingsChanged = false;
+  let claudeSettingsChanged = false;
+  let codexSettingsChanged = false;
   const staging = `${options.layout.releaseRoot}.staging-${randomUUID()}`;
   try {
     await mkdir(options.layout.root, { recursive: true, mode: 0o700 });
@@ -278,14 +318,27 @@ export async function installOwnLoop(
       options.layout.secretsPath,
       clock,
     );
+    if (previousManifest !== null && previousManifest.installId !== secrets.installId) {
+      throw new InstallerTransactionError("ambiguous_layout");
+    }
     await writeFile(options.layout.stableUserLauncherPath, options.userLauncher, { mode: 0o700 });
     await writeFile(options.layout.stableHookLauncherPath, options.hookLauncher, { mode: 0o700 });
+    await writeFile(options.layout.stableCodexHookLauncherPath, options.codexHookLauncher, {
+      mode: 0o700,
+    });
     const hookResult = await installClaudeHooksFile(
       options.claudeSettingsPath,
       options.layout.stableHookLauncherPath,
       clock,
     );
-    settingsChanged = hookResult.changed;
+    claudeSettingsChanged = hookResult.changed;
+    const codexCommands = codexLauncherCommands(options.layout);
+    const codexHookResult = await installCodexHooksFile(
+      options.codexSettingsPath,
+      codexCommands,
+      clock,
+    );
+    codexSettingsChanged = codexHookResult.changed;
     const manifest: OwnLoopInstallManifestV1 = {
       schemaVersion: 1,
       installId: secrets.installId,
@@ -301,18 +354,31 @@ export async function installOwnLoop(
         !hookResult.changed && previousManifest !== null
           ? previousManifest.claudeSettings
           : hookResult.mutation,
+      codexHooks: {
+        command: codexCommands.command,
+        commandWindows: codexCommands.commandWindows,
+        settings:
+          !codexHookResult.changed && previousManifest?.codexHooks !== undefined
+            ? previousManifest.codexHooks.settings
+            : codexHookResult.mutation,
+      },
       installedAt: previousManifest?.installedAt ?? clock().toISOString(),
     };
     await writeInstallManifestAtomic(options.layout.installManifestPath, manifest);
     return { installId: secrets.installId, created };
   } catch (error) {
     await rm(staging, { recursive: true, force: true }).catch(() => undefined);
-    if (settingsChanged)
-      await restore(options.claudeSettingsPath, settingsSnapshot).catch(() => undefined);
+    if (codexSettingsChanged)
+      await restore(options.codexSettingsPath, codexSettingsSnapshot).catch(() => undefined);
+    if (claudeSettingsChanged)
+      await restore(options.claudeSettingsPath, claudeSettingsSnapshot).catch(() => undefined);
     await restore(options.layout.stableUserLauncherPath, userLauncherSnapshot).catch(
       () => undefined,
     );
     await restore(options.layout.stableHookLauncherPath, hookLauncherSnapshot).catch(
+      () => undefined,
+    );
+    await restore(options.layout.stableCodexHookLauncherPath, codexHookLauncherSnapshot).catch(
       () => undefined,
     );
     await restore(options.layout.installManifestPath, installManifestSnapshot).catch(
@@ -342,6 +408,7 @@ export async function installOwnLoop(
 export type UninstallOwnLoopOptions = Readonly<{
   layout: NativeInstallLayout;
   claudeSettingsPath: string;
+  codexSettingsPath: string;
   dataMode: "preserve" | "remove";
   confirmationInstallId?: string;
   clock?: () => Date;
@@ -363,33 +430,45 @@ export async function uninstallOwnLoop(
     secrets === null ||
     secrets.installId !== manifest.installId ||
     release.fingerprint !== manifest.releaseManifestFingerprint ||
-    manifest.hooks.some(
-      (hook) => resolve(hook.command) !== resolve(options.layout.stableHookLauncherPath),
-    )
+    manifest.hooks.some((hook) => !samePath(hook.command, options.layout.stableHookLauncherPath)) ||
+    manifest.codexHooks === undefined ||
+    manifest.codexHooks.command !== CODEX_HOOK_LAUNCHER_BASENAME ||
+    !samePath(manifest.codexHooks.commandWindows, options.layout.stableCodexHookLauncherPath)
   ) {
     throw new InstallerTransactionError("ambiguous_layout");
   }
   if (options.dataMode === "remove" && options.confirmationInstallId !== manifest.installId) {
     throw new InstallerTransactionError("confirmation_required");
   }
-  const settingsSnapshot = await snapshot(options.claudeSettingsPath);
-  let hooksChanged = false;
+  const claudeSettingsSnapshot = await snapshot(options.claudeSettingsPath);
+  const codexSettingsSnapshot = await snapshot(options.codexSettingsPath);
+  let claudeHooksChanged = false;
+  let codexHooksChanged = false;
   try {
-    const removal = await removeClaudeHooksFile(
+    const claudeRemoval = await removeClaudeHooksFile(
       options.claudeSettingsPath,
       options.layout.stableHookLauncherPath,
       manifest.claudeSettings,
       options.clock,
     );
-    hooksChanged = removal.changed;
+    claudeHooksChanged = claudeRemoval.changed;
+    const codexRemoval = await removeCodexHooksFile(
+      options.codexSettingsPath,
+      codexLauncherCommands(options.layout),
+      manifest.codexHooks.settings,
+      options.clock,
+    );
+    codexHooksChanged = codexRemoval.changed;
     try {
       await (options.stopRuntime ?? (() => stopInstalledRuntime(options.layout)))();
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "not_running")) throw error;
     }
   } catch {
-    if (hooksChanged)
-      await restore(options.claudeSettingsPath, settingsSnapshot).catch(() => undefined);
+    if (codexHooksChanged)
+      await restore(options.codexSettingsPath, codexSettingsSnapshot).catch(() => undefined);
+    if (claudeHooksChanged)
+      await restore(options.claudeSettingsPath, claudeSettingsSnapshot).catch(() => undefined);
     throw new InstallerTransactionError("uninstall_failed");
   }
 
@@ -399,6 +478,7 @@ export async function uninstallOwnLoop(
     }
     await rm(options.layout.stableUserLauncherPath, { force: true });
     await rm(options.layout.stableHookLauncherPath, { force: true });
+    await rm(options.layout.stableCodexHookLauncherPath, { force: true });
     await rm(options.layout.releaseRoot, { recursive: true, force: false });
     await rm(options.layout.installManifestPath, { force: false });
     await rm(options.layout.secretsPath, { force: false });

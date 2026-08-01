@@ -1,17 +1,22 @@
 import type { DatabaseSync } from "node:sqlite";
 import {
   type PreparedIngressReceiptV1,
-  PreparedIngressReceiptV1Schema,
   type RedactionSummaryV1,
+  RedactionSummaryV1Schema,
 } from "@ownloop/contracts";
+import type { PreparedCodexIngressReceiptV1 } from "@ownloop/contracts/codex";
 
 import {
   mapPersistenceWriteError,
   PersistenceDeduplicationConflictError,
   PersistenceError,
 } from "../errors.js";
-import { runInTransaction } from "../transaction.js";
+import {
+  type PreparedAgentIngressReceiptV1,
+  parsePreparedAgentIngressReceipt,
+} from "../prepared-agent-ingress.js";
 import { nullableString, requiredNumber, requiredString } from "../row-mapping.js";
+import { runInTransaction } from "../transaction.js";
 
 export const INGRESS_RECEIPT_STATUSES = ["pending", "processed", "failed"] as const;
 export const MAX_PENDING_RECEIPT_BATCH = 100;
@@ -41,13 +46,26 @@ export type LegacyIngressReceipt = OperationalReceiptFields &
   LegacyReceiptPayload &
   Readonly<{ preparationStatus: "legacy" }>;
 
-export type PreparedIngressReceiptRecord = OperationalReceiptFields &
+export type ClaudePreparedIngressReceiptRecord = OperationalReceiptFields &
   PreparedIngressReceiptV1 &
   Readonly<{ preparationStatus: "prepared" }>;
+
+export type CodexPreparedIngressReceiptRecord = OperationalReceiptFields &
+  PreparedCodexIngressReceiptV1 &
+  Readonly<{ preparationStatus: "prepared" }>;
+
+export type PreparedIngressReceiptRecord =
+  | ClaudePreparedIngressReceiptRecord
+  | CodexPreparedIngressReceiptRecord;
 
 export type IngressReceipt = LegacyIngressReceipt | PreparedIngressReceiptRecord;
 
 export type NewPreparedIngressReceipt = OperationalReceiptFields & PreparedIngressReceiptV1;
+export type NewCodexPreparedIngressReceipt = OperationalReceiptFields &
+  PreparedCodexIngressReceiptV1;
+export type NewAgentPreparedIngressReceipt =
+  | NewPreparedIngressReceipt
+  | NewCodexPreparedIngressReceipt;
 
 export type PreparedIngressInsertResult = Readonly<{
   receiptId: string;
@@ -65,7 +83,7 @@ function parseSummary(value: string): RedactionSummaryV1 {
     );
   }
 
-  const result = PreparedIngressReceiptV1Schema.shape.redactionSummary.safeParse(parsed);
+  const result = RedactionSummaryV1Schema.safeParse(parsed);
   if (!result.success) {
     throw new PersistenceError(
       "invalid_persisted_row",
@@ -75,8 +93,10 @@ function parseSummary(value: string): RedactionSummaryV1 {
   return result.data;
 }
 
-function validatePreparedContract(receipt: NewPreparedIngressReceipt): PreparedIngressReceiptV1 {
-  const result = PreparedIngressReceiptV1Schema.safeParse({
+function validatePreparedContract(
+  receipt: NewAgentPreparedIngressReceipt,
+): PreparedAgentIngressReceiptV1 {
+  const result = parsePreparedAgentIngressReceipt({
     canonicalizationVersion: receipt.canonicalizationVersion,
     redactionPolicyVersion: receipt.redactionPolicyVersion,
     ingressContractVersion: receipt.ingressContractVersion,
@@ -92,13 +112,13 @@ function validatePreparedContract(receipt: NewPreparedIngressReceipt): PreparedI
     redactedPayloadJson: receipt.redactedPayloadJson,
     redactionSummary: receipt.redactionSummary,
   });
-  if (!result.success) {
+  if (result === null) {
     throw new PersistenceError(
       "operation_failed",
       "The prepared ingress receipt violates its runtime contract.",
     );
   }
-  return result.data;
+  return result;
 }
 
 export class IngressReceiptRepository {
@@ -108,7 +128,7 @@ export class IngressReceiptRepository {
     this.#database = database;
   }
 
-  insertPrepared(receipt: NewPreparedIngressReceipt): void {
+  insertPrepared(receipt: NewAgentPreparedIngressReceipt): void {
     const prepared = validatePreparedContract(receipt);
 
     try {
@@ -162,7 +182,9 @@ export class IngressReceiptRepository {
     }
   }
 
-  insertPreparedOrGetExisting(receipt: NewPreparedIngressReceipt): PreparedIngressInsertResult {
+  insertPreparedOrGetExisting(
+    receipt: NewAgentPreparedIngressReceipt,
+  ): PreparedIngressInsertResult {
     const prepared = validatePreparedContract(receipt);
 
     try {
@@ -379,7 +401,7 @@ export class IngressReceiptRepository {
       );
     }
 
-    const prepared = PreparedIngressReceiptV1Schema.safeParse({
+    const prepared = parsePreparedAgentIngressReceipt({
       ...legacyPayload,
       canonicalizationVersion: requiredNumber(row, "canonicalization_version"),
       redactionPolicyVersion: requiredNumber(row, "redaction_policy_version"),
@@ -387,13 +409,13 @@ export class IngressReceiptRepository {
       canonicalWorkspacePath: requiredString(row, "canonical_workspace_path"),
       redactionSummary: parseSummary(requiredString(row, "redaction_summary_json")),
     });
-    if (!prepared.success) {
+    if (prepared === null) {
       throw new PersistenceError(
         "invalid_persisted_row",
         "The persisted prepared ingress receipt violates its runtime contract.",
       );
     }
 
-    return { ...operational, ...prepared.data, preparationStatus: "prepared" };
+    return { ...operational, ...prepared, preparationStatus: "prepared" };
   }
 }

@@ -1901,7 +1901,7 @@ describe("local settings migration v18", () => {
       runMigrations(opened.database);
       const after = readAppliedMigrations(opened.database);
       expect(after.slice(0, 17)).toEqual(before);
-      expect(after).toHaveLength(18);
+      expect(after).toHaveLength(MIGRATIONS.length);
       expect(
         opened.database
           .prepare(

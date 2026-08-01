@@ -1,9 +1,9 @@
+import { z } from "zod";
 import {
   CHANGE_CLASSIFICATION_EVIDENCE_KINDS,
   CHANGE_CLASSIFICATION_LABELS,
 } from "./change-classification.js";
 import { VERIFICATION_KINDS, VERIFICATION_OBSERVED_STATUSES } from "./verification-evidence.js";
-import { z } from "zod";
 
 const safeIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u);
 const safeVersionSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u);
@@ -172,7 +172,7 @@ export type EvidenceNodeLocatorV1 = z.infer<typeof EvidenceNodeLocatorV1Schema>;
 
 export const EvidenceNodeMetadataV1Schema = z.strictObject({
   eventType: z.string().min(1).max(128).optional(),
-  eventSource: z.enum(["claude_code", "ownloop"]).optional(),
+  eventSource: z.enum(["claude_code", "codex", "ownloop"]).optional(),
   sensitivity: z.enum(["public", "normal", "sensitive", "secret"]).optional(),
   outcome: z.string().min(1).max(128).optional(),
   diagnosticCode: z.string().min(1).max(128).nullable().optional(),

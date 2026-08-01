@@ -17,6 +17,9 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 ) STRICT;
 `;
 
+const PRAGMA_FLAGS = ["foreign_keys", "legacy_alter_table"] as const;
+type PragmaFlag = (typeof PRAGMA_FLAGS)[number];
+
 export type AppliedMigration = Readonly<{
   version: number;
   name: string;
@@ -61,6 +64,31 @@ function validateDefinitions(definitions: readonly MigrationDefinition[]): void 
 
     previousVersion = definition.version;
     seenVersions.add(definition.version);
+  }
+}
+
+function readPragmaFlag(database: DatabaseSync, pragma: PragmaFlag): 0 | 1 {
+  const row = database.prepare(`PRAGMA ${pragma}`).get();
+  const value = row?.[pragma];
+  if (value !== 0 && value !== 1) {
+    throw new MigrationError("migration_failed", `Unable to read SQLite ${pragma} state.`);
+  }
+  return value;
+}
+
+function setPragmaFlag(database: DatabaseSync, pragma: PragmaFlag, value: 0 | 1): void {
+  database.exec(`PRAGMA ${pragma} = ${value === 1 ? "ON" : "OFF"}`);
+  if (readPragmaFlag(database, pragma) !== value) {
+    throw new MigrationError("migration_failed", `Unable to set SQLite ${pragma} state.`);
+  }
+}
+
+function assertForeignKeyIntegrity(database: DatabaseSync): void {
+  if (database.prepare("PRAGMA foreign_key_check").all().length !== 0) {
+    throw new MigrationError(
+      "migration_failed",
+      "The migration introduced a SQLite foreign-key violation.",
+    );
   }
 }
 
@@ -119,9 +147,12 @@ export function runMigrations(
       continue;
     }
 
-    try {
+    const applyInsideTransaction = (): void => {
       runInTransaction(database, () => {
         database.exec(definition.sql);
+        if (definition.foreignKeyPolicy === "disable_during_table_rebuild") {
+          assertForeignKeyIntegrity(database);
+        }
         insertMigration.run(
           definition.version,
           definition.name,
@@ -129,6 +160,26 @@ export function runMigrations(
           new Date().toISOString(),
         );
       });
+    };
+
+    try {
+      if (definition.foreignKeyPolicy === "disable_during_table_rebuild") {
+        const foreignKeys = readPragmaFlag(database, "foreign_keys");
+        const legacyAlterTable = readPragmaFlag(database, "legacy_alter_table");
+        try {
+          setPragmaFlag(database, "foreign_keys", 0);
+          setPragmaFlag(database, "legacy_alter_table", 1);
+          applyInsideTransaction();
+        } finally {
+          try {
+            setPragmaFlag(database, "legacy_alter_table", legacyAlterTable);
+          } finally {
+            setPragmaFlag(database, "foreign_keys", foreignKeys);
+          }
+        }
+      } else {
+        applyInsideTransaction();
+      }
     } catch (error) {
       throw new MigrationError(
         "migration_failed",

@@ -1,6 +1,9 @@
 export * from "./layout.js";
 export * from "./manifest.js";
 export * from "./claude-settings.js";
+export * from "./codex-hooks-file.js";
+export * from "./codex-doctor.js";
+export * from "./hook-reconciliation.js";
 export * from "./secrets.js";
 export * from "./strict-json.js";
 export * from "./hook-launcher.js";
@@ -12,3 +15,5 @@ export * from "./acl.js";
 export * from "./installer-transaction.js";
 export * from "./cli.js";
 export * from "./package-builder.js";
+
+export * from "./codex-hook-launcher.js";

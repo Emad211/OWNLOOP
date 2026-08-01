@@ -1,9 +1,13 @@
 import { z } from "zod";
 
 import {
-  SUPPORTED_CLAUDE_HOOK_NAMES,
-  SupportedClaudeHookNameSchema,
-} from "./claude-hook-common.js";
+  AgentIngressHookIdentitySchema,
+  type IngressAgentSource,
+  IngressAgentSourceSchema,
+  MAX_INGRESS_AGENT_HOOK_IDENTITIES,
+  type SupportedAgentHookName,
+  SupportedAgentHookNameSchema,
+} from "./agent-ingress.js";
 import {
   CANDIDATE_VALIDATION_OUTCOMES,
   CANDIDATE_VALIDATION_REASONS,
@@ -66,17 +70,41 @@ function sortedUniqueCountArray<CodeSchema extends z.ZodType<string>>(
     });
 }
 
-export const DiagnosticsHookCountV1Schema = z.strictObject({
-  hookName: SupportedClaudeHookNameSchema,
-  count: safeCountSchema,
-});
+export const DiagnosticsHookCountV1Schema = z
+  .strictObject({
+    source: IngressAgentSourceSchema.optional(),
+    hookName: SupportedAgentHookNameSchema,
+    count: safeCountSchema,
+  })
+  .superRefine((value, context) => {
+    const parsed = AgentIngressHookIdentitySchema.safeParse({
+      source: value.source ?? "claude_code",
+      hookName: value.hookName,
+    });
+    if (!parsed.success) {
+      context.addIssue({
+        code: "custom",
+        path: ["hookName"],
+        message: "The diagnostic Hook does not belong to its ingress source.",
+      });
+    }
+  });
 export type DiagnosticsHookCountV1 = z.infer<typeof DiagnosticsHookCountV1Schema>;
+
+function diagnosticHookIdentityKey(
+  value: Readonly<{
+    source?: IngressAgentSource | undefined;
+    hookName: SupportedAgentHookName;
+  }>,
+): string {
+  return `${value.source ?? "claude_code"}:${value.hookName}`;
+}
 
 const hookCountsSchema = z
   .array(DiagnosticsHookCountV1Schema)
-  .max(SUPPORTED_CLAUDE_HOOK_NAMES.length)
+  .max(MAX_INGRESS_AGENT_HOOK_IDENTITIES)
   .superRefine((value, context) => {
-    if (!isSortedUnique(value.map((item) => item.hookName))) {
+    if (!isSortedUnique(value.map(diagnosticHookIdentityKey))) {
       context.addIssue({ code: "custom", message: "Hook counts must be sorted and unique." });
     }
   });

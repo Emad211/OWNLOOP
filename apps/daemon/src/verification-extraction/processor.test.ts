@@ -2,20 +2,18 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
-import { afterEach, describe, expect, it } from "vitest";
-
-import { createLocalArtifactStore, type LocalArtifactStore } from "../artifact-store/index.js";
-import { classifyFinalizedRunChanges } from "../change-classification/index.js";
-import { finalizeRun } from "../finalization/index.js";
 import {
   NORMALIZED_EVENT_SCHEMA_VERSION,
   type NormalizedEventEnvelope,
   NormalizedEventEnvelopeSchema,
 } from "@ownloop/event-model";
+import { afterEach, describe, expect, it } from "vitest";
+import { createLocalArtifactStore, type LocalArtifactStore } from "../artifact-store/index.js";
+import { classifyFinalizedRunChanges } from "../change-classification/index.js";
+import { finalizeRun } from "../finalization/index.js";
 import {
-  openPersistence,
   type OwnLoopPersistence,
+  openPersistence,
   PersistenceError,
 } from "../persistence/index.js";
 import { projectRawRunReplay } from "../replay/index.js";
