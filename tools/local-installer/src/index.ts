@@ -1,6 +1,7 @@
 export * from "./layout.js";
 export * from "./manifest.js";
 export * from "./claude-settings.js";
+export * from "./codex-hooks-file.js";
 export * from "./secrets.js";
 export * from "./strict-json.js";
 export * from "./hook-launcher.js";
