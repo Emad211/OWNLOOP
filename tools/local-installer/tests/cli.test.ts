@@ -5,10 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SUPPORTED_CLAUDE_HOOK_NAMES } from "@ownloop/contracts";
-import {
-  CODEX_HOOK_LAUNCHER_BASENAME,
-  SUPPORTED_CODEX_HOOK_NAMES,
-} from "@ownloop/contracts/codex";
+import { CODEX_HOOK_LAUNCHER_BASENAME, SUPPORTED_CODEX_HOOK_NAMES } from "@ownloop/contracts/codex";
 
 import {
   buildReleaseManifest,
