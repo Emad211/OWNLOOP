@@ -5,7 +5,8 @@ import { CODEX_HOOK_LAUNCHER_BASENAME } from "@ownloop/contracts/codex";
 import { inspectCodexCapabilityEnvironment } from "./environment.js";
 import type { CodexCapabilityEnvironmentFacts } from "./projector.js";
 
-export type InstalledCodexCapabilityEnvironmentProvider = () => Promise<CodexCapabilityEnvironmentFacts>;
+export type InstalledCodexCapabilityEnvironmentProvider =
+  () => Promise<CodexCapabilityEnvironmentFacts>;
 
 export type InstalledCodexCapabilityEnvironmentOptions = Readonly<{
   environment?: NodeJS.ProcessEnv;
