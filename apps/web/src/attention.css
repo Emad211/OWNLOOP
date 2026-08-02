@@ -80,8 +80,7 @@
   border: 1px solid var(--attention-line);
   border-radius: clamp(1.75rem, 4vw, 3.5rem);
   background:
-    linear-gradient(145deg, rgb(255 255 255 / 7%), transparent 42%),
-    var(--attention-panel);
+    linear-gradient(145deg, rgb(255 255 255 / 7%), transparent 42%), var(--attention-panel);
   box-shadow:
     0 3rem 10rem rgb(0 0 0 / 48%),
     inset 0 1px rgb(255 255 255 / 8%);
