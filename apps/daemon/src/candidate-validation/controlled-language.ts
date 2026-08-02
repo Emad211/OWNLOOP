@@ -335,10 +335,7 @@ export function extractControlledAssertions(text: string): readonly ControlledAs
   if (/\bobserved\s+only\b/u.test(normalized) || hasPhrase(normalized, "فقط مشاهده شده")) {
     add("attribution:observed_only", "attribution");
   }
-  if (
-    /\battribution\s+unavailable\b/u.test(normalized) ||
-    hasPhrase(normalized, "انتساب نامشخص")
-  ) {
+  if (/\battribution\s+unavailable\b/u.test(normalized) || hasPhrase(normalized, "انتساب نامشخص")) {
     add("attribution:unavailable", "attribution");
   }
 
@@ -347,16 +344,10 @@ export function extractControlledAssertions(text: string): readonly ControlledAs
     ["behavior", ["behavior", "رفتار"]],
     ["tests", ["tests", "آزمون"]],
     ["dependency", ["dependency", "وابستگی"]],
-    [
-      "authentication_authorization",
-      ["authentication authorization", "احراز هویت", "مجوزدهی"],
-    ],
+    ["authentication_authorization", ["authentication authorization", "احراز هویت", "مجوزدهی"]],
     ["public_api", ["public api", "رابط برنامه نویسی عمومی"]],
     ["database_migration", ["database migration", "مهاجرت پایگاه داده"]],
-    [
-      "configuration_infrastructure",
-      ["configuration infrastructure", "پیکربندی زیرساخت"],
-    ],
+    ["configuration_infrastructure", ["configuration infrastructure", "پیکربندی زیرساخت"]],
     ["documentation", ["documentation", "مستندات"]],
     ["unknown", ["unknown", "نامشخص"]],
   ] as const;
