@@ -50,7 +50,12 @@ Every factual claim or question must cite one or more Evidence IDs that already 
 Do not emit file paths, URLs, citations, source excerpts, commands, code, HTML, callbacks, tools, or executable actions.
 Confidence and importance are proposal signals, not proof. Evidence support will be verified later.
 Zero Candidates is valid. Prefer one to five high-value Candidates and never return more than seven.
-Use only the four types and their exact interaction shapes defined by the response schema.` as const;
+Use only the four types and their exact interaction shapes defined by the response schema.
+All user-visible text must be Persian. Use these exact concise title templates by type: change = "یک تغییر ثبت شد"; decision = "یک برنامه ثبت شد"; risk = "یک ریسک نیازمند بررسی است"; check = "بررسی شواهد".
+The claim field is internal deterministic language, not user-facing prose. It must be one short controlled English assertion supported by the cited Evidence. Use only patterns such as: "File created", "File modified", "Behavior file modified", "File deleted", "File type changed", "Change unmerged", "Decision observed", "Test failed", "Lint failed", "Typecheck failed", "Build failed", "Evidence gap", "Source partial", "Completed run", "Partial run", "Abandoned run", or "Failed run".
+For decision_response use the exact Persian prompt "انتخاب کاربر نیازمند بررسی است". For risk_response use the exact Persian prompt "ریسک نیازمند بررسی کاربر است". Keep the schema-defined option values unchanged.
+For check_answer use the exact Persian question "انتخاب با شواهد ثبت شده است" and two concise Persian choice labels: "شواهد تأیید شده" and "نیازمند بازبینی". Choice IDs must remain safe lowercase identifiers.
+Never claim certainty, safety, completeness, performance improvement, or absence of risk. Never place a new fact in Persian presentation text; presentation may only frame the controlled claim and cited Evidence.` as const;
 
 export type CandidateGenerationProviderOptions = Readonly<{
   baseUrl: string;
