@@ -5,7 +5,7 @@ import type {
   OwnershipMomentsProjectionV1,
   ReplayRunSummaryV1,
 } from "@ownloop/contracts";
-import { type FormEvent, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type FormEvent, useMemo, useRef, useState } from "react";
 
 import {
   createMomentInteractionId,
@@ -15,7 +15,14 @@ import {
 } from "./api.js";
 import "./attention.css";
 
-type AttentionPhase = "locked" | "loading" | "ready" | "saving" | "complete" | "empty" | "error";
+type AttentionPhase =
+  | "locked"
+  | "loading"
+  | "ready"
+  | "saving"
+  | "complete"
+  | "empty"
+  | "error";
 
 type AttentionOption = Readonly<{
   value: string;
@@ -145,7 +152,9 @@ function fallbackChoiceLabel(choiceId: string): string {
   }
 }
 
-export function optionsForMoment(moment: OwnershipMomentProjectionItemV1): readonly AttentionOption[] {
+export function optionsForMoment(
+  moment: OwnershipMomentProjectionItemV1,
+): readonly AttentionOption[] {
   const interaction = moment.candidate.suggestedInteraction;
   switch (interaction.kind) {
     case "acknowledge":
@@ -239,6 +248,7 @@ export function AttentionApp() {
   const current = moments[index] ?? null;
   const options = useMemo(() => (current === null ? [] : optionsForMoment(current)), [current]);
   const coverage = moments.length === 0 ? 0 : Math.round((completed / moments.length) * 100);
+  const entryError = phase === "error" && activeRun === null;
 
   async function connect(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -281,7 +291,13 @@ export function AttentionApp() {
   async function recordAndContinue(): Promise<void> {
     const client = clientRef.current;
     const validationId = activeRun?.projection.validationId ?? null;
-    if (client === null || activeRun === null || current === null || selection === null || validationId === null) {
+    if (
+      client === null ||
+      activeRun === null ||
+      current === null ||
+      selection === null ||
+      validationId === null
+    ) {
       return;
     }
     setPhase("saving");
@@ -295,7 +311,12 @@ export function AttentionApp() {
       });
       const nextCompleted = completed + 1;
       setCompleted(nextCompleted);
-      if (selection === "later" || selection === "uncertain" || selection === "revise" || selection === "mitigate") {
+      if (
+        selection === "later" ||
+        selection === "uncertain" ||
+        selection === "revise" ||
+        selection === "mitigate"
+      ) {
         setFollowUps((value) => value + 1);
       }
       if (index >= moments.length - 1) {
@@ -331,7 +352,7 @@ export function AttentionApp() {
     setMessage("");
   }
 
-  if (phase === "locked" || phase === "loading" || phase === "empty") {
+  if (phase === "locked" || phase === "loading" || phase === "empty" || entryError) {
     return (
       <main className="attention-shell attention-entry" dir="rtl">
         <div className="attention-ambient" aria-hidden="true" />
@@ -369,7 +390,7 @@ export function AttentionApp() {
               </div>
             </form>
           )}
-          {phase === "empty" ? <p className="attention-notice">{message}</p> : null}
+          {phase === "empty" || entryError ? <p className="attention-notice">{message}</p> : null}
           <small>محلی · بدون تله‌متری · پایان‌دار</small>
         </section>
       </main>
@@ -381,7 +402,10 @@ export function AttentionApp() {
       <main className="attention-shell attention-complete" dir="rtl">
         <div className="attention-ambient" aria-hidden="true" />
         <section className="attention-summary-card">
-          <div className="attention-completion-ring" style={{ "--coverage": `${coverage}%` } as React.CSSProperties}>
+          <div
+            className="attention-completion-ring"
+            style={{ "--coverage": `${coverage}%` } as CSSProperties}
+          >
             <strong>{faPercent(coverage)}</strong>
             <span>مرور شده</span>
           </div>
@@ -408,7 +432,9 @@ export function AttentionApp() {
             <button type="button" className="attention-primary" onClick={restart}>
               مرور دوباره
             </button>
-            <a href={`/?run=${encodeURIComponent(activeRun?.run.runId ?? "")}`}>نمای فنی و شواهد کامل</a>
+            <a href={`/?run=${encodeURIComponent(activeRun?.run.runId ?? "")}`}>
+              نمای فنی و شواهد کامل
+            </a>
           </div>
         </section>
       </main>
@@ -420,7 +446,10 @@ export function AttentionApp() {
   }
 
   return (
-    <main className={`attention-shell attention-flow attention-type-${current.candidate.type}`} dir="rtl">
+    <main
+      className={`attention-shell attention-flow attention-type-${current.candidate.type}`}
+      dir="rtl"
+    >
       <div className="attention-ambient" aria-hidden="true" />
       <header className="attention-topbar">
         <a className="attention-brand" href="/?view=attention" aria-label="شروع دوبارهٔ OwnLoop">
@@ -431,7 +460,10 @@ export function AttentionApp() {
           <i aria-hidden="true" />
           اجرای {faNumber(activeRun.run.runNumber)}
         </div>
-        <a className="attention-technical-link" href={`/?run=${encodeURIComponent(activeRun.run.runId)}`}>
+        <a
+          className="attention-technical-link"
+          href={`/?run=${encodeURIComponent(activeRun.run.runId)}`}
+        >
           نمای فنی
         </a>
       </header>
@@ -443,7 +475,11 @@ export function AttentionApp() {
             <small>از {faNumber(moments.length)}</small>
           </div>
           <div className="attention-progress-track">
-            <i style={{ width: `${Math.round(((index + (revealed ? 0.65 : 0)) / moments.length) * 100)}%` }} />
+            <i
+              style={{
+                width: `${Math.round(((index + (revealed ? 0.65 : 0)) / moments.length) * 100)}%`,
+              }}
+            />
           </div>
           <strong>{faPercent(coverage)}</strong>
         </div>
