@@ -57,9 +57,7 @@ describe("Candidate generation request", () => {
       "The claim field is internal deterministic language",
     );
     expect(CANDIDATE_GENERATION_INSTRUCTIONS).toContain('"Behavior file modified"');
-    expect(CANDIDATE_GENERATION_INSTRUCTIONS).toContain(
-      '"انتخاب با شواهد ثبت شده است"',
-    );
+    expect(CANDIDATE_GENERATION_INSTRUCTIONS).toContain('"انتخاب با شواهد ثبت شده است"');
     expect(CANDIDATE_GENERATION_INSTRUCTIONS).toContain(
       "Never claim certainty, safety, completeness, performance improvement, or absence of risk",
     );
