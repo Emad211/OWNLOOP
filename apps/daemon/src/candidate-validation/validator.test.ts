@@ -43,6 +43,25 @@ describe("Candidate validation", () => {
     expect(first.value.items.every((entry) => Number.isInteger(entry.score?.total))).toBe(true);
   });
 
+  it("selects a bounded Persian Candidate and rejects a Persian contradiction", () => {
+    const supported = parseCandidateMomentV1({
+      ...CHANGE_CANDIDATE,
+      title: "فایل رفتار ویرایش شد",
+      claim: "فایل رفتار ویرایش شد",
+    });
+    const contradiction = parseCandidateMomentV1({
+      ...CHANGE_CANDIDATE,
+      title: "فایل رفتار حذف شد",
+      claim: "فایل رفتار حذف شد",
+    });
+    const result = buildCandidateValidationReport(validatorInput([supported, contradiction]));
+
+    expect(item(result, 0).decision).toBe("valid_selected");
+    expect(item(result, 0).reasons).toEqual([]);
+    expect(item(result, 1).decision).toBe("rejected");
+    expect(item(result, 1).reasons).toContain("deterministic_contradiction");
+  });
+
   it("selects at most seven distinct supported Candidates", () => {
     const changedFileOnly = parseCandidateMomentV1({
       ...CHANGE_CANDIDATE,
