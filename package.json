@@ -12,7 +12,7 @@
     "dev": "pnpm --parallel --filter @ownloop/daemon --filter @ownloop/web dev",
     "format": "biome format --write biome.json package.json tsconfig.base.json tsconfig.test.json apps packages tools",
     "format:check": "biome format biome.json package.json tsconfig.base.json tsconfig.test.json apps packages tools",
-    "lint": "biome lint --max-diagnostics=200 apps/web/src/AttentionApp.tsx apps/web/src/attention.css apps/web/src/main.tsx apps/daemon/src/candidate-generation/avalai.ts apps/daemon/src/candidate-generation/avalai.test.ts apps/daemon/src/candidate-generation/index.ts apps/daemon/src/candidate-generation/request.ts apps/daemon/src/candidate-generation/request.test.ts apps/daemon/src/candidate-validation/controlled-language.ts apps/daemon/src/candidate-validation/controlled-language.test.ts apps/daemon/src/candidate-validation/validator.ts apps/daemon/src/candidate-validation/validator.test.ts tools/local-installer/tests/runtime-client-hook-launcher.test.ts tools/local-installer/tests/runtime-operations.test.ts && biome lint --max-diagnostics=200 apps packages tools",
+    "lint": "biome lint --max-diagnostics=200 apps packages tools",
     "typecheck": "pnpm --recursive --if-present run typecheck && tsc -p tsconfig.test.json",
     "test": "vitest run",
     "build": "pnpm --recursive --if-present run build",
