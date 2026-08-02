@@ -46,10 +46,6 @@ describe("controlled Candidate language", () => {
 
   it("allows only the bounded Persian vocabulary", () => {
     expect(meaningfulUnknownControlledTokens("یک فایل ایجاد شد")).toEqual([]);
-    expect(meaningfulUnknownControlledTokens("سرعت دو برابر شد")).toEqual([
-      "سرعت",
-      "دو",
-      "برابر",
-    ]);
+    expect(meaningfulUnknownControlledTokens("سرعت دو برابر شد")).toEqual(["سرعت", "دو", "برابر"]);
   });
 });
