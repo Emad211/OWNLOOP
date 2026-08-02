@@ -119,7 +119,9 @@ const PERSIAN_ALLOWED_WORDS = new Set([
   "انتخاب",
   "انتساب",
   "انجام",
+  "ایجاد",
   "این",
+  "ادغام",
   "با",
   "بازبینی",
   "بررسی",
@@ -128,6 +130,7 @@ const PERSIAN_ALLOWED_WORDS = new Set([
   "به",
   "بود",
   "پاس",
+  "پاک",
   "پایگاه",
   "پیکربندی",
   "تایپ",
@@ -136,6 +139,7 @@ const PERSIAN_ALLOWED_WORDS = new Set([
   "تأیید",
   "ثبت",
   "جمع",
+  "حذف",
   "خروج",
   "خطر",
   "خورد",
@@ -149,6 +153,7 @@ const PERSIAN_ALLOWED_WORDS = new Set([
   "زیرساخت",
   "ساخت",
   "ساخته",
+  "سازی",
   "سبک",
   "سرچشمه",
   "شد",
@@ -187,13 +192,16 @@ const PERSIAN_ALLOWED_WORDS = new Set([
   "نشده",
   "نهایی",
   "نوع",
+  "نویسی",
   "نیازمند",
   "و",
   "وابستگی",
   "ویرایش",
   "یا",
   "یک",
+  "ها",
   "هویت",
+  "بندی",
 ]);
 
 const ENGLISH_ABSENCE_PATTERNS = [
@@ -271,7 +279,12 @@ export function extractControlledAssertions(text: string): readonly ControlledAs
     values.set(key, { key, family });
   };
 
-  if (/\b(?:created|added)\b/u.test(normalized) || hasPhrase(normalized, "ایجاد شد") || hasPhrase(normalized, "اضافه شد") || hasPhrase(normalized, "ساخته شد")) {
+  if (
+    /\b(?:created|added)\b/u.test(normalized) ||
+    hasPhrase(normalized, "ایجاد شد") ||
+    hasPhrase(normalized, "اضافه شد") ||
+    hasPhrase(normalized, "ساخته شد")
+  ) {
     add("change_kind:created", "change_kind");
   }
   if (
@@ -284,7 +297,11 @@ export function extractControlledAssertions(text: string): readonly ControlledAs
   ) {
     add("change_kind:modified", "change_kind");
   }
-  if (/\b(?:deleted|removed)\b/u.test(normalized) || hasPhrase(normalized, "حذف شد") || hasPhrase(normalized, "پاک شد")) {
+  if (
+    /\b(?:deleted|removed)\b/u.test(normalized) ||
+    hasPhrase(normalized, "حذف شد") ||
+    hasPhrase(normalized, "پاک شد")
+  ) {
     add("change_kind:deleted", "change_kind");
   }
   if (/\btype\s+changed\b/u.test(normalized) || hasPhrase(normalized, "نوع تغییر کرد")) {
@@ -318,7 +335,10 @@ export function extractControlledAssertions(text: string): readonly ControlledAs
   if (/\bobserved\s+only\b/u.test(normalized) || hasPhrase(normalized, "فقط مشاهده شده")) {
     add("attribution:observed_only", "attribution");
   }
-  if (/\battribution\s+unavailable\b/u.test(normalized) || hasPhrase(normalized, "انتساب نامشخص")) {
+  if (
+    /\battribution\s+unavailable\b/u.test(normalized) ||
+    hasPhrase(normalized, "انتساب نامشخص")
+  ) {
     add("attribution:unavailable", "attribution");
   }
 
@@ -327,10 +347,16 @@ export function extractControlledAssertions(text: string): readonly ControlledAs
     ["behavior", ["behavior", "رفتار"]],
     ["tests", ["tests", "آزمون"]],
     ["dependency", ["dependency", "وابستگی"]],
-    ["authentication_authorization", ["authentication authorization", "احراز هویت", "مجوزدهی"]],
+    [
+      "authentication_authorization",
+      ["authentication authorization", "احراز هویت", "مجوزدهی"],
+    ],
     ["public_api", ["public api", "رابط برنامه نویسی عمومی"]],
     ["database_migration", ["database migration", "مهاجرت پایگاه داده"]],
-    ["configuration_infrastructure", ["configuration infrastructure", "پیکربندی زیرساخت"]],
+    [
+      "configuration_infrastructure",
+      ["configuration infrastructure", "پیکربندی زیرساخت"],
+    ],
     ["documentation", ["documentation", "مستندات"]],
     ["unknown", ["unknown", "نامشخص"]],
   ] as const;
@@ -348,20 +374,28 @@ export function extractControlledAssertions(text: string): readonly ControlledAs
   ] as const;
   for (const [kind, phrases] of verificationKinds) {
     if (!phrases.some((phrase) => hasPhrase(normalized, phrase))) continue;
-    if (/\b(?:passed|succeeded)\b/u.test(normalized) || hasPhrase(normalized, "موفق شد") || hasPhrase(normalized, "پاس شد")) {
+    if (
+      /\b(?:passed|succeeded)\b/u.test(normalized) ||
+      hasPhrase(normalized, "موفق شد") ||
+      hasPhrase(normalized, "پاس شد")
+    ) {
       add(`verification_status:${kind}:passed`, `verification_status:${kind}`);
     }
-    if (/\bfailed\b/u.test(normalized) || hasPhrase(normalized, "شکست خورد") || hasPhrase(normalized, "ناموفق بود")) {
+    if (
+      /\bfailed\b/u.test(normalized) ||
+      hasPhrase(normalized, "شکست خورد") ||
+      hasPhrase(normalized, "ناموفق بود")
+    ) {
       add(`verification_status:${kind}:failed`, `verification_status:${kind}`);
     }
     if (/\bunknown\b/u.test(normalized) || hasPhrase(normalized, "نامشخص است")) {
       add(`verification_status:${kind}:unknown`, `verification_status:${kind}`);
     }
-    if (/\bobserved\s+without\s+exit\s+code\b/u.test(normalized) || hasPhrase(normalized, "بدون کد خروج مشاهده شد")) {
-      add(
-        `verification_status:${kind}:observed_without_exit_code`,
-        `verification_status:${kind}`,
-      );
+    if (
+      /\bobserved\s+without\s+exit\s+code\b/u.test(normalized) ||
+      hasPhrase(normalized, "بدون کد خروج مشاهده شد")
+    ) {
+      add(`verification_status:${kind}:observed_without_exit_code`, `verification_status:${kind}`);
     }
   }
 
