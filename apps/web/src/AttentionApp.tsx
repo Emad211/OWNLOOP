@@ -15,14 +15,7 @@ import {
 } from "./api.js";
 import "./attention.css";
 
-type AttentionPhase =
-  | "locked"
-  | "loading"
-  | "ready"
-  | "saving"
-  | "complete"
-  | "empty"
-  | "error";
+type AttentionPhase = "locked" | "loading" | "ready" | "saving" | "complete" | "empty" | "error";
 
 type AttentionOption = Readonly<{
   value: string;
