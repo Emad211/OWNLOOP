@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { normalizeCandidateGenerationEndpoint } from "./endpoint.js";
 import {
+  CANDIDATE_GENERATION_INSTRUCTIONS,
   candidateGenerationProviderPublicConfig,
   prepareCandidateGenerationRequest,
   prepareCandidateGenerationRequestIdentity,
@@ -47,6 +48,21 @@ describe("Candidate generation request", () => {
     expect(body).not.toHaveProperty("tools");
     expect(body.text.format).toMatchObject({ type: "json_schema", strict: true });
     expect(first.canonicalRequestJson).toContain(CANDIDATE_MOMENT_BATCH_JSON_SCHEMA_V1_FINGERPRINT);
+  });
+
+  it("requires Persian presentation with a controlled internal claim", () => {
+    expect(CANDIDATE_GENERATION_INSTRUCTIONS).toContain("All user-visible text must be Persian");
+    expect(CANDIDATE_GENERATION_INSTRUCTIONS).toContain('change = "یک تغییر ثبت شد"');
+    expect(CANDIDATE_GENERATION_INSTRUCTIONS).toContain(
+      "The claim field is internal deterministic language",
+    );
+    expect(CANDIDATE_GENERATION_INSTRUCTIONS).toContain('"Behavior file modified"');
+    expect(CANDIDATE_GENERATION_INSTRUCTIONS).toContain(
+      '"انتخاب با شواهد ثبت شده است"',
+    );
+    expect(CANDIDATE_GENERATION_INSTRUCTIONS).toContain(
+      "Never claim certainty, safety, completeness, performance improvement, or absence of risk",
+    );
   });
 
   it("regenerates the same identity from persisted public configuration", () => {
