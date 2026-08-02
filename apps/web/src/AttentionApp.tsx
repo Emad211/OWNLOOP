@@ -111,6 +111,20 @@ export function factTextFa(fact: CandidateValidationFactV1): string {
   }
 }
 
+function factIdentity(fact: CandidateValidationFactV1): string {
+  const evidence = fact.evidenceIds.join(",");
+  switch (fact.kind) {
+    case "verification_status":
+      return `${fact.kind}:${fact.verificationKind}:${fact.observedStatus}:${evidence}`;
+    case "evidence_gap":
+      return `${fact.kind}:${fact.gapCode}:${evidence}`;
+    case "decision_observed":
+      return `${fact.kind}:${fact.eventType}:${evidence}`;
+    default:
+      return `${fact.kind}:${String(fact.value)}:${evidence}`;
+  }
+}
+
 function titleForMoment(moment: OwnershipMomentProjectionItemV1): string {
   return PERSIAN_TEXT_PATTERN.test(moment.candidate.title)
     ? moment.candidate.title
@@ -462,7 +476,14 @@ export function AttentionApp() {
       </header>
 
       <section className="attention-stage" aria-live="polite">
-        <div className="attention-progress" aria-label="پیشرفت مرور">
+        <div
+          className="attention-progress"
+          role="progressbar"
+          aria-label="پیشرفت مرور"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={coverage}
+        >
           <div>
             <span>{faNumber(index + 1)}</span>
             <small>از {faNumber(moments.length)}</small>
@@ -486,7 +507,11 @@ export function AttentionApp() {
           <h1>{titleForMoment(current)}</h1>
           <p className="attention-question">{questionForMoment(current)}</p>
 
-          <div className="attention-options" role="group" aria-label="انتخاب شما">
+          <fieldset
+            className="attention-options"
+            aria-label="انتخاب شما"
+            style={{ border: 0, padding: 0, minInlineSize: 0 }}
+          >
             {options.map((option, optionIndex) => (
               <button
                 key={option.value}
@@ -500,7 +525,7 @@ export function AttentionApp() {
                 <i aria-hidden="true" />
               </button>
             ))}
-          </div>
+          </fieldset>
 
           {!revealed ? (
             <button
@@ -521,8 +546,8 @@ export function AttentionApp() {
                 <p>خلاصهٔ کنترل‌شده‌ای برای این لحظه در دسترس نیست.</p>
               ) : (
                 <ul>
-                  {current.facts.map((fact, factIndex) => (
-                    <li key={`${fact.kind}-${factIndex}`}>
+                  {current.facts.map((fact) => (
+                    <li key={factIdentity(fact)}>
                       <i aria-hidden="true">✓</i>
                       <span>{factTextFa(fact)}</span>
                     </li>
