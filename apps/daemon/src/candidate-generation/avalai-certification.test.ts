@@ -95,7 +95,10 @@ describe("AvalAI certification harness", () => {
     const timeoutTransport = vi.fn<CandidateGenerationTransport>(async () => {
       throw new CandidateGenerationTransportError("timeout");
     });
-    const timeout = await certifyAvalAiCandidateGeneration({ transport: timeoutTransport }, input());
+    const timeout = await certifyAvalAiCandidateGeneration(
+      { transport: timeoutTransport },
+      input(),
+    );
     expect(timeout).toMatchObject({
       status: "transport_failed",
       diagnosticCode: "transport_timeout",
