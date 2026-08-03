@@ -1,6 +1,7 @@
 export type AttentionKeyboardPhase =
   | "locked"
   | "loading"
+  | "preview"
   | "ready"
   | "saving"
   | "complete"
