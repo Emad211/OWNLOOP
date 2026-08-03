@@ -279,7 +279,7 @@ export function AvalAiSetupPanel({
         {message}
       </p>
 
-      <div className="avalai-boundaries" aria-label="مرزهای اعتماد">
+      <section className="avalai-boundaries" aria-label="مرزهای اعتماد">
         <div>
           <span>LLM</span>
           <strong>فقط پیشنهاد</strong>
@@ -292,7 +292,7 @@ export function AvalAiSetupPanel({
           <span>Git + Evidence</span>
           <strong>مرجع حقیقت</strong>
         </div>
-      </div>
+      </section>
 
       <p className="avalai-privacy-note">
         کلید در SQLite، فایل تنظیمات، URL، log، diagnostics یا browser storage نوشته نمی‌شود و با
