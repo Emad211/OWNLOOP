@@ -25,6 +25,10 @@ import {
   selectionNeedsFollowUp,
   updateFollowUpMomentIds,
 } from "./attention-resume.js";
+import {
+  buildAttentionSessionPlan,
+  type AttentionSessionPlan,
+} from "./attention-session.js";
 import "./attention.css";
 import "./attention-empty.css";
 import "./attention-keyboard.css";
@@ -301,6 +305,7 @@ export function AttentionApp() {
   const [message, setMessage] = useState("");
   const [emptyState, setEmptyState] = useState<AttentionEmptyState | null>(null);
   const [activeRun, setActiveRun] = useState<AttentionRun | null>(null);
+  const [sessionPlan, setSessionPlan] = useState<AttentionSessionPlan | null>(null);
   const [reviewedMomentIds, setReviewedMomentIds] = useState<ReadonlySet<string>>(() => new Set());
   const [followUpMomentIds, setFollowUpMomentIds] = useState<ReadonlySet<string>>(() => new Set());
   const [index, setIndex] = useState(0);
@@ -310,10 +315,15 @@ export function AttentionApp() {
   const [followUps, setFollowUps] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
-  const moments = activeRun?.projection.moments ?? [];
+  const moments = sessionPlan?.moments ?? [];
   const current = moments[index] ?? null;
   const options = useMemo(() => (current === null ? [] : optionsForMoment(current)), [current]);
-  const coverage = moments.length === 0 ? 0 : Math.round((completed / moments.length) * 100);
+  const coverage =
+    phase === "complete" && moments.length === 0 && activeRun !== null
+      ? 100
+      : moments.length === 0
+        ? 0
+        : Math.round((completed / moments.length) * 100);
   const entryError = phase === "error" && activeRun === null;
 
   async function connect(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -321,6 +331,7 @@ export function AttentionApp() {
     setPhase("loading");
     setMessage("در حال پیدا کردن تازه‌ترین اجرای دارای لحظه‌های معتبر…");
     setEmptyState(null);
+    setSessionPlan(null);
     setReviewedMomentIds(new Set());
     setFollowUpMomentIds(new Set());
     setFollowUps(0);
@@ -356,26 +367,29 @@ export function AttentionApp() {
 
       const reviewedIds = new Set(resumePlan.reviewedMomentIds);
       const nextFollowUpIds = new Set(resumePlan.followUpMomentIds);
+      const nextSessionPlan = buildAttentionSessionPlan(result.projection.moments, reviewedIds);
       setActiveRun(result);
+      setSessionPlan(nextSessionPlan);
       setReviewedMomentIds(reviewedIds);
       setFollowUpMomentIds(nextFollowUpIds);
-      setIndex(resumePlan.firstUnreviewedIndex ?? 0);
+      setIndex(0);
       setSelection(null);
       setRevealed(false);
-      setCompleted(resumePlan.completedCount);
       setFollowUps(nextFollowUpIds.size);
       setElapsedSeconds(0);
       setEmptyState(null);
       setMessage("");
 
       if (resumePlan.outcome === "complete") {
+        setCompleted(resumePlan.completedCount);
         setPhase("complete");
         return;
       }
-      startedAtRef.current = Date.now();
-      setPhase("ready");
+      setCompleted(0);
+      setPhase("preview");
     } catch (error) {
       setEmptyState(null);
+      setSessionPlan(null);
       setPhase("error");
       setMessage(
         error instanceof ReplayApiError && error.code === "unauthorized"
@@ -383,6 +397,17 @@ export function AttentionApp() {
           : "اتصال به OwnLoop محلی ممکن نشد.",
       );
     }
+  }
+
+  function startSession(): void {
+    if (sessionPlan === null || sessionPlan.totalCount === 0) return;
+    startedAtRef.current = Date.now();
+    setIndex(0);
+    setSelection(null);
+    setRevealed(false);
+    setCompleted(0);
+    setElapsedSeconds(0);
+    setPhase("ready");
   }
 
   function reveal(): void {
@@ -421,7 +446,7 @@ export function AttentionApp() {
       );
       setReviewedMomentIds(nextReviewedIds);
       setFollowUpMomentIds(nextFollowUpIds);
-      setCompleted(nextReviewedIds.size);
+      setCompleted((value) => value + 1);
       setFollowUps(nextFollowUpIds.size);
 
       const nextIndex = nextUnreviewedMomentIndex(moments, nextReviewedIds, index);
@@ -526,12 +551,52 @@ export function AttentionApp() {
                   minLength={43}
                   placeholder="توکن فقط در حافظهٔ همین صفحه می‌ماند"
                 />
-                <button type="submit">شروع حلقه</button>
+                <button type="submit">آماده‌کردن جلسه</button>
               </div>
             </form>
           )}
           {entryError ? <p className="attention-notice">{message}</p> : null}
           <small>محلی · بدون تله‌متری · پایان‌دار</small>
+        </section>
+      </main>
+    );
+  }
+
+  if (phase === "preview" && activeRun !== null && sessionPlan !== null) {
+    return (
+      <main className="attention-shell attention-complete" dir="rtl">
+        <div className="attention-ambient" aria-hidden="true" />
+        <section className="attention-summary-card">
+          <p className="attention-kicker">جلسه آماده است</p>
+          <h1>یک مرور کوتاه و پایان‌دار پیش رو داری.</h1>
+          <p>
+            ترتیب این جلسه همان رتبه‌بندی validator است. هیچ Moment تازه‌ای ساخته یا جایگزین نشده است.
+          </p>
+          <div className="attention-summary-grid">
+            <div>
+              <strong>{faNumber(sessionPlan.totalCount)}</strong>
+              <span>Moment مرور‌نشده</span>
+            </div>
+            <div>
+              <strong>{faNumber(sessionPlan.estimatedSeconds)}</strong>
+              <span>ثانیهٔ تقریبی</span>
+            </div>
+            <div>
+              <strong>{faNumber(activeRun.run.runNumber)}</strong>
+              <span>شمارهٔ اجرای عامل</span>
+            </div>
+          </div>
+          {sessionPlan.truncated ? (
+            <p className="attention-boundary-note">
+              این جلسه به سقف هفت Moment محدود شده است؛ موارد بعدی در جلسهٔ بعد باقی می‌مانند.
+            </p>
+          ) : null}
+          <div className="attention-summary-actions">
+            <button type="button" className="attention-primary" onClick={startSession}>
+              شروع جلسه
+            </button>
+            <a href={`/?run=${encodeURIComponent(activeRun.run.runId)}`}>دیدن نمای فنی</a>
+          </div>
         </section>
       </main>
     );
@@ -550,14 +615,14 @@ export function AttentionApp() {
             <span>مرور شده</span>
           </div>
           <p className="attention-kicker">حلقه بسته شد</p>
-          <h1>مهم‌ترین لحظه‌های این اجرا را دیدی.</h1>
+          <h1>مهم‌ترین لحظه‌های این جلسه را دیدی.</h1>
           <p>
             این عدد فقط میزان مرور ثبت‌شده را نشان می‌دهد؛ نه اثبات فهم کامل، صحت کد یا مالکیت حقوقی.
           </p>
           <div className="attention-summary-grid">
             <div>
               <strong>{faNumber(completed)}</strong>
-              <span>لحظهٔ مرورشده</span>
+              <span>Moment مرورشده در این جلسه</span>
             </div>
             <div>
               <strong>{faNumber(followUps)}</strong>
@@ -570,7 +635,7 @@ export function AttentionApp() {
           </div>
           {activeRun !== null ? (
             <AttentionFollowUpSummary
-              moments={moments}
+              moments={activeRun.projection.moments}
               followUpMomentIds={followUpMomentIds}
               runId={activeRun.run.runId}
             />
@@ -581,7 +646,7 @@ export function AttentionApp() {
               className="attention-primary"
               onClick={() => window.location.reload()}
             >
-              بررسی اجرای تازه‌تر
+              بررسی جلسهٔ بعدی
             </button>
             <a href={`/?run=${encodeURIComponent(activeRun?.run.runId ?? "")}`}>
               نمای فنی و شواهد کامل
@@ -623,7 +688,7 @@ export function AttentionApp() {
         <div
           className="attention-progress"
           role="progressbar"
-          aria-label="پیشرفت مرور"
+          aria-label="پیشرفت همین جلسه"
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={coverage}
@@ -718,7 +783,7 @@ export function AttentionApp() {
                   ? "در حال ثبت…"
                   : nextUnreviewedMomentIndex(moments, reviewedMomentIds, index) === null
                     ? "بستن حلقه"
-                    : "ثبت و رفتن به لحظهٔ بعد"}
+                    : "ثبت و رفتن به Moment بعد"}
               </button>
             </section>
           )}
