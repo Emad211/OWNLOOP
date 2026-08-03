@@ -1,0 +1,42 @@
+.attention-keyboard-hint {
+  display: inline-flex;
+  gap: 0.55rem;
+  align-items: center;
+  width: fit-content;
+  margin: 0.85rem 0 0;
+  color: #858ba0;
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.attention-keyboard-hint kbd {
+  min-width: 1.8rem;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-bottom-color: rgb(255 255 255 / 20%);
+  border-radius: 0.45rem;
+  padding: 0.18rem 0.42rem;
+  color: #c7cbe0;
+  background: rgb(255 255 255 / 4%);
+  box-shadow: 0 2px 0 rgb(255 255 255 / 5%);
+  font: inherit;
+  font-weight: 800;
+}
+
+.attention-keyboard-hint span {
+  color: #656b7f;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .attention-keyboard-hint {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attention-keyboard-hint,
+  .attention-keyboard-hint * {
+    transition-duration: 0.01ms;
+  }
+}
