@@ -1,0 +1,95 @@
+.attention-transition-card {
+  width: min(34rem, calc(100% - 2rem));
+  margin: auto;
+  padding: clamp(2rem, 6vw, 3.5rem);
+  border: 1px solid rgb(255 255 255 / 11%);
+  border-radius: 2rem;
+  background: linear-gradient(150deg, rgb(255 255 255 / 8%), transparent 44%), rgb(13 16 28 / 88%);
+  box-shadow: 0 2rem 6rem rgb(0 0 0 / 42%);
+  text-align: center;
+  animation: attention-transition-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.attention-transition-mark {
+  display: grid;
+  width: 4.75rem;
+  height: 4.75rem;
+  margin: 0 auto 1.25rem;
+  place-items: center;
+  border-radius: 1.5rem;
+  color: #07100d;
+  background: var(--attention-mint);
+  box-shadow:
+    0 1.2rem 3rem rgb(105 237 198 / 20%),
+    inset 0 1px rgb(255 255 255 / 48%);
+  font-size: 1.9rem;
+  font-weight: 950;
+}
+
+.attention-transition-card.is-follow-up .attention-transition-mark {
+  color: #1b1000;
+  background: #ffb74d;
+  box-shadow:
+    0 1.2rem 3rem rgb(255 183 77 / 18%),
+    inset 0 1px rgb(255 255 255 / 44%);
+}
+
+.attention-transition-card h1 {
+  margin: 0;
+  font-size: clamp(1.55rem, 5vw, 2.2rem);
+}
+
+.attention-transition-card p {
+  max-width: 28rem;
+  margin: 0.75rem auto 0;
+  color: #aeb4c7;
+  line-height: 1.85;
+}
+
+.attention-transition-pulse {
+  width: 4.5rem;
+  height: 0.24rem;
+  margin: 1.6rem auto 0;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 8%);
+}
+
+.attention-transition-pulse::after {
+  display: block;
+  width: 55%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--attention-blue), var(--attention-mint));
+  content: "";
+  animation: attention-transition-pulse 420ms ease-out both;
+}
+
+@keyframes attention-transition-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.65rem) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes attention-transition-pulse {
+  from {
+    transform: translateX(100%);
+  }
+
+  to {
+    transform: translateX(-180%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attention-transition-card,
+  .attention-transition-pulse::after {
+    animation: none;
+  }
+}

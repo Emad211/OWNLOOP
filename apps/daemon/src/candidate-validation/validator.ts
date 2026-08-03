@@ -25,6 +25,11 @@ import {
 import { canonicalizeJson, DEFAULT_CANONICAL_INPUT_LIMITS } from "@ownloop/ingress-security";
 
 import { prepareCandidateValidationReport } from "./artifact.js";
+import {
+  containsUnsupportedAbsenceClaim,
+  extractControlledAssertions,
+  meaningfulUnknownControlledTokens,
+} from "./controlled-language.js";
 
 const MAX_CLOSURE_DEPTH = 3;
 const MAX_EXPANDED = 64;
@@ -257,13 +262,21 @@ function candidateText(candidate: CandidateMomentV1): string {
 
 function containsUnsupportedAbsence(text: string): boolean {
   const normalized = normalizeText(text);
-  return ABSENCE_PATTERNS.some((pattern) => pattern.test(normalized));
+  return (
+    ABSENCE_PATTERNS.some((pattern) => pattern.test(normalized)) ||
+    containsUnsupportedAbsenceClaim(text)
+  );
 }
 
 function meaningfulUnknownTokens(text: string): readonly string[] {
   const tokens = normalizeText(text).split(" ").filter(Boolean);
   return [
-    ...new Set(tokens.filter((token) => !STOP_WORDS.has(token) && !CONTROLLED_WORDS.has(token))),
+    ...new Set(
+      tokens.filter((token) => {
+        if (STOP_WORDS.has(token) || CONTROLLED_WORDS.has(token)) return false;
+        return meaningfulUnknownControlledTokens(token).length > 0;
+      }),
+    ),
   ];
 }
 
@@ -426,6 +439,9 @@ function assertions(text: string): readonly Assertion[] {
   }
   if (/\b(?:source|graph)\s+partial\b/u.test(normalized))
     add("source_partial:true", "source_partial");
+  for (const assertion of extractControlledAssertions(text)) {
+    add(assertion.key, assertion.family);
+  }
   return [...values.values()].toSorted((left, right) => compareText(left.key, right.key));
 }
 

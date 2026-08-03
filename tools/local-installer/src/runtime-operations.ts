@@ -15,6 +15,7 @@ import { removeInstalledRuntimeState, readInstalledRuntimeState } from "./runtim
 import { readInstallationSecrets } from "./secrets.js";
 
 const DAEMON_ENTRY = "daemon/dist/main.js";
+const DEFAULT_RUNTIME_OPERATION_TIMEOUT_MS = 30_000;
 
 export class RuntimeOperationError extends Error {
   readonly code:
@@ -61,7 +62,7 @@ async function defaultDaemonSpawn(
 }
 
 function deadline(value: number | undefined): number {
-  const result = value ?? 10_000;
+  const result = value ?? DEFAULT_RUNTIME_OPERATION_TIMEOUT_MS;
   if (!Number.isInteger(result) || result < 50 || result > 60_000) {
     throw new TypeError("Invalid runtime operation timeout.");
   }

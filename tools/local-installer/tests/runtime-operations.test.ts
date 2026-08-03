@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SUPPORTED_CLAUDE_HOOK_NAMES } from "@ownloop/contracts";
 
 import {
-  RuntimeOperationError,
   buildReleaseManifest,
   type DaemonSpawn,
   createOrReadInstallationSecrets,
@@ -146,19 +145,21 @@ describe("runtime start/stop", () => {
   it("accepts strict shutdown acknowledgement but waits for exact state removal", async () => {
     const setup = await fixture(true);
     let shutdownCalls = 0;
-    const fetchImplementation = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      if (String(input).endsWith("/shutdown")) {
-        shutdownCalls += 1;
-        await rm(setup.paths.runtimeStatePath);
-        return json({
-          ok: true,
-          schemaVersion: 1,
-          instanceId: setup.state.instanceId,
-          acknowledged: true,
-        });
-      }
-      return json(setup.status);
-    });
+    const fetchImplementation = vi.fn(
+      async (input: string | URL | Request, _init?: RequestInit) => {
+        if (String(input).endsWith("/shutdown")) {
+          shutdownCalls += 1;
+          await rm(setup.paths.runtimeStatePath);
+          return json({
+            ok: true,
+            schemaVersion: 1,
+            instanceId: setup.state.instanceId,
+            acknowledged: true,
+          });
+        }
+        return json(setup.status);
+      },
+    );
     await stopInstalledRuntime(setup.paths, {
       timeoutMs: 500,
       fetchImplementation: fetchImplementation as typeof fetch,
