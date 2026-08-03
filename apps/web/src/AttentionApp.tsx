@@ -5,7 +5,14 @@ import type {
   OwnershipMomentsProjectionV1,
   ReplayRunSummaryV1,
 } from "@ownloop/contracts";
-import { type CSSProperties, type FormEvent, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type FormEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import {
   createMomentInteractionId,
@@ -13,10 +20,16 @@ import {
   type ReplayApiClient,
   ReplayApiError,
 } from "./api.js";
+import {
+  attentionKeyboardAction,
+  type AttentionKeyboardAction,
+  type AttentionKeyboardPhase,
+} from "./attention-keyboard.js";
 import "./attention.css";
 import "./attention-empty.css";
+import "./attention-keyboard.css";
 
-type AttentionPhase = "locked" | "loading" | "ready" | "saving" | "complete" | "empty" | "error";
+type AttentionPhase = AttentionKeyboardPhase;
 
 type AttentionOption = Readonly<{
   value: string;
@@ -34,6 +47,13 @@ export type AttentionEmptyState = Readonly<{
   message: string;
   actionLabel: string;
   actionHref: string;
+}>;
+
+type AttentionKeyboardContext = Readonly<{
+  phase: AttentionPhase;
+  revealed: boolean;
+  selectionPresent: boolean;
+  optionCount: number;
 }>;
 
 const TYPE_LABELS = {
@@ -269,6 +289,13 @@ async function firstRunWithMoments(client: ReplayApiClient): Promise<AttentionRu
 export function AttentionApp() {
   const clientRef = useRef<ReplayApiClient | null>(null);
   const startedAtRef = useRef(Date.now());
+  const keyboardContextRef = useRef<AttentionKeyboardContext>({
+    phase: "locked",
+    revealed: false,
+    selectionPresent: false,
+    optionCount: 0,
+  });
+  const keyboardActionRef = useRef<(action: AttentionKeyboardAction) => void>(() => undefined);
   const [token, setToken] = useState("");
   const [phase, setPhase] = useState<AttentionPhase>("locked");
   const [message, setMessage] = useState("");
@@ -395,6 +422,43 @@ export function AttentionApp() {
     setPhase(activeRun === null ? "locked" : "ready");
     setMessage("");
   }
+
+  keyboardContextRef.current = {
+    phase,
+    revealed,
+    selectionPresent: selection !== null,
+    optionCount: options.length,
+  };
+  keyboardActionRef.current = (action) => {
+    if (action.kind === "select") {
+      const option = options[action.optionIndex];
+      if (option !== undefined) setSelection(option.value);
+      return;
+    }
+    if (action.kind === "reveal") {
+      reveal();
+      return;
+    }
+    void recordAndContinue();
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const action = attentionKeyboardAction({
+        ...keyboardContextRef.current,
+        key: event.key,
+        targetTagName: target?.tagName ?? null,
+        targetEditable: target?.isContentEditable ?? false,
+      });
+      if (action === null) return;
+      event.preventDefault();
+      keyboardActionRef.current(action);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   if (phase === "locked" || phase === "loading" || phase === "empty" || entryError) {
     return (
@@ -552,6 +616,13 @@ export function AttentionApp() {
           </div>
           <h1>{titleForMoment(current)}</h1>
           <p className="attention-question">{questionForMoment(current)}</p>
+          <p className="attention-keyboard-hint" aria-hidden="true">
+            <kbd>۱–۳</kbd>
+            انتخاب
+            <span>·</span>
+            <kbd>Enter</kbd>
+            {revealed ? "ادامه" : "آشکارسازی"}
+          </p>
 
           <fieldset
             className="attention-options"
