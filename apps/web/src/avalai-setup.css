@@ -1,0 +1,600 @@
+.avalai-setup-shell {
+  --avalai-ink: #f7f8ff;
+  --avalai-muted: #a7acc2;
+  --avalai-panel: rgb(15 18 31 / 82%);
+  --avalai-panel-strong: rgb(20 24 42 / 94%);
+  --avalai-line: rgb(255 255 255 / 11%);
+  --avalai-blue: #7aa2ff;
+  --avalai-violet: #a98cff;
+  --avalai-cyan: #62e8d4;
+  --avalai-danger: #ff9fbc;
+  min-height: 100vh;
+  overflow-x: hidden;
+  color: var(--avalai-ink);
+  background:
+    radial-gradient(circle at 12% 15%, rgb(79 96 255 / 20%), transparent 34rem),
+    radial-gradient(circle at 86% 20%, rgb(145 75 255 / 18%), transparent 30rem),
+    radial-gradient(circle at 52% 86%, rgb(36 213 189 / 10%), transparent 34rem),
+    linear-gradient(150deg, #080a12 0%, #0d1020 52%, #090b14 100%);
+  font-family: "Vazirmatn", "IRANSansX", "Segoe UI", Tahoma, sans-serif;
+  position: relative;
+  isolation: isolate;
+}
+
+.avalai-setup-shell *,
+.avalai-setup-shell *::before,
+.avalai-setup-shell *::after {
+  box-sizing: border-box;
+}
+
+.avalai-ambient {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgb(255 255 255 / 2.5%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 2.5%) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: linear-gradient(to bottom, black, transparent 82%);
+}
+
+.avalai-ambient::before,
+.avalai-ambient::after {
+  content: "";
+  position: absolute;
+  width: 22rem;
+  height: 22rem;
+  border-radius: 50%;
+  filter: blur(78px);
+  opacity: 0.24;
+  animation: avalai-drift 11s ease-in-out infinite alternate;
+}
+
+.avalai-ambient::before {
+  top: 8%;
+  right: -7rem;
+  background: #744dff;
+}
+
+.avalai-ambient::after {
+  bottom: 4%;
+  left: -8rem;
+  background: #24d5bd;
+  animation-delay: -4s;
+}
+
+.avalai-topbar,
+.avalai-hero,
+.avalai-footer {
+  width: min(1180px, calc(100% - 40px));
+  margin-inline: auto;
+}
+
+.avalai-topbar {
+  min-height: 78px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-bottom: 1px solid var(--avalai-line);
+}
+
+.avalai-brand,
+.avalai-back-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.avalai-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  letter-spacing: -0.02em;
+}
+
+.avalai-brand > span {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 20%);
+  border-radius: 13px;
+  background: linear-gradient(145deg, rgb(122 162 255 / 28%), rgb(169 140 255 / 16%));
+  box-shadow: inset 0 1px rgb(255 255 255 / 24%), 0 12px 34px rgb(46 66 180 / 20%);
+  font-weight: 900;
+}
+
+.avalai-brand strong {
+  font-size: 1.02rem;
+}
+
+.avalai-back-link {
+  color: var(--avalai-muted);
+  font-size: 0.9rem;
+  transition: color 160ms ease, transform 160ms ease;
+}
+
+.avalai-back-link:hover {
+  color: var(--avalai-ink);
+  transform: translateX(3px);
+}
+
+.avalai-hero {
+  min-height: calc(100vh - 148px);
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(440px, 1.1fr);
+  align-items: center;
+  gap: clamp(42px, 7vw, 100px);
+  padding-block: 64px 56px;
+}
+
+.avalai-hero-copy {
+  max-width: 600px;
+}
+
+.avalai-eyebrow {
+  margin: 0 0 14px;
+  color: var(--avalai-cyan);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.avalai-hero-copy h1 {
+  margin: 0;
+  max-width: 14ch;
+  font-size: clamp(2.6rem, 6vw, 5.5rem);
+  line-height: 1.08;
+  letter-spacing: -0.055em;
+  text-wrap: balance;
+}
+
+.avalai-hero-copy > p:last-child {
+  margin: 28px 0 0;
+  max-width: 58ch;
+  color: var(--avalai-muted);
+  font-size: clamp(1rem, 1.5vw, 1.13rem);
+  line-height: 2;
+}
+
+.avalai-panel,
+.avalai-auth-card {
+  position: relative;
+  border: 1px solid var(--avalai-line);
+  border-radius: 28px;
+  background:
+    linear-gradient(155deg, rgb(255 255 255 / 7%), transparent 38%),
+    var(--avalai-panel);
+  box-shadow:
+    0 34px 90px rgb(0 0 0 / 42%),
+    inset 0 1px rgb(255 255 255 / 9%);
+  backdrop-filter: blur(22px);
+}
+
+.avalai-panel {
+  padding: clamp(24px, 4vw, 38px);
+}
+
+.avalai-panel::before,
+.avalai-auth-card::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border-radius: inherit;
+  background: linear-gradient(125deg, rgb(122 162 255 / 26%), transparent 38%, rgb(98 232 212 / 14%));
+  filter: blur(16px);
+  opacity: 0.45;
+}
+
+.avalai-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 28px;
+}
+
+.avalai-panel-head h2,
+.avalai-auth-card h2 {
+  margin: 0;
+  font-size: clamp(1.45rem, 2.4vw, 2rem);
+  line-height: 1.45;
+  letter-spacing: -0.025em;
+}
+
+.avalai-status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding-inline: 13px;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: 999px;
+  color: var(--avalai-muted);
+  background: rgb(255 255 255 / 4%);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.avalai-status i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #8a8fa5;
+  box-shadow: 0 0 0 5px rgb(138 143 165 / 10%);
+}
+
+.avalai-status.is-ready {
+  color: #a9f5e8;
+  border-color: rgb(98 232 212 / 22%);
+  background: rgb(98 232 212 / 7%);
+}
+
+.avalai-status.is-ready i {
+  background: var(--avalai-cyan);
+  box-shadow: 0 0 0 5px rgb(98 232 212 / 12%), 0 0 18px rgb(98 232 212 / 54%);
+}
+
+.avalai-form {
+  display: grid;
+  gap: 20px;
+}
+
+.avalai-region-fieldset {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.avalai-region-fieldset legend,
+.avalai-input-label > span,
+.avalai-auth-card label {
+  display: block;
+  margin-bottom: 10px;
+  color: #dfe2f2;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.avalai-region-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.avalai-region-options label {
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 16px;
+  border: 1px solid var(--avalai-line);
+  border-radius: 17px;
+  background: rgb(255 255 255 / 3%);
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.avalai-region-options label:hover {
+  transform: translateY(-2px);
+  border-color: rgb(122 162 255 / 34%);
+}
+
+.avalai-region-options label.is-selected {
+  border-color: rgb(122 162 255 / 48%);
+  background: linear-gradient(145deg, rgb(122 162 255 / 13%), rgb(169 140 255 / 7%));
+  box-shadow: inset 0 0 0 1px rgb(122 162 255 / 8%);
+}
+
+.avalai-region-options input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.avalai-region-options span {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.avalai-region-options strong {
+  font-size: 0.9rem;
+}
+
+.avalai-region-options small {
+  color: var(--avalai-muted);
+  direction: ltr;
+  text-align: right;
+  font-size: 0.72rem;
+}
+
+.avalai-region-options label > i {
+  width: 18px;
+  height: 18px;
+  margin-inline-start: auto;
+  border: 1px solid rgb(255 255 255 / 22%);
+  border-radius: 50%;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.avalai-region-options label.is-selected > i {
+  border: 5px solid var(--avalai-blue);
+  box-shadow: 0 0 16px rgb(122 162 255 / 35%);
+}
+
+.avalai-input-label input,
+.avalai-auth-card input {
+  width: 100%;
+  min-height: 54px;
+  border: 1px solid var(--avalai-line);
+  border-radius: 15px;
+  outline: none;
+  padding: 0 16px;
+  color: var(--avalai-ink);
+  background: rgb(6 8 16 / 64%);
+  font: inherit;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.avalai-input-label input:focus,
+.avalai-auth-card input:focus {
+  border-color: rgb(122 162 255 / 62%);
+  background: rgb(7 9 19 / 84%);
+  box-shadow: 0 0 0 4px rgb(122 162 255 / 10%);
+}
+
+.avalai-input-label input::placeholder,
+.avalai-auth-card input::placeholder {
+  color: #72778d;
+}
+
+.avalai-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.avalai-primary,
+.avalai-secondary {
+  min-height: 50px;
+  border-radius: 15px;
+  padding-inline: 19px;
+  border: 1px solid transparent;
+  font: inherit;
+  font-weight: 850;
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
+}
+
+.avalai-primary {
+  color: #070b15;
+  background: linear-gradient(120deg, #93b2ff, #b9a2ff 58%, #78ead8);
+  box-shadow: 0 14px 34px rgb(94 116 255 / 24%);
+}
+
+.avalai-secondary {
+  color: var(--avalai-ink);
+  border-color: var(--avalai-line);
+  background: rgb(255 255 255 / 4%);
+}
+
+.avalai-primary:hover,
+.avalai-secondary:hover {
+  transform: translateY(-2px);
+}
+
+.avalai-primary:disabled,
+.avalai-secondary:disabled {
+  opacity: 0.5;
+  cursor: wait;
+  transform: none;
+}
+
+.avalai-message {
+  margin: 20px 0 0;
+  min-height: 24px;
+  color: #b8f4e9;
+  font-size: 0.82rem;
+  line-height: 1.8;
+}
+
+.avalai-message.is-error {
+  color: var(--avalai-danger);
+}
+
+.avalai-boundaries {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.avalai-boundaries > div {
+  min-height: 68px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid rgb(255 255 255 / 8%);
+  border-radius: 14px;
+  background: rgb(255 255 255 / 2.5%);
+}
+
+.avalai-boundaries span {
+  color: var(--avalai-muted);
+  font-size: 0.66rem;
+  direction: ltr;
+  text-align: right;
+}
+
+.avalai-boundaries strong {
+  font-size: 0.76rem;
+}
+
+.avalai-privacy-note {
+  margin: 18px 0 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--avalai-line);
+  color: var(--avalai-muted);
+  font-size: 0.75rem;
+  line-height: 1.85;
+}
+
+.avalai-auth-card {
+  padding: clamp(26px, 4vw, 40px);
+}
+
+.avalai-auth-card form {
+  display: grid;
+  gap: 14px;
+  margin-top: 26px;
+}
+
+.avalai-auth-card .avalai-primary {
+  margin-top: 5px;
+}
+
+.avalai-loading {
+  min-height: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.avalai-loading span {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--avalai-blue);
+  animation: avalai-pulse 900ms ease-in-out infinite alternate;
+}
+
+.avalai-loading span:nth-child(2) {
+  animation-delay: 140ms;
+}
+
+.avalai-loading span:nth-child(3) {
+  animation-delay: 280ms;
+}
+
+.avalai-loading p {
+  width: 100%;
+  margin: 8px 0 0;
+  color: var(--avalai-muted);
+  text-align: center;
+  font-size: 0.82rem;
+}
+
+.avalai-footer {
+  min-height: 70px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  border-top: 1px solid var(--avalai-line);
+  color: #74798d;
+  font-size: 0.7rem;
+  direction: ltr;
+}
+
+@keyframes avalai-drift {
+  to {
+    transform: translate3d(30px, -22px, 0) scale(1.08);
+  }
+}
+
+@keyframes avalai-pulse {
+  to {
+    transform: translateY(-7px);
+    opacity: 0.4;
+  }
+}
+
+@media (max-width: 900px) {
+  .avalai-hero {
+    grid-template-columns: 1fr;
+    align-items: start;
+    gap: 36px;
+    padding-block-start: 46px;
+  }
+
+  .avalai-hero-copy {
+    max-width: none;
+  }
+
+  .avalai-hero-copy h1 {
+    max-width: 16ch;
+  }
+}
+
+@media (max-width: 620px) {
+  .avalai-topbar,
+  .avalai-hero,
+  .avalai-footer {
+    width: min(100% - 24px, 1180px);
+  }
+
+  .avalai-topbar {
+    min-height: 66px;
+  }
+
+  .avalai-hero {
+    min-height: auto;
+    padding-block: 36px 30px;
+  }
+
+  .avalai-hero-copy h1 {
+    font-size: clamp(2.35rem, 13vw, 3.6rem);
+  }
+
+  .avalai-panel,
+  .avalai-auth-card {
+    border-radius: 22px;
+  }
+
+  .avalai-panel-head {
+    display: grid;
+  }
+
+  .avalai-status {
+    justify-self: start;
+  }
+
+  .avalai-region-options,
+  .avalai-boundaries {
+    grid-template-columns: 1fr;
+  }
+
+  .avalai-form-actions,
+  .avalai-form-actions button {
+    width: 100%;
+  }
+
+  .avalai-footer {
+    min-height: 82px;
+    gap: 13px;
+    flex-wrap: wrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avalai-setup-shell *,
+  .avalai-setup-shell *::before,
+  .avalai-setup-shell *::after {
+    scroll-behavior: auto;
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.01ms;
+  }
+}
