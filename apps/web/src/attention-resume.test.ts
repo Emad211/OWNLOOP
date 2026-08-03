@@ -6,10 +6,7 @@ import type {
 } from "@ownloop/contracts";
 import { describe, expect, it } from "vitest";
 
-import {
-  buildAttentionResumePlan,
-  nextUnreviewedMomentIndex,
-} from "./attention-resume.js";
+import { buildAttentionResumePlan, nextUnreviewedMomentIndex } from "./attention-resume.js";
 
 const VALIDATION_ID = `val_${"a".repeat(48)}`;
 const FINGERPRINT = `sha256:${"b".repeat(64)}`;
@@ -153,13 +150,9 @@ describe("Attention resume planning", () => {
   });
 
   it("finds the next unreviewed Moment only after the current index", () => {
+    expect(nextUnreviewedMomentIndex(moments, new Set([moments[1].displayId]), 0)).toBe(2);
     expect(
-      nextUnreviewedMomentIndex(
-        moments,
-        new Set([moments[1].displayId]),
-        0,
-      ),
-    ).toBe(2);
-    expect(nextUnreviewedMomentIndex(moments, new Set(moments.map((item) => item.displayId)))).toBeNull();
+      nextUnreviewedMomentIndex(moments, new Set(moments.map((item) => item.displayId))),
+    ).toBeNull();
   });
 });
