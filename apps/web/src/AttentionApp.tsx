@@ -13,6 +13,7 @@ import {
   type ReplayApiClient,
   ReplayApiError,
 } from "./api.js";
+import { buildAttentionEvidenceSnapshot } from "./attention-evidence-snapshot.js";
 import { AttentionFollowUpSummary } from "./AttentionFollowUpSummary.js";
 import {
   attentionKeyboardAction,
@@ -329,6 +330,10 @@ export function AttentionApp() {
     () => (current === null ? null : attentionRevealFeedback(current.facts)),
     [current],
   );
+  const evidenceSnapshot = useMemo(() => {
+    const completedIds = new Set(moments.slice(0, completed).map((moment) => moment.displayId));
+    return buildAttentionEvidenceSnapshot(moments, completedIds);
+  }, [completed, moments]);
   const coverage =
     phase === "complete" && moments.length === 0 && activeRun !== null
       ? 100
@@ -691,6 +696,34 @@ export function AttentionApp() {
               <span>{elapsedSeconds === 0 ? "زمان این مرور ثبت نشده" : "ثانیه تا پایان"}</span>
             </div>
           </div>
+          {evidenceSnapshot.total > 0 ? (
+            <section
+              className="attention-evidence-snapshot"
+              aria-labelledby="attention-evidence-snapshot-title"
+            >
+              <header>
+                <strong id="attention-evidence-snapshot-title">تصویر شواهد همین جلسه</strong>
+                <span>{faNumber(evidenceSnapshot.total)} Moment تکمیل‌شده</span>
+              </header>
+              <div className="attention-evidence-snapshot-grid">
+                <div className="is-confirmed">
+                  <strong>{faNumber(evidenceSnapshot.confirmed)}</strong>
+                  <span>شواهد مستقیم</span>
+                </div>
+                <div className="is-caution">
+                  <strong>{faNumber(evidenceSnapshot.caution)}</strong>
+                  <span>نیازمند توجه</span>
+                </div>
+                <div className="is-unknown">
+                  <strong>{faNumber(evidenceSnapshot.unknown)}</strong>
+                  <span>نامشخص</span>
+                </div>
+              </div>
+              <p>
+                این اعداد score یا درصد موفقیت نیستند؛ فقط وضعیت facts قطعی Momentهای همین جلسه‌اند.
+              </p>
+            </section>
+          ) : null}
           {activeRun !== null ? (
             <AttentionFollowUpSummary
               moments={activeRun.projection.moments}
