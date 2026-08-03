@@ -4,6 +4,7 @@ export type AttentionKeyboardPhase =
   | "preview"
   | "ready"
   | "saving"
+  | "transition"
   | "complete"
   | "empty"
   | "error";
