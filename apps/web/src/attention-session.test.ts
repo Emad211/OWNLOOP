@@ -35,8 +35,9 @@ describe("Attention session pacing", () => {
   });
 
   it("excludes already reviewed Moments before planning", () => {
-    const moments = [moment(1), moment(2), moment(3)];
-    const plan = buildAttentionSessionPlan(moments, new Set([moments[1].displayId]));
+    const reviewed = moment(2);
+    const moments = [moment(1), reviewed, moment(3)];
+    const plan = buildAttentionSessionPlan(moments, new Set([reviewed.displayId]));
 
     expect(plan.moments.map((item) => item.selectedRank)).toEqual([1, 3]);
     expect(plan.totalCount).toBe(2);
