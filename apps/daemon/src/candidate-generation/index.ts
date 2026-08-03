@@ -1,5 +1,6 @@
 export * from "./adapter.js";
 export * from "./artifact.js";
+export * from "./avalai-certification.js";
 export * from "./avalai.js";
 export * from "./constants.js";
 export * from "./endpoint.js";
