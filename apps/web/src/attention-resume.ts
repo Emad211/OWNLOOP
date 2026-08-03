@@ -11,6 +11,7 @@ export type AttentionResumePlan = Readonly<{
   outcome: AttentionResumeOutcome;
   firstUnreviewedIndex: number | null;
   reviewedMomentIds: readonly string[];
+  followUpMomentIds: readonly string[];
   completedCount: number;
   followUpCount: number;
 }>;
@@ -28,7 +29,7 @@ function hasRecordedResponse(state: MomentInteractionStateV1): boolean {
   }
 }
 
-function needsFollowUp(state: MomentInteractionStateV1): boolean {
+function stateNeedsFollowUp(state: MomentInteractionStateV1): boolean {
   switch (state.momentType) {
     case "change":
       return state.acknowledgement === false;
@@ -51,6 +52,35 @@ function stateMatchesMoment(
     state.sourceCandidateFingerprint === moment.sourceCandidateFingerprint &&
     state.momentType === moment.candidate.type
   );
+}
+
+export function selectionNeedsFollowUp(selection: string): boolean {
+  return (
+    selection === "later" ||
+    selection === "uncertain" ||
+    selection === "revise" ||
+    selection === "mitigate"
+  );
+}
+
+export function updateFollowUpMomentIds(
+  current: ReadonlySet<string>,
+  momentId: string,
+  needsFollowUp: boolean,
+): ReadonlySet<string> {
+  const next = new Set(current);
+  if (needsFollowUp) next.add(momentId);
+  else next.delete(momentId);
+  return next;
+}
+
+export function followUpMomentsForSummary(
+  moments: readonly OwnershipMomentProjectionItemV1[],
+  followUpMomentIds: ReadonlySet<string>,
+  limit = 3,
+): readonly OwnershipMomentProjectionItemV1[] {
+  if (limit <= 0) return [];
+  return moments.filter((moment) => followUpMomentIds.has(moment.displayId)).slice(0, limit);
 }
 
 export function nextUnreviewedMomentIndex(
@@ -78,6 +108,7 @@ export function buildAttentionResumePlan(
       outcome: "stale",
       firstUnreviewedIndex: null,
       reviewedMomentIds: [],
+      followUpMomentIds: [],
       completedCount: 0,
       followUpCount: 0,
     };
@@ -91,6 +122,7 @@ export function buildAttentionResumePlan(
         outcome: "stale",
         firstUnreviewedIndex: null,
         reviewedMomentIds: [],
+        followUpMomentIds: [],
         completedCount: 0,
         followUpCount: 0,
       };
@@ -104,12 +136,14 @@ export function buildAttentionResumePlan(
       return state !== undefined && hasRecordedResponse(state);
     })
     .map((moment) => moment.displayId);
+  const followUpMomentIds = projection.moments
+    .filter((moment) => {
+      const state = statesById.get(moment.displayId);
+      return state !== undefined && hasRecordedResponse(state) && stateNeedsFollowUp(state);
+    })
+    .map((moment) => moment.displayId);
   const reviewedSet = new Set(reviewedMomentIds);
   const firstUnreviewedIndex = nextUnreviewedMomentIndex(projection.moments, reviewedSet);
-  const followUpCount = reviewedMomentIds.reduce((total, momentId) => {
-    const state = statesById.get(momentId);
-    return total + (state !== undefined && needsFollowUp(state) ? 1 : 0);
-  }, 0);
 
   return {
     outcome:
@@ -120,7 +154,8 @@ export function buildAttentionResumePlan(
           : "resumed",
     firstUnreviewedIndex,
     reviewedMomentIds,
+    followUpMomentIds,
     completedCount: reviewedMomentIds.length,
-    followUpCount,
+    followUpCount: followUpMomentIds.length,
   };
 }
