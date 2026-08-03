@@ -310,7 +310,9 @@ export function AttentionApp() {
   const [emptyState, setEmptyState] = useState<AttentionEmptyState | null>(null);
   const [activeRun, setActiveRun] = useState<AttentionRun | null>(null);
   const [sessionPlan, setSessionPlan] = useState<AttentionSessionPlan | null>(null);
-  const [transitionReceipt, setTransitionReceipt] = useState<AttentionTransitionReceipt | null>(null);
+  const [transitionReceipt, setTransitionReceipt] = useState<AttentionTransitionReceipt | null>(
+    null,
+  );
   const [reviewedMomentIds, setReviewedMomentIds] = useState<ReadonlySet<string>>(() => new Set());
   const [followUpMomentIds, setFollowUpMomentIds] = useState<ReadonlySet<string>>(() => new Set());
   const [index, setIndex] = useState(0);
