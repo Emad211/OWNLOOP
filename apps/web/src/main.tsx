@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App.js";
 import { AttentionApp } from "./AttentionApp.js";
 import { AvalAiSetupApp } from "./AvalAiSetupApp.js";
+import "./attention-reveal.css";
 import "./styles.css";
 
 const rootElement = document.getElementById("root");
