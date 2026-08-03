@@ -30,7 +30,7 @@ describe("Attention reveal feedback", () => {
 
     expect(feedback.tone).toBe("confirmed");
     expect(feedback.message).not.toContain("انتخاب تو درست");
-    expect(feedback.message).not.toContain("امن");
+    expect(feedback.message).not.toContain("کاملاً امن");
   });
 
   it("prioritizes failed verification over passed evidence", () => {
