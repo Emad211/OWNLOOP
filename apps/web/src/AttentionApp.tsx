@@ -25,10 +25,7 @@ import {
   selectionNeedsFollowUp,
   updateFollowUpMomentIds,
 } from "./attention-resume.js";
-import {
-  buildAttentionSessionPlan,
-  type AttentionSessionPlan,
-} from "./attention-session.js";
+import { buildAttentionSessionPlan, type AttentionSessionPlan } from "./attention-session.js";
 import "./attention.css";
 import "./attention-empty.css";
 import "./attention-keyboard.css";
