@@ -1,0 +1,90 @@
+.attention-empty-state {
+  z-index: 1;
+  width: min(100%, 45rem);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  margin-top: clamp(2rem, 6vw, 4rem);
+  padding: 1rem;
+  border: 1px solid rgb(255 255 255 / 11%);
+  border-radius: 1.35rem;
+  background:
+    linear-gradient(135deg, rgb(159 143 255 / 10%), transparent 46%),
+    rgb(3 4 9 / 58%);
+  box-shadow:
+    inset 0 1px rgb(255 255 255 / 5%),
+    0 1.5rem 4rem rgb(0 0 0 / 20%);
+  backdrop-filter: blur(16px);
+}
+
+.attention-empty-state > span {
+  display: grid;
+  width: 3.25rem;
+  height: 3.25rem;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 13%);
+  border-radius: 1rem;
+  color: var(--attention-mint);
+  background: rgb(255 255 255 / 5%);
+  box-shadow: inset 0 1px rgb(255 255 255 / 8%);
+  font-size: 1.2rem;
+}
+
+.attention-empty-state h2 {
+  margin: 0;
+  color: var(--attention-ink);
+  font-size: clamp(1rem, 2vw, 1.2rem);
+  letter-spacing: -0.02em;
+}
+
+.attention-empty-state p {
+  margin: 0.45rem 0 0;
+  color: var(--attention-muted);
+  font-size: 0.82rem;
+  line-height: 1.85;
+}
+
+.attention-empty-state > a {
+  min-height: 3rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 0.95rem;
+  padding-inline: 1.15rem;
+  color: #0b0c12;
+  background: linear-gradient(135deg, #c3b9ff, #8f7cff 55%, #6de8c5);
+  box-shadow:
+    0 0.8rem 2.5rem rgb(111 88 239 / 22%),
+    inset 0 1px rgb(255 255 255 / 45%);
+  text-decoration: none;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  font-weight: 900;
+  transition:
+    transform 180ms ease,
+    filter 180ms ease;
+}
+
+.attention-empty-state > a:hover {
+  filter: brightness(1.07);
+  transform: translateY(-2px);
+}
+
+@media (max-width: 680px) {
+  .attention-empty-state {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .attention-empty-state > a {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attention-empty-state > a {
+    transition-duration: 0.01ms;
+  }
+}
