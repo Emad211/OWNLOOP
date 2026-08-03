@@ -18,10 +18,7 @@ import {
   type AttentionKeyboardAction,
   type AttentionKeyboardPhase,
 } from "./attention-keyboard.js";
-import {
-  buildAttentionResumePlan,
-  nextUnreviewedMomentIndex,
-} from "./attention-resume.js";
+import { buildAttentionResumePlan, nextUnreviewedMomentIndex } from "./attention-resume.js";
 import "./attention.css";
 import "./attention-empty.css";
 import "./attention-keyboard.css";
@@ -298,9 +295,7 @@ export function AttentionApp() {
   const [message, setMessage] = useState("");
   const [emptyState, setEmptyState] = useState<AttentionEmptyState | null>(null);
   const [activeRun, setActiveRun] = useState<AttentionRun | null>(null);
-  const [reviewedMomentIds, setReviewedMomentIds] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
+  const [reviewedMomentIds, setReviewedMomentIds] = useState<ReadonlySet<string>>(() => new Set());
   const [index, setIndex] = useState(0);
   const [selection, setSelection] = useState<string | null>(null);
   const [revealed, setRevealed] = useState(false);
@@ -564,7 +559,11 @@ export function AttentionApp() {
             </div>
           </div>
           <div className="attention-summary-actions">
-            <button type="button" className="attention-primary" onClick={() => window.location.reload()}>
+            <button
+              type="button"
+              className="attention-primary"
+              onClick={() => window.location.reload()}
+            >
               بررسی اجرای تازه‌تر
             </button>
             <a href={`/?run=${encodeURIComponent(activeRun?.run.runId ?? "")}`}>
