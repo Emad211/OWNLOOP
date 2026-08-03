@@ -1,14 +1,7 @@
-import type {
-  LocalSettingsResponseV1,
-  LocalSettingsUpdateRequestV1,
-} from "@ownloop/contracts";
+import type { LocalSettingsResponseV1, LocalSettingsUpdateRequestV1 } from "@ownloop/contracts";
 import { type FormEvent, useRef, useState } from "react";
 
-import {
-  createReplayApiClient,
-  type ReplayApiClient,
-  ReplayApiError,
-} from "./api.js";
+import { createReplayApiClient, type ReplayApiClient, ReplayApiError } from "./api.js";
 import "./avalai-setup.css";
 
 export const AVALAI_BASE_URLS = {
@@ -39,8 +32,7 @@ export function buildAvalAiSettingsUpdate(
 
   const currentProvider = response.settings.provider;
   const baseUrl = AVALAI_BASE_URLS[region];
-  const sameModel =
-    currentProvider?.baseUrl === baseUrl && currentProvider.modelId === modelId;
+  const sameModel = currentProvider?.baseUrl === baseUrl && currentProvider.modelId === modelId;
 
   return {
     schemaVersion: 1,
@@ -366,8 +358,8 @@ export function AvalAiSetupApp() {
           <p className="avalai-eyebrow">تنظیم محلی · بدون ذخیرهٔ کلید</p>
           <h1>مغز لحظه‌ها را روشن کن؛ حقیقت را به شواهد بسپار.</h1>
           <p>
-            AvalAI عنوان، سؤال و گزینه‌های فارسی را پیشنهاد می‌دهد. OwnLoop فقط Candidateهایی را
-            نمایش می‌دهد که از validator و Evidence عبور کنند.
+            AvalAI عنوان، سؤال و گزینه‌های فارسی را پیشنهاد می‌دهد. OwnLoop فقط Candidateهایی را نمایش
+            می‌دهد که از validator و Evidence عبور کنند.
           </p>
         </div>
 
