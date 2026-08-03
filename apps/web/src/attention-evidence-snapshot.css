@@ -1,0 +1,88 @@
+.attention-evidence-snapshot {
+  margin-top: 1.35rem;
+  padding: 1.15rem;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: 1.35rem;
+  background: rgb(255 255 255 / 3%);
+}
+
+.attention-evidence-snapshot > header {
+  display: flex;
+  gap: 1rem;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.9rem;
+}
+
+.attention-evidence-snapshot > header strong {
+  font-size: 0.92rem;
+}
+
+.attention-evidence-snapshot > header span {
+  color: #9299ad;
+  font-size: 0.72rem;
+}
+
+.attention-evidence-snapshot-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.65rem;
+}
+
+.attention-evidence-snapshot-grid > div {
+  min-width: 0;
+  padding: 0.85rem 0.75rem;
+  border: 1px solid rgb(255 255 255 / 8%);
+  border-radius: 1rem;
+  background: rgb(5 8 18 / 42%);
+  text-align: center;
+}
+
+.attention-evidence-snapshot-grid strong {
+  display: block;
+  font-size: 1.45rem;
+}
+
+.attention-evidence-snapshot-grid span {
+  display: block;
+  margin-top: 0.28rem;
+  color: #9da4b7;
+  font-size: 0.68rem;
+  line-height: 1.55;
+}
+
+.attention-evidence-snapshot-grid .is-confirmed strong {
+  color: var(--attention-mint);
+}
+
+.attention-evidence-snapshot-grid .is-caution strong {
+  color: #ffb74d;
+}
+
+.attention-evidence-snapshot-grid .is-unknown strong {
+  color: #aab2ff;
+}
+
+.attention-evidence-snapshot > p {
+  margin: 0.85rem 0 0;
+  color: #858da2;
+  font-size: 0.68rem;
+  line-height: 1.7;
+}
+
+@media (max-width: 520px) {
+  .attention-evidence-snapshot-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .attention-evidence-snapshot-grid > div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    text-align: start;
+  }
+
+  .attention-evidence-snapshot-grid span {
+    margin-top: 0;
+  }
+}
