@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 
 import { App } from "./App.js";
 import { AttentionApp } from "./AttentionApp.js";
+import { AvalAiSetupApp } from "./AvalAiSetupApp.js";
 import "./styles.css";
 
 const rootElement = document.getElementById("root");
@@ -11,11 +12,19 @@ if (rootElement === null) {
   throw new Error("OwnLoop root element was not found.");
 }
 
-const attentionView = new URLSearchParams(window.location.search).get("view") === "attention";
-document.documentElement.lang = attentionView ? "fa" : "en";
-document.documentElement.dir = attentionView ? "rtl" : "ltr";
-document.title = attentionView ? "OwnLoop — حلقهٔ مالکیت" : "OwnLoop";
+const view = new URLSearchParams(window.location.search).get("view");
+const persianView = view === "attention" || view === "avalai";
+document.documentElement.lang = persianView ? "fa" : "en";
+document.documentElement.dir = persianView ? "rtl" : "ltr";
+document.title =
+  view === "attention"
+    ? "OwnLoop — حلقهٔ مالکیت"
+    : view === "avalai"
+      ? "OwnLoop — مغز AvalAI"
+      : "OwnLoop";
 
 createRoot(rootElement).render(
-  <StrictMode>{attentionView ? <AttentionApp /> : <App />}</StrictMode>,
+  <StrictMode>
+    {view === "attention" ? <AttentionApp /> : view === "avalai" ? <AvalAiSetupApp /> : <App />}
+  </StrictMode>,
 );
