@@ -14,6 +14,7 @@ import {
   ReplayApiError,
 } from "./api.js";
 import "./attention.css";
+import "./attention-empty.css";
 
 type AttentionPhase = "locked" | "loading" | "ready" | "saving" | "complete" | "empty" | "error";
 
@@ -25,6 +26,14 @@ type AttentionOption = Readonly<{
 type AttentionRun = Readonly<{
   run: ReplayRunSummaryV1;
   projection: OwnershipMomentsProjectionV1;
+}>;
+
+export type AttentionEmptyState = Readonly<{
+  kind: "configure_avalai" | "await_run";
+  title: string;
+  message: string;
+  actionLabel: string;
+  actionHref: string;
 }>;
 
 const TYPE_LABELS = {
@@ -42,6 +51,26 @@ const TYPE_TITLES = {
 } as const;
 
 const PERSIAN_TEXT_PATTERN = /[\u0600-\u06ff]/u;
+
+export function attentionEmptyState(providerConfigured: boolean): AttentionEmptyState {
+  return providerConfigured
+    ? {
+        kind: "await_run",
+        title: "مغز آماده است؛ یک اجرای واقعی لازم داریم.",
+        message:
+          "AvalAI تنظیم شده، اما هنوز Run دارای Moment معتبر پیدا نشد. یک کار واقعی عامل را اجرا کن تا شواهد و Candidateها ساخته شوند.",
+        actionLabel: "رفتن به نمای فنی",
+        actionHref: "/",
+      }
+    : {
+        kind: "configure_avalai",
+        title: "اول مغز لحظه‌ها را آماده کن.",
+        message:
+          "هنوز ارائه‌دهندهٔ LLM کامل تنظیم نشده است. دامنه، مدل و کلید حافظه‌ای AvalAI را ثبت کن؛ حقیقت همچنان از Git و Evidence می‌آید.",
+        actionLabel: "تنظیم AvalAI",
+        actionHref: "/?view=avalai",
+      };
+}
 
 function faNumber(value: number): string {
   return new Intl.NumberFormat("fa-IR").format(value);
@@ -243,6 +272,7 @@ export function AttentionApp() {
   const [token, setToken] = useState("");
   const [phase, setPhase] = useState<AttentionPhase>("locked");
   const [message, setMessage] = useState("");
+  const [emptyState, setEmptyState] = useState<AttentionEmptyState | null>(null);
   const [activeRun, setActiveRun] = useState<AttentionRun | null>(null);
   const [index, setIndex] = useState(0);
   const [selection, setSelection] = useState<string | null>(null);
@@ -261,14 +291,18 @@ export function AttentionApp() {
     event.preventDefault();
     setPhase("loading");
     setMessage("در حال پیدا کردن تازه‌ترین اجرای دارای لحظه‌های معتبر…");
+    setEmptyState(null);
     try {
       const client = createReplayApiClient(token);
       clientRef.current = client;
       setToken("");
       const result = await firstRunWithMoments(client);
       if (result === null) {
+        const settings = await client.getSettings();
+        const nextEmptyState = attentionEmptyState(settings.providerGenerationConfigured);
+        setEmptyState(nextEmptyState);
         setPhase("empty");
-        setMessage("هنوز اجرای دارای لحظهٔ معتبر پیدا نشد.");
+        setMessage(nextEmptyState.message);
         return;
       }
       startedAtRef.current = Date.now();
@@ -278,9 +312,11 @@ export function AttentionApp() {
       setRevealed(false);
       setCompleted(0);
       setFollowUps(0);
+      setEmptyState(null);
       setPhase("ready");
       setMessage("");
     } catch (error) {
+      setEmptyState(null);
       setPhase("error");
       setMessage(
         error instanceof ReplayApiError && error.code === "unauthorized"
@@ -355,6 +391,7 @@ export function AttentionApp() {
     setCompleted(0);
     setFollowUps(0);
     setElapsedSeconds(0);
+    setEmptyState(null);
     setPhase(activeRun === null ? "locked" : "ready");
     setMessage("");
   }
@@ -379,6 +416,15 @@ export function AttentionApp() {
               <span />
               <p>{message}</p>
             </div>
+          ) : phase === "empty" && emptyState !== null ? (
+            <section className="attention-empty-state" aria-labelledby="attention-empty-title">
+              <span aria-hidden="true">{emptyState.kind === "configure_avalai" ? "✦" : "↗"}</span>
+              <div>
+                <h2 id="attention-empty-title">{emptyState.title}</h2>
+                <p>{message}</p>
+              </div>
+              <a href={emptyState.actionHref}>{emptyState.actionLabel}</a>
+            </section>
           ) : (
             <form className="attention-token-form" onSubmit={connect}>
               <label htmlFor="attention-token">توکن نصب محلی</label>
@@ -397,7 +443,7 @@ export function AttentionApp() {
               </div>
             </form>
           )}
-          {phase === "empty" || entryError ? <p className="attention-notice">{message}</p> : null}
+          {entryError ? <p className="attention-notice">{message}</p> : null}
           <small>محلی · بدون تله‌متری · پایان‌دار</small>
         </section>
       </main>
