@@ -5,14 +5,7 @@ import type {
   OwnershipMomentsProjectionV1,
   ReplayRunSummaryV1,
 } from "@ownloop/contracts";
-import {
-  type CSSProperties,
-  type FormEvent,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { type CSSProperties, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   createMomentInteractionId,
