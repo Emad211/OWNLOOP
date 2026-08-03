@@ -13,12 +13,18 @@ import {
   type ReplayApiClient,
   ReplayApiError,
 } from "./api.js";
+import { AttentionFollowUpSummary } from "./AttentionFollowUpSummary.js";
 import {
   attentionKeyboardAction,
   type AttentionKeyboardAction,
   type AttentionKeyboardPhase,
 } from "./attention-keyboard.js";
-import { buildAttentionResumePlan, nextUnreviewedMomentIndex } from "./attention-resume.js";
+import {
+  buildAttentionResumePlan,
+  nextUnreviewedMomentIndex,
+  selectionNeedsFollowUp,
+  updateFollowUpMomentIds,
+} from "./attention-resume.js";
 import "./attention.css";
 import "./attention-empty.css";
 import "./attention-keyboard.css";
@@ -296,6 +302,7 @@ export function AttentionApp() {
   const [emptyState, setEmptyState] = useState<AttentionEmptyState | null>(null);
   const [activeRun, setActiveRun] = useState<AttentionRun | null>(null);
   const [reviewedMomentIds, setReviewedMomentIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [followUpMomentIds, setFollowUpMomentIds] = useState<ReadonlySet<string>>(() => new Set());
   const [index, setIndex] = useState(0);
   const [selection, setSelection] = useState<string | null>(null);
   const [revealed, setRevealed] = useState(false);
@@ -315,6 +322,8 @@ export function AttentionApp() {
     setMessage("در حال پیدا کردن تازه‌ترین اجرای دارای لحظه‌های معتبر…");
     setEmptyState(null);
     setReviewedMomentIds(new Set());
+    setFollowUpMomentIds(new Set());
+    setFollowUps(0);
     try {
       const client = createReplayApiClient(token);
       clientRef.current = client;
@@ -346,13 +355,15 @@ export function AttentionApp() {
       }
 
       const reviewedIds = new Set(resumePlan.reviewedMomentIds);
+      const nextFollowUpIds = new Set(resumePlan.followUpMomentIds);
       setActiveRun(result);
       setReviewedMomentIds(reviewedIds);
+      setFollowUpMomentIds(nextFollowUpIds);
       setIndex(resumePlan.firstUnreviewedIndex ?? 0);
       setSelection(null);
       setRevealed(false);
       setCompleted(resumePlan.completedCount);
-      setFollowUps(resumePlan.followUpCount);
+      setFollowUps(nextFollowUpIds.size);
       setElapsedSeconds(0);
       setEmptyState(null);
       setMessage("");
@@ -403,16 +414,15 @@ export function AttentionApp() {
       });
       const nextReviewedIds = new Set(reviewedMomentIds);
       nextReviewedIds.add(current.displayId);
+      const nextFollowUpIds = updateFollowUpMomentIds(
+        followUpMomentIds,
+        current.displayId,
+        selectionNeedsFollowUp(selection),
+      );
       setReviewedMomentIds(nextReviewedIds);
+      setFollowUpMomentIds(nextFollowUpIds);
       setCompleted(nextReviewedIds.size);
-      if (
-        selection === "later" ||
-        selection === "uncertain" ||
-        selection === "revise" ||
-        selection === "mitigate"
-      ) {
-        setFollowUps((value) => value + 1);
-      }
+      setFollowUps(nextFollowUpIds.size);
 
       const nextIndex = nextUnreviewedMomentIndex(moments, nextReviewedIds, index);
       if (nextIndex === null) {
@@ -558,6 +568,13 @@ export function AttentionApp() {
               <span>{elapsedSeconds === 0 ? "زمان این مرور ثبت نشده" : "ثانیه تا پایان"}</span>
             </div>
           </div>
+          {activeRun !== null ? (
+            <AttentionFollowUpSummary
+              moments={moments}
+              followUpMomentIds={followUpMomentIds}
+              runId={activeRun.run.runId}
+            />
+          ) : null}
           <div className="attention-summary-actions">
             <button
               type="button"
