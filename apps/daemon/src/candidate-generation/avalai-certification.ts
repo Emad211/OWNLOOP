@@ -82,7 +82,8 @@ export async function certifyAvalAiCandidateGeneration(
     requestFingerprint: request.requestFingerprint,
     providerConfigFingerprint: request.providerConfigFingerprint,
     providerRequestId: result.providerRequestId,
-    candidateCount: result.status === "succeeded" ? result.candidateBatch.value.candidates.length : 0,
+    candidateCount:
+      result.status === "succeeded" ? result.candidateBatch.value.candidates.length : 0,
     candidateBatchFingerprint:
       result.status === "succeeded" ? result.candidateBatch.fingerprint : null,
     usage: result.usage,
