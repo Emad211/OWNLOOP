@@ -19,6 +19,7 @@ import {
   type AttentionKeyboardAction,
   type AttentionKeyboardPhase,
 } from "./attention-keyboard.js";
+import { attentionRevealFeedback } from "./attention-reveal.js";
 import {
   buildAttentionResumePlan,
   nextUnreviewedMomentIndex,
@@ -315,6 +316,10 @@ export function AttentionApp() {
   const moments = sessionPlan?.moments ?? [];
   const current = moments[index] ?? null;
   const options = useMemo(() => (current === null ? [] : optionsForMoment(current)), [current]);
+  const revealFeedback = useMemo(
+    () => (current === null ? null : attentionRevealFeedback(current.facts)),
+    [current],
+  );
   const coverage =
     phase === "complete" && moments.length === 0 && activeRun !== null
       ? 100
@@ -751,6 +756,24 @@ export function AttentionApp() {
             </button>
           ) : (
             <section className="attention-evidence">
+              {revealFeedback !== null ? (
+                <div
+                  className={`attention-reveal-feedback is-${revealFeedback.tone}`}
+                  role="status"
+                >
+                  <i aria-hidden="true">
+                    {revealFeedback.tone === "confirmed"
+                      ? "✓"
+                      : revealFeedback.tone === "caution"
+                        ? "!"
+                        : "؟"}
+                  </i>
+                  <div>
+                    <strong>{revealFeedback.title}</strong>
+                    <p>{revealFeedback.message}</p>
+                  </div>
+                </div>
+              ) : null}
               <div className="attention-evidence-heading">
                 <span>آنچه واقعاً ثبت شده</span>
                 <small>{faNumber(current.facts.length)} واقعیت قطعی</small>
