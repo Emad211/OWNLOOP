@@ -6,7 +6,13 @@ import type {
 } from "@ownloop/contracts";
 import { describe, expect, it } from "vitest";
 
-import { buildAttentionResumePlan, nextUnreviewedMomentIndex } from "./attention-resume.js";
+import {
+  buildAttentionResumePlan,
+  followUpMomentsForSummary,
+  nextUnreviewedMomentIndex,
+  selectionNeedsFollowUp,
+  updateFollowUpMomentIds,
+} from "./attention-resume.js";
 
 const VALIDATION_ID = `val_${"a".repeat(48)}`;
 const FINGERPRINT = `sha256:${"b".repeat(64)}`;
@@ -94,12 +100,13 @@ describe("Attention resume planning", () => {
       outcome: "fresh",
       firstUnreviewedIndex: 0,
       reviewedMomentIds: [],
+      followUpMomentIds: [],
       completedCount: 0,
       followUpCount: 0,
     });
   });
 
-  it("resumes at the first unreviewed Moment and skips non-contiguous reviewed Moments", () => {
+  it("resumes at the first unreviewed Moment and preserves ordered follow-ups", () => {
     const acknowledged = interactionState(moments[0], { acknowledgement: true });
     const mitigated = interactionState(moments[2], { riskResponse: "mitigate" });
 
@@ -109,6 +116,7 @@ describe("Attention resume planning", () => {
       outcome: "resumed",
       firstUnreviewedIndex: 1,
       reviewedMomentIds: [moments[0].displayId, moments[2].displayId],
+      followUpMomentIds: [moments[2].displayId],
       completedCount: 2,
       followUpCount: 1,
     });
@@ -128,6 +136,7 @@ describe("Attention resume planning", () => {
       outcome: "complete",
       firstUnreviewedIndex: null,
       reviewedMomentIds: moments.map((item) => item.displayId),
+      followUpMomentIds: [moments[0].displayId],
       completedCount: 3,
       followUpCount: 1,
     });
@@ -138,7 +147,14 @@ describe("Attention resume planning", () => {
     const staleValidation = stateResponse([acknowledged], {
       validationId: `val_${"c".repeat(48)}`,
     });
-    expect(buildAttentionResumePlan(projection(moments), staleValidation).outcome).toBe("stale");
+    expect(buildAttentionResumePlan(projection(moments), staleValidation)).toEqual({
+      outcome: "stale",
+      firstUnreviewedIndex: null,
+      reviewedMomentIds: [],
+      followUpMomentIds: [],
+      completedCount: 0,
+      followUpCount: 0,
+    });
 
     const staleFingerprint = {
       ...acknowledged,
@@ -154,5 +170,38 @@ describe("Attention resume planning", () => {
     expect(
       nextUnreviewedMomentIndex(moments, new Set(moments.map((item) => item.displayId))),
     ).toBeNull();
+  });
+
+  it("updates follow-up IDs without duplicates and removes resolved Moments", () => {
+    const initial = new Set([moments[0].displayId]);
+    const added = updateFollowUpMomentIds(initial, moments[1].displayId, true);
+    expect([...added]).toEqual([moments[0].displayId, moments[1].displayId]);
+
+    const repeated = updateFollowUpMomentIds(added, moments[1].displayId, true);
+    expect([...repeated]).toEqual([moments[0].displayId, moments[1].displayId]);
+
+    const resolved = updateFollowUpMomentIds(repeated, moments[0].displayId, false);
+    expect([...resolved]).toEqual([moments[1].displayId]);
+    expect([...initial]).toEqual([moments[0].displayId]);
+  });
+
+  it("selects at most three follow-up Moments in projection order", () => {
+    const extra = moment(`mom_${"4".repeat(48)}`, "check", 3);
+    const allMoments = [...moments, extra];
+    const ids = new Set(allMoments.map((item) => item.displayId));
+
+    expect(followUpMomentsForSummary(allMoments, ids).map((item) => item.displayId)).toEqual(
+      allMoments.slice(0, 3).map((item) => item.displayId),
+    );
+    expect(followUpMomentsForSummary(allMoments, ids, 0)).toEqual([]);
+  });
+
+  it("maps only the explicit response values to follow-up", () => {
+    for (const value of ["later", "uncertain", "revise", "mitigate"]) {
+      expect(selectionNeedsFollowUp(value)).toBe(true);
+    }
+    for (const value of ["understood", "confirm", "acknowledge", "dismiss", "supported"]) {
+      expect(selectionNeedsFollowUp(value)).toBe(false);
+    }
   });
 });
