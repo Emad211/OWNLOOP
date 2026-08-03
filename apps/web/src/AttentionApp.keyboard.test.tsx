@@ -27,9 +27,9 @@ describe("Attention keyboard shortcuts", () => {
   });
 
   it("uses Enter to reveal a selected answer and continue after reveal", () => {
-    expect(
-      attentionKeyboardAction({ ...ready, key: "Enter", selectionPresent: true }),
-    ).toEqual({ kind: "reveal" });
+    expect(attentionKeyboardAction({ ...ready, key: "Enter", selectionPresent: true })).toEqual({
+      kind: "reveal",
+    });
     expect(
       attentionKeyboardAction({
         ...ready,
@@ -44,9 +44,7 @@ describe("Attention keyboard shortcuts", () => {
   it.each(["INPUT", "TEXTAREA", "SELECT", "BUTTON"])(
     "ignores shortcuts while %s has focus",
     (targetTagName) => {
-      expect(
-        attentionKeyboardAction({ ...ready, key: "1", targetTagName }),
-      ).toBeNull();
+      expect(attentionKeyboardAction({ ...ready, key: "1", targetTagName })).toBeNull();
       expect(
         attentionKeyboardAction({
           ...ready,
@@ -59,18 +57,9 @@ describe("Attention keyboard shortcuts", () => {
   );
 
   it("ignores content-editable targets and non-ready phases", () => {
-    expect(
-      attentionKeyboardAction({ ...ready, key: "1", targetEditable: true }),
-    ).toBeNull();
+    expect(attentionKeyboardAction({ ...ready, key: "1", targetEditable: true })).toBeNull();
 
-    for (const phase of [
-      "locked",
-      "loading",
-      "saving",
-      "complete",
-      "empty",
-      "error",
-    ] as const) {
+    for (const phase of ["locked", "loading", "saving", "complete", "empty", "error"] as const) {
       expect(attentionKeyboardAction({ ...ready, key: "1", phase })).toBeNull();
       expect(
         attentionKeyboardAction({
