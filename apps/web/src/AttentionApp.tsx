@@ -27,6 +27,11 @@ import {
   updateFollowUpMomentIds,
 } from "./attention-resume.js";
 import { buildAttentionSessionPlan, type AttentionSessionPlan } from "./attention-session.js";
+import {
+  attentionTransitionDelay,
+  attentionTransitionReceipt,
+  type AttentionTransitionReceipt,
+} from "./attention-transition.js";
 import "./attention.css";
 import "./attention-empty.css";
 import "./attention-keyboard.css";
@@ -291,6 +296,7 @@ async function firstRunWithMoments(client: ReplayApiClient): Promise<AttentionRu
 export function AttentionApp() {
   const clientRef = useRef<ReplayApiClient | null>(null);
   const startedAtRef = useRef(Date.now());
+  const submissionRef = useRef(false);
   const keyboardContextRef = useRef<AttentionKeyboardContext>({
     phase: "locked",
     revealed: false,
@@ -304,6 +310,7 @@ export function AttentionApp() {
   const [emptyState, setEmptyState] = useState<AttentionEmptyState | null>(null);
   const [activeRun, setActiveRun] = useState<AttentionRun | null>(null);
   const [sessionPlan, setSessionPlan] = useState<AttentionSessionPlan | null>(null);
+  const [transitionReceipt, setTransitionReceipt] = useState<AttentionTransitionReceipt | null>(null);
   const [reviewedMomentIds, setReviewedMomentIds] = useState<ReadonlySet<string>>(() => new Set());
   const [followUpMomentIds, setFollowUpMomentIds] = useState<ReadonlySet<string>>(() => new Set());
   const [index, setIndex] = useState(0);
@@ -330,10 +337,12 @@ export function AttentionApp() {
 
   async function connect(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
+    submissionRef.current = false;
     setPhase("loading");
     setMessage("در حال پیدا کردن تازه‌ترین اجرای دارای لحظه‌های معتبر…");
     setEmptyState(null);
     setSessionPlan(null);
+    setTransitionReceipt(null);
     setReviewedMomentIds(new Set());
     setFollowUpMomentIds(new Set());
     setFollowUps(0);
@@ -392,6 +401,7 @@ export function AttentionApp() {
     } catch (error) {
       setEmptyState(null);
       setSessionPlan(null);
+      setTransitionReceipt(null);
       setPhase("error");
       setMessage(
         error instanceof ReplayApiError && error.code === "unauthorized"
@@ -403,12 +413,14 @@ export function AttentionApp() {
 
   function startSession(): void {
     if (sessionPlan === null || sessionPlan.totalCount === 0) return;
+    submissionRef.current = false;
     startedAtRef.current = Date.now();
     setIndex(0);
     setSelection(null);
     setRevealed(false);
     setCompleted(0);
     setElapsedSeconds(0);
+    setTransitionReceipt(null);
     setPhase("ready");
   }
 
@@ -421,6 +433,7 @@ export function AttentionApp() {
     const client = clientRef.current;
     const validationId = activeRun?.projection.validationId ?? null;
     if (
+      submissionRef.current ||
       client === null ||
       activeRun === null ||
       current === null ||
@@ -430,6 +443,7 @@ export function AttentionApp() {
     ) {
       return;
     }
+    submissionRef.current = true;
     setPhase("saving");
     setMessage("در حال ثبت انتخاب روی همین دستگاه…");
     try {
@@ -439,31 +453,47 @@ export function AttentionApp() {
         validationId,
         action: actionForSelection(current, selection),
       });
+      const needsFollowUp = selectionNeedsFollowUp(selection);
       const nextReviewedIds = new Set(reviewedMomentIds);
       nextReviewedIds.add(current.displayId);
       const nextFollowUpIds = updateFollowUpMomentIds(
         followUpMomentIds,
         current.displayId,
-        selectionNeedsFollowUp(selection),
+        needsFollowUp,
       );
+      const nextIndex = nextUnreviewedMomentIndex(moments, nextReviewedIds, index);
+      const receipt = attentionTransitionReceipt(needsFollowUp, nextIndex !== null);
+
       setReviewedMomentIds(nextReviewedIds);
       setFollowUpMomentIds(nextFollowUpIds);
       setCompleted((value) => value + 1);
       setFollowUps(nextFollowUpIds.size);
+      setTransitionReceipt(receipt);
+      setPhase("transition");
+      setMessage("");
 
-      const nextIndex = nextUnreviewedMomentIndex(moments, nextReviewedIds, index);
+      const reducedMotion =
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const delayMs = attentionTransitionDelay(reducedMotion);
+      if (delayMs > 0) {
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, delayMs));
+      }
+
+      setTransitionReceipt(null);
+      submissionRef.current = false;
       if (nextIndex === null) {
         setElapsedSeconds(Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000)));
         setPhase("complete");
-        setMessage("");
         return;
       }
       setIndex(nextIndex);
       setSelection(null);
       setRevealed(false);
       setPhase("ready");
-      setMessage("");
     } catch (error) {
+      submissionRef.current = false;
+      setTransitionReceipt(null);
       setPhase("error");
       setMessage(
         error instanceof ReplayApiError && error.code === "unauthorized"
@@ -599,6 +629,30 @@ export function AttentionApp() {
             </button>
             <a href={`/?run=${encodeURIComponent(activeRun.run.runId)}`}>دیدن نمای فنی</a>
           </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (phase === "transition" && transitionReceipt !== null) {
+    return (
+      <main className="attention-shell attention-complete" dir="rtl">
+        <div className="attention-ambient" aria-hidden="true" />
+        <section
+          className={
+            transitionReceipt.needsFollowUp
+              ? "attention-transition-card is-follow-up"
+              : "attention-transition-card"
+          }
+          role="status"
+          aria-live="polite"
+        >
+          <div className="attention-transition-mark" aria-hidden="true">
+            {transitionReceipt.needsFollowUp ? "!" : "✓"}
+          </div>
+          <h1>{transitionReceipt.title}</h1>
+          <p>{transitionReceipt.message}</p>
+          <div className="attention-transition-pulse" aria-hidden="true" />
         </section>
       </main>
     );
