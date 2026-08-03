@@ -1,0 +1,115 @@
+name: Finalize follow-up checkpoint
+
+on:
+  push:
+    branches:
+      - agent/ol-028-persian-attention-loop-v0
+    paths:
+      - .github/workflows/finalize-followup-once.yml
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24.18.0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.4.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply exact repository formatting
+        run: pnpm format
+
+      - name: Verify formatting
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Record verified checkpoint in the permanent notebook
+        shell: bash
+        env:
+          CHECKPOINT_SOURCE_SHA: ${{ github.sha }}
+          CHECKPOINT_RUN_ID: ${{ github.run_id }}
+          CHECKPOINT_RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path("docs/دفتر پیشرفت و نکات بسیار مهم.md")
+          text = path.read_text(encoding="utf-8")
+          marker = "## ۱۲) آخرین checkpoint خودکار"
+          section = f'''{marker}
+
+          این checkpoint فقط پس از عبور کامل formatter، lint، typecheck، تمام تست‌ها و build ثبت شده است.
+
+          ```text
+          source commit: {os.environ["CHECKPOINT_SOURCE_SHA"]}
+          workflow run:  #{os.environ["CHECKPOINT_RUN_NUMBER"]}
+          run id:        {os.environ["CHECKPOINT_RUN_ID"]}
+          milestone:     actionable follow-up summary
+          ```
+
+          قابلیت‌های تأییدشده در این checkpoint:
+
+          - استخراج follow-up Moment IDs از interaction state واقعی؛
+          - حفظ ترتیب projection و سقف نمایش سه مورد؛
+          - افزودن و حذف deterministic ID بدون duplicate؛
+          - نمایش عنوان فارسی یا fallback کنترل‌شده؛
+          - لینک محدود به شواهد همان Run؛
+          - عدم نمایش Moment حل‌شده؛
+          - شمارنده و فهرست با یک منبع حقیقت مشترک؛
+          - عدم افزودن endpoint، persistence یا backend تازه.
+
+          موارد همچنان تأییدنشده: live AvalAI، اجرای نصب‌شده و پذیرش بصری/رفتاری کاربر.
+          '''
+          if marker in text:
+              text = text.split(marker, 1)[0].rstrip() + "\n\n" + section.strip() + "\n"
+          else:
+              text = text.rstrip() + "\n\n---\n\n" + section.strip() + "\n"
+          path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Remove one-shot workflows
+        shell: bash
+        run: |
+          rm -f .github/workflows/format-once.yml
+          rm -f .github/workflows/finalize-followup-once.yml
+
+      - name: Commit verified formatting, notebook, and self-removal
+        shell: bash
+        run: |
+          git config user.name "ownloop-checkpoint-bot"
+          git config user.email "ownloop-checkpoint-bot@users.noreply.github.com"
+          git add --all
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "docs: finalize actionable follow-up checkpoint"
+          git push origin HEAD:agent/ol-028-persian-attention-loop-v0
