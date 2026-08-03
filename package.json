@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "pnpm --parallel --filter @ownloop/daemon --filter @ownloop/web dev",
     "format": "biome format --write biome.json package.json tsconfig.base.json tsconfig.test.json apps packages tools",
-    "format:check": "biome format biome.json package.json tsconfig.base.json tsconfig.test.json apps packages tools",
+    "format:check": "biome format apps/web/src/AttentionApp.tsx apps/web/src/AttentionFollowUpSummary.tsx apps/web/src/AttentionFollowUpSummary.test.tsx apps/web/src/attention-followup.css apps/web/src/attention-resume.ts apps/web/src/attention-resume.test.ts && biome format biome.json package.json tsconfig.base.json tsconfig.test.json apps packages tools",
     "lint": "biome lint --max-diagnostics=200 apps packages tools",
     "typecheck": "pnpm --recursive --if-present run typecheck && tsc -p tsconfig.test.json",
     "test": "vitest run",
