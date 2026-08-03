@@ -42,7 +42,7 @@ describe("Attention follow-up summary", () => {
     expect(html).toContain("ریسک سوم");
     expect(html).not.toContain("سنجش چهارم");
     expect(html).toContain("۱ مورد دیگر");
-    expect(html).toContain('/?run=run-1');
+    expect(html).toContain("/?run=run-1");
   });
 
   it("does not render a Moment whose follow-up state was removed", () => {
