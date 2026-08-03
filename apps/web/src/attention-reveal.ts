@@ -28,8 +28,7 @@ function isUnknownFact(fact: CandidateValidationFactV1): boolean {
   switch (fact.kind) {
     case "verification_status":
       return (
-        fact.observedStatus === "unknown" ||
-        fact.observedStatus === "observed_without_exit_code"
+        fact.observedStatus === "unknown" || fact.observedStatus === "observed_without_exit_code"
       );
     case "attribution":
       return fact.value === "observed_only";
