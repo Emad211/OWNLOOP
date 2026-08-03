@@ -1,3 +1,5 @@
+/// <reference types="vite/client" />
+
 import { LocalSettingsResponseV1Schema } from "@ownloop/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
