@@ -66,10 +66,7 @@ describe("Persian AvalAI setup", () => {
     expect(request.replacement.retentionPolicy).toBe("delete_terminal_after_30_days");
     expect(request.replacement.diagnosticMode).toBe("counts_only");
     expect(request.replacement.rawSourcePayloadRetention).toBe("off");
-    expect(request.replacement.customSecretFieldPatterns).toEqual([
-      "*credential",
-      "private*",
-    ]);
+    expect(request.replacement.customSecretFieldPatterns).toEqual(["*credential", "private*"]);
   });
 
   it("uses only the two official AvalAI routes and rejects unsafe model identifiers", () => {
