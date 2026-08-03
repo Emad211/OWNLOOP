@@ -18,6 +18,10 @@ import {
   type AttentionKeyboardAction,
   type AttentionKeyboardPhase,
 } from "./attention-keyboard.js";
+import {
+  buildAttentionResumePlan,
+  nextUnreviewedMomentIndex,
+} from "./attention-resume.js";
 import "./attention.css";
 import "./attention-empty.css";
 import "./attention-keyboard.css";
@@ -294,6 +298,9 @@ export function AttentionApp() {
   const [message, setMessage] = useState("");
   const [emptyState, setEmptyState] = useState<AttentionEmptyState | null>(null);
   const [activeRun, setActiveRun] = useState<AttentionRun | null>(null);
+  const [reviewedMomentIds, setReviewedMomentIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [index, setIndex] = useState(0);
   const [selection, setSelection] = useState<string | null>(null);
   const [revealed, setRevealed] = useState(false);
@@ -312,6 +319,7 @@ export function AttentionApp() {
     setPhase("loading");
     setMessage("در حال پیدا کردن تازه‌ترین اجرای دارای لحظه‌های معتبر…");
     setEmptyState(null);
+    setReviewedMomentIds(new Set());
     try {
       const client = createReplayApiClient(token);
       clientRef.current = client;
@@ -325,16 +333,41 @@ export function AttentionApp() {
         setMessage(nextEmptyState.message);
         return;
       }
-      startedAtRef.current = Date.now();
+
+      const validationId = result.projection.validationId;
+      if (validationId === null) throw new ReplayApiError("invalid_response");
+      const interactionState = await client.getMomentInteractionState(
+        result.run.runId,
+        validationId,
+      );
+      const resumePlan = buildAttentionResumePlan(result.projection, interactionState);
+      if (resumePlan.outcome === "stale") {
+        clientRef.current = null;
+        setPhase("error");
+        setMessage(
+          "وضعیت مرور ذخیره‌شده با نسخهٔ فعلی Momentها هماهنگ نیست؛ برای جلوگیری از ثبت تکراری، نمای فنی را بررسی کن.",
+        );
+        return;
+      }
+
+      const reviewedIds = new Set(resumePlan.reviewedMomentIds);
       setActiveRun(result);
-      setIndex(0);
+      setReviewedMomentIds(reviewedIds);
+      setIndex(resumePlan.firstUnreviewedIndex ?? 0);
       setSelection(null);
       setRevealed(false);
-      setCompleted(0);
-      setFollowUps(0);
+      setCompleted(resumePlan.completedCount);
+      setFollowUps(resumePlan.followUpCount);
+      setElapsedSeconds(0);
       setEmptyState(null);
-      setPhase("ready");
       setMessage("");
+
+      if (resumePlan.outcome === "complete") {
+        setPhase("complete");
+        return;
+      }
+      startedAtRef.current = Date.now();
+      setPhase("ready");
     } catch (error) {
       setEmptyState(null);
       setPhase("error");
@@ -359,7 +392,8 @@ export function AttentionApp() {
       activeRun === null ||
       current === null ||
       selection === null ||
-      validationId === null
+      validationId === null ||
+      reviewedMomentIds.has(current.displayId)
     ) {
       return;
     }
@@ -372,8 +406,10 @@ export function AttentionApp() {
         validationId,
         action: actionForSelection(current, selection),
       });
-      const nextCompleted = completed + 1;
-      setCompleted(nextCompleted);
+      const nextReviewedIds = new Set(reviewedMomentIds);
+      nextReviewedIds.add(current.displayId);
+      setReviewedMomentIds(nextReviewedIds);
+      setCompleted(nextReviewedIds.size);
       if (
         selection === "later" ||
         selection === "uncertain" ||
@@ -382,13 +418,15 @@ export function AttentionApp() {
       ) {
         setFollowUps((value) => value + 1);
       }
-      if (index >= moments.length - 1) {
+
+      const nextIndex = nextUnreviewedMomentIndex(moments, nextReviewedIds, index);
+      if (nextIndex === null) {
         setElapsedSeconds(Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000)));
         setPhase("complete");
         setMessage("");
         return;
       }
-      setIndex((value) => value + 1);
+      setIndex(nextIndex);
       setSelection(null);
       setRevealed(false);
       setPhase("ready");
@@ -401,19 +439,6 @@ export function AttentionApp() {
           : "تعامل ذخیره نشد؛ می‌توانی دوباره تلاش کنی.",
       );
     }
-  }
-
-  function restart(): void {
-    startedAtRef.current = Date.now();
-    setIndex(0);
-    setSelection(null);
-    setRevealed(false);
-    setCompleted(0);
-    setFollowUps(0);
-    setElapsedSeconds(0);
-    setEmptyState(null);
-    setPhase(activeRun === null ? "locked" : "ready");
-    setMessage("");
   }
 
   keyboardContextRef.current = {
@@ -534,13 +559,13 @@ export function AttentionApp() {
               <span>مورد نیازمند پیگیری</span>
             </div>
             <div>
-              <strong>{faNumber(elapsedSeconds)}</strong>
-              <span>ثانیه تا پایان</span>
+              <strong>{elapsedSeconds === 0 ? "—" : faNumber(elapsedSeconds)}</strong>
+              <span>{elapsedSeconds === 0 ? "زمان این مرور ثبت نشده" : "ثانیه تا پایان"}</span>
             </div>
           </div>
           <div className="attention-summary-actions">
-            <button type="button" className="attention-primary" onClick={restart}>
-              مرور دوباره
+            <button type="button" className="attention-primary" onClick={() => window.location.reload()}>
+              بررسی اجرای تازه‌تر
             </button>
             <a href={`/?run=${encodeURIComponent(activeRun?.run.runId ?? "")}`}>
               نمای فنی و شواهد کامل
@@ -675,7 +700,7 @@ export function AttentionApp() {
               >
                 {phase === "saving"
                   ? "در حال ثبت…"
-                  : index >= moments.length - 1
+                  : nextUnreviewedMomentIndex(moments, reviewedMomentIds, index) === null
                     ? "بستن حلقه"
                     : "ثبت و رفتن به لحظهٔ بعد"}
               </button>
